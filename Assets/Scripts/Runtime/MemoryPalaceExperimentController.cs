@@ -25,7 +25,7 @@ namespace MemPalaceLLM
         private const float BuilderRotateDragScale = 0.45f;
         private const float BuilderScaleDragScale = 0.01f;
         private const float VrDefaultHeadHeight = 1.62f;
-        private const float VrPointerDistance = 8f;
+        private const float VrTouchRadius = 0.18f;
         private const float VrActionCooldownSeconds = 0.35f;
 
         private enum BuilderToolMode
@@ -115,8 +115,11 @@ namespace MemPalaceLLM
         private Transform roomRoot;
         private Transform vrRigRoot;
         private Transform vrWorldUiRoot;
-        private LineRenderer vrPointerLine;
-        private GameObject vrPointerReticle;
+        private Transform vrTouchRoot;
+        private GameObject vrLeftHandTouchProxy;
+        private GameObject vrRightHandTouchProxy;
+        private StudyInteractable vrTouchedInteractable;
+        private string vrTouchedHandLabel = string.Empty;
         private Text vrProgressText;
         private Text vrTitleText;
         private Text vrMeaningText;
@@ -282,6 +285,12 @@ namespace MemPalaceLLM
                 if (enableVrStudyMode)
                 {
                     HandleVrStudyRuntime();
+                    if (vrHeadTrackingActive)
+                    {
+                        Cursor.visible = true;
+                        Cursor.lockState = CursorLockMode.None;
+                        return;
+                    }
                 }
 
                 HandleStudyControls();
@@ -691,7 +700,7 @@ namespace MemPalaceLLM
             }
 
             enableVrStudyMode = GUILayout.Toggle(enableVrStudyMode, "Use VR study runtime after entering the room");
-            GUILayout.Label("Desktop setup, room generation, and authoring stay unchanged. Study controls add XR head/controller support when a headset is active.", mutedStyle);
+            GUILayout.Label("Desktop setup, room generation, and authoring stay unchanged. In VR study mode, movement is physical room-scale walking and mnemonic objects are selected by near-hand touch.", mutedStyle);
 
             GUILayout.EndVertical();
 
@@ -2149,7 +2158,9 @@ namespace MemPalaceLLM
             GUILayout.Label($"Elapsed: {(Time.unscaledTime - studyStartTime):F1}s", labelStyle);
             GUILayout.Space(8);
             GUILayout.Label("Controls", smallTitleStyle);
-            GUILayout.Label("Right mouse drag: look around\nWASD: move\nQ / E: move down / up\nLeft click: inspect mnemonic marker", guideStyle);
+            GUILayout.Label(enableVrStudyMode && vrHeadTrackingActive
+                ? "VR: physically walk in the play area\nTouch a marker or cue prop with either hand to inspect it\nPress A / Grip while touching to capture a memory"
+                : "Right mouse drag: look around\nWASD: move\nQ / E: move down / up\nLeft click: inspect mnemonic marker", guideStyle);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
 
@@ -2196,7 +2207,9 @@ namespace MemPalaceLLM
             if (selectedStudyItem == null)
             {
                 GUILayout.Label("How This Phase Works", smallTitleStyle);
-                GUILayout.Label("1. Find the floating colored markers placed near key furniture anchors.\n2. Left-click one marker to inspect the word, meaning, cue, and mnemonic.\n3. When you feel the item is memorized, capture a snapshot.\n4. Mid and final tests unlock from those stored snapshots.", guideStyle);
+                GUILayout.Label(enableVrStudyMode && vrHeadTrackingActive
+                    ? "1. Walk physically through the real play area to move in the memory room.\n2. Move either hand close to a floating marker or cue prop and touch it to inspect the word, meaning, cue, and mnemonic.\n3. While still touching that object, press A / Grip to capture the memory.\n4. Mid and final tests unlock from those stored snapshots."
+                    : "1. Find the floating colored markers placed near key furniture anchors.\n2. Left-click one marker to inspect the word, meaning, cue, and mnemonic.\n3. When you feel the item is memorized, capture a snapshot.\n4. Mid and final tests unlock from those stored snapshots.", guideStyle);
                 GUILayout.Space(10);
                 GUILayout.Label("What You Are Seeing", smallTitleStyle);
                 GUILayout.Label("Each marker has a stable room anchor plus an LLM-authored overlay cue: the anchor fixes the place, and the imagined cue carries the word meaning.", guideStyle);
@@ -4117,8 +4130,16 @@ namespace MemPalaceLLM
                 vrWorldUiRoot = null;
             }
 
-            vrPointerLine = null;
-            vrPointerReticle = null;
+            if (vrTouchRoot != null)
+            {
+                Destroy(vrTouchRoot.gameObject);
+                vrTouchRoot = null;
+            }
+
+            vrLeftHandTouchProxy = null;
+            vrRightHandTouchProxy = null;
+            vrTouchedInteractable = null;
+            vrTouchedHandLabel = string.Empty;
             vrProgressText = null;
             vrTitleText = null;
             vrMeaningText = null;
@@ -7928,10 +7949,10 @@ namespace MemPalaceLLM
             }
 
             BuildVrStudyPanel();
-            BuildVrPointer();
+            BuildVrTouchHands();
             UpdateVrStudyPanelText();
             statusMessage = vrHeadTrackingActive
-                ? "VR study runtime ready. Use controller ray to inspect markers."
+                ? "VR study runtime ready. Walk physically and touch mnemonic markers or cue props with either hand."
                 : "VR study mode is enabled, but no XR headset was detected. Desktop study controls remain active.";
         }
 
@@ -7943,8 +7964,7 @@ namespace MemPalaceLLM
             }
 
             UpdateVrHeadPose();
-            HandleVrLocomotion();
-            HandleVrPointer();
+            HandleVrTouchInteraction();
             UpdateVrStudyPanelPose();
             UpdateVrStudyPanelText();
         }
@@ -7964,143 +7984,182 @@ namespace MemPalaceLLM
             }
         }
 
-        private void HandleVrLocomotion()
-        {
-            if (vrRigRoot == null || runtimeCamera == null)
-            {
-                return;
-            }
-
-            var leftHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-            if (!leftHand.isValid || !leftHand.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out var axis))
-            {
-                return;
-            }
-
-            if (axis.sqrMagnitude < 0.04f)
-            {
-                return;
-            }
-
-            var forward = runtimeCamera.transform.forward;
-            forward.y = 0f;
-            if (forward.sqrMagnitude < 0.001f)
-            {
-                forward = vrRigRoot.forward;
-                forward.y = 0f;
-            }
-
-            var right = runtimeCamera.transform.right;
-            right.y = 0f;
-            var move = forward.normalized * axis.y + right.normalized * axis.x;
-            vrRigRoot.position += move * (StudyMoveSpeed * 0.65f * Time.unscaledDeltaTime);
-        }
-
-        private void HandleVrPointer()
+        private void HandleVrTouchInteraction()
         {
             if (runtimeCamera == null)
             {
                 return;
             }
 
-            var ray = BuildVrPointerRay(out var hasControllerRay);
-            var hitPoint = ray.origin + ray.direction * VrPointerDistance;
-            StudyInteractable pointedInteractable = null;
+            var leftTracked = UpdateVrTouchHand(XRNode.LeftHand, vrLeftHandTouchProxy, out var leftHandPosition);
+            var rightTracked = UpdateVrTouchHand(XRNode.RightHand, vrRightHandTouchProxy, out var rightHandPosition);
+            var touchedInteractable = FindNearestVrTouchedInteractable(
+                leftTracked,
+                leftHandPosition,
+                rightTracked,
+                rightHandPosition,
+                out var handLabel);
+            vrTouchedInteractable = touchedInteractable;
+            vrTouchedHandLabel = touchedInteractable == null ? string.Empty : handLabel;
 
-            if (Physics.Raycast(ray, out var hit, VrPointerDistance))
-            {
-                hitPoint = hit.point;
-                pointedInteractable = hit.collider.GetComponent<StudyInteractable>();
-            }
-
-            UpdateVrPointerVisual(ray.origin, hitPoint, pointedInteractable != null);
+            UpdateVrTouchProxyColor(vrLeftHandTouchProxy, touchedInteractable != null && string.Equals(handLabel, "left hand", StringComparison.OrdinalIgnoreCase));
+            UpdateVrTouchProxyColor(vrRightHandTouchProxy, touchedInteractable != null && string.Equals(handLabel, "right hand", StringComparison.OrdinalIgnoreCase));
 
             var rightHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-            var selectPressed = GetXrButton(rightHand, UnityEngine.XR.CommonUsages.triggerButton);
-            var capturePressed = GetXrButton(rightHand, UnityEngine.XR.CommonUsages.primaryButton) || GetXrButton(rightHand, UnityEngine.XR.CommonUsages.gripButton);
-            if (!hasControllerRay)
-            {
-                selectPressed = false;
-                capturePressed = false;
-            }
+            var leftHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+            var capturePressed =
+                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.primaryButton) ||
+                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.gripButton) ||
+                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.primaryButton) ||
+                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.gripButton);
 
             if (Time.unscaledTime < nextVrActionTime)
             {
                 return;
             }
 
-            if (selectPressed && pointedInteractable != null)
+            if (touchedInteractable == null || touchedInteractable.Data == null)
             {
-                SelectStudyItem(pointedInteractable.Data, "VR controller ray selected mnemonic marker.");
+                return;
+            }
+
+            if (capturePressed && !isCapturingSnapshot)
+            {
+                SelectStudyItem(touchedInteractable.Data, $"VR {handLabel} touched and captured mnemonic object.");
+                StartCoroutine(CaptureMemorySnapshotRoutine(touchedInteractable.Data));
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
                 return;
             }
 
-            if (capturePressed && selectedStudyItem != null && !isCapturingSnapshot)
+            if (selectedStudyItem == null || !string.Equals(selectedStudyItem.word, touchedInteractable.Data.word, StringComparison.OrdinalIgnoreCase))
             {
-                StartCoroutine(CaptureMemorySnapshotRoutine(selectedStudyItem));
+                SelectStudyItem(touchedInteractable.Data, $"VR {handLabel} touched mnemonic object.");
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
             }
         }
 
-        private Ray BuildVrPointerRay(out bool hasControllerRay)
+        private void BuildVrTouchHands()
         {
-            if (TryGetXrNodePose(XRNode.RightHand, out var controllerPosition, out var controllerRotation))
+            vrTouchRoot = new GameObject("VRStudyTouchHands").transform;
+            if (roomRoot != null)
             {
-                hasControllerRay = true;
-                var origin = vrRigRoot != null ? vrRigRoot.TransformPoint(controllerPosition) : controllerPosition;
-                var direction = (vrRigRoot != null ? vrRigRoot.rotation * controllerRotation : controllerRotation) * Vector3.forward;
-                return new Ray(origin, direction.normalized);
+                vrTouchRoot.SetParent(roomRoot, true);
             }
 
-            hasControllerRay = false;
-            return new Ray(runtimeCamera.transform.position, runtimeCamera.transform.forward);
+            vrLeftHandTouchProxy = CreateVrTouchProxy("VRLeftHandTouchZone", new Color(0.42f, 0.86f, 1f, 0.26f));
+            vrRightHandTouchProxy = CreateVrTouchProxy("VRRightHandTouchZone", new Color(0.42f, 1f, 0.66f, 0.26f));
         }
 
-        private void BuildVrPointer()
+        private GameObject CreateVrTouchProxy(string name, Color color)
         {
-            var pointerRoot = new GameObject("VRStudyPointer");
-            pointerRoot.transform.SetParent(vrWorldUiRoot);
+            var proxy = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            proxy.name = name;
+            proxy.transform.SetParent(vrTouchRoot, true);
+            proxy.transform.localScale = Vector3.one * (VrTouchRadius * 2f);
 
-            vrPointerLine = pointerRoot.AddComponent<LineRenderer>();
-            vrPointerLine.positionCount = 2;
-            vrPointerLine.startWidth = 0.012f;
-            vrPointerLine.endWidth = 0.004f;
-            vrPointerLine.material = new Material(Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default"));
-            vrPointerLine.startColor = new Color(0.42f, 0.86f, 1f, 0.85f);
-            vrPointerLine.endColor = new Color(0.42f, 0.86f, 1f, 0.2f);
-
-            vrPointerReticle = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            vrPointerReticle.name = "VRStudyPointerReticle";
-            vrPointerReticle.transform.SetParent(vrWorldUiRoot);
-            vrPointerReticle.transform.localScale = Vector3.one * 0.045f;
-            var reticleRenderer = vrPointerReticle.GetComponent<Renderer>();
-            if (reticleRenderer != null)
+            var renderer = proxy.GetComponent<Renderer>();
+            if (renderer != null)
             {
-                ApplyPrimitiveMaterial(reticleRenderer, new Color(0.42f, 0.86f, 1f, 0.9f));
+                ApplyPrimitiveMaterial(renderer, color);
             }
-            var collider = vrPointerReticle.GetComponent<Collider>();
+
+            var collider = proxy.GetComponent<Collider>();
             if (collider != null)
             {
                 Destroy(collider);
             }
+
+            proxy.SetActive(false);
+            return proxy;
         }
 
-        private void UpdateVrPointerVisual(Vector3 origin, Vector3 hitPoint, bool hasTarget)
+        private bool UpdateVrTouchHand(XRNode node, GameObject proxy, out Vector3 worldPosition)
         {
-            if (vrPointerLine != null)
+            worldPosition = Vector3.zero;
+            if (proxy == null)
             {
-                vrPointerLine.SetPosition(0, origin);
-                vrPointerLine.SetPosition(1, hitPoint);
-                vrPointerLine.startColor = hasTarget ? new Color(0.95f, 0.86f, 0.38f, 0.95f) : new Color(0.42f, 0.86f, 1f, 0.75f);
-                vrPointerLine.endColor = hasTarget ? new Color(0.95f, 0.86f, 0.38f, 0.35f) : new Color(0.42f, 0.86f, 1f, 0.2f);
+                return false;
             }
 
-            if (vrPointerReticle != null)
+            if (!TryGetXrNodePose(node, out var localPosition, out var localRotation))
             {
-                vrPointerReticle.transform.position = hitPoint;
-                vrPointerReticle.SetActive(true);
+                proxy.SetActive(false);
+                return false;
             }
+
+            worldPosition = vrRigRoot != null ? vrRigRoot.TransformPoint(localPosition) : localPosition;
+            proxy.transform.position = worldPosition;
+            proxy.transform.rotation = vrRigRoot != null ? vrRigRoot.rotation * localRotation : localRotation;
+            proxy.SetActive(true);
+            return true;
+        }
+
+        private StudyInteractable FindNearestVrTouchedInteractable(
+            bool leftTracked,
+            Vector3 leftPosition,
+            bool rightTracked,
+            Vector3 rightPosition,
+            out string handLabel)
+        {
+            StudyInteractable nearest = null;
+            var nearestDistance = float.MaxValue;
+            handLabel = string.Empty;
+
+            if (leftTracked)
+            {
+                CheckVrTouchCandidates(leftPosition, "left hand", ref nearest, ref nearestDistance, ref handLabel);
+            }
+
+            if (rightTracked)
+            {
+                CheckVrTouchCandidates(rightPosition, "right hand", ref nearest, ref nearestDistance, ref handLabel);
+            }
+
+            return nearest;
+        }
+
+        private void CheckVrTouchCandidates(
+            Vector3 handPosition,
+            string handLabel,
+            ref StudyInteractable nearest,
+            ref float nearestDistance,
+            ref string nearestHandLabel)
+        {
+            var hits = Physics.OverlapSphere(handPosition, VrTouchRadius, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                var interactable = hits[i].GetComponent<StudyInteractable>() ?? hits[i].GetComponentInParent<StudyInteractable>();
+                if (interactable == null || interactable.Data == null)
+                {
+                    continue;
+                }
+
+                var distance = (hits[i].ClosestPoint(handPosition) - handPosition).sqrMagnitude;
+                if (distance < nearestDistance)
+                {
+                    nearest = interactable;
+                    nearestDistance = distance;
+                    nearestHandLabel = handLabel;
+                }
+            }
+        }
+
+        private void UpdateVrTouchProxyColor(GameObject proxy, bool isTouchingTarget)
+        {
+            if (proxy == null)
+            {
+                return;
+            }
+
+            var renderer = proxy.GetComponent<Renderer>();
+            if (renderer == null)
+            {
+                return;
+            }
+
+            renderer.material.color = isTouchingTarget
+                ? new Color(0.95f, 0.86f, 0.30f, 0.62f)
+                : new Color(0.42f, 0.86f, 1f, 0.26f);
         }
 
         private void BuildVrStudyPanel()
@@ -8183,12 +8242,12 @@ namespace MemPalaceLLM
             if (selectedStudyItem == null)
             {
                 vrTitleText.text = "Find a memory marker";
-                vrMeaningText.text = "Aim the controller ray at a floating marker and press trigger.";
-                vrAnchorText.text = "Desktop controls remain available in the Game view.";
+                vrMeaningText.text = "Walk physically through your play area, then touch a floating marker or cue prop with either hand.";
+                vrAnchorText.text = "VR uses room-scale movement only. No joystick locomotion or ray selection.";
                 vrCueText.text = "Scene to Imagine appears here after selection.";
                 vrStoryText.text = "Cue Story appears here after selection.";
                 vrActionText.text = vrHeadTrackingActive
-                    ? "Trigger: inspect marker    A / Grip: capture selected memory"
+                    ? "Touch: inspect marker    A / Grip while touching: capture memory"
                     : "No XR headset detected. Use desktop mouse and keyboard for now.";
                 return;
             }
@@ -8200,9 +8259,15 @@ namespace MemPalaceLLM
             vrStoryText.text = "Story: " + (selectedStudyItem.mnemonic ?? string.Empty);
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
+            var selectedIsTouched = vrTouchedInteractable != null &&
+                vrTouchedInteractable.Data != null &&
+                string.Equals(vrTouchedInteractable.Data.word, selectedStudyItem.word, StringComparison.OrdinalIgnoreCase);
+            var touchHint = selectedIsTouched
+                ? $"Touching with {vrTouchedHandLabel}. "
+                : "Walk to this object and touch it first. ";
             vrActionText.text = hasSnapshot
-                ? "Snapshot stored. Press A / Grip to replace it with the current cue."
-                : "Press A / Grip to capture this memory for the image-choice tests.";
+                ? touchHint + "Press A / Grip while touching to replace the stored snapshot."
+                : touchHint + "Press A / Grip while touching to capture this memory for the image-choice tests.";
         }
 
         private static bool TryGetXrNodePose(XRNode node, out Vector3 localPosition, out Quaternion localRotation)
