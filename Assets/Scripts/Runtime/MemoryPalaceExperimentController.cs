@@ -7971,8 +7971,8 @@ namespace MemPalaceLLM
                 return;
             }
 
-            var leftHand = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-            if (!leftHand.isValid || !leftHand.TryGetFeatureValue(CommonUsages.primary2DAxis, out var axis))
+            var leftHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+            if (!leftHand.isValid || !leftHand.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out var axis))
             {
                 return;
             }
@@ -8015,9 +8015,9 @@ namespace MemPalaceLLM
 
             UpdateVrPointerVisual(ray.origin, hitPoint, pointedInteractable != null);
 
-            var rightHand = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-            var selectPressed = GetXrButton(rightHand, CommonUsages.triggerButton);
-            var capturePressed = GetXrButton(rightHand, CommonUsages.primaryButton) || GetXrButton(rightHand, CommonUsages.gripButton);
+            var rightHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+            var selectPressed = GetXrButton(rightHand, UnityEngine.XR.CommonUsages.triggerButton);
+            var capturePressed = GetXrButton(rightHand, UnityEngine.XR.CommonUsages.primaryButton) || GetXrButton(rightHand, UnityEngine.XR.CommonUsages.gripButton);
             if (!hasControllerRay)
             {
                 selectPressed = false;
@@ -8074,7 +8074,11 @@ namespace MemPalaceLLM
             vrPointerReticle.name = "VRStudyPointerReticle";
             vrPointerReticle.transform.SetParent(vrWorldUiRoot);
             vrPointerReticle.transform.localScale = Vector3.one * 0.045f;
-            SetObjectMaterial(vrPointerReticle, new Color(0.42f, 0.86f, 1f, 0.9f));
+            var reticleRenderer = vrPointerReticle.GetComponent<Renderer>();
+            if (reticleRenderer != null)
+            {
+                ApplyPrimitiveMaterial(reticleRenderer, new Color(0.42f, 0.86f, 1f, 0.9f));
+            }
             var collider = vrPointerReticle.GetComponent<Collider>();
             if (collider != null)
             {
@@ -8206,18 +8210,18 @@ namespace MemPalaceLLM
             localPosition = Vector3.zero;
             localRotation = Quaternion.identity;
 
-            var device = InputDevices.GetDeviceAtXRNode(node);
+            var device = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
             if (!device.isValid)
             {
                 return false;
             }
 
-            var hasPosition = device.TryGetFeatureValue(CommonUsages.devicePosition, out localPosition);
-            var hasRotation = device.TryGetFeatureValue(CommonUsages.deviceRotation, out localRotation);
+            var hasPosition = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out localPosition);
+            var hasRotation = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out localRotation);
             return hasPosition || hasRotation;
         }
 
-        private static bool GetXrButton(InputDevice device, InputFeatureUsage<bool> usage)
+        private static bool GetXrButton(UnityEngine.XR.InputDevice device, UnityEngine.XR.InputFeatureUsage<bool> usage)
         {
             return device.isValid && device.TryGetFeatureValue(usage, out var pressed) && pressed;
         }
