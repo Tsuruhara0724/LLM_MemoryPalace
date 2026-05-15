@@ -107,6 +107,20 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class VrSessionPackage
+    {
+        public string packageVersion;
+        public string exportedAtUtc;
+        public string sessionId;
+        public string participantId;
+        public ExperimentCondition condition;
+        public string wordSetId;
+        public string wordSetName;
+        public RoomSpecDefinition roomSpec;
+        public List<MnemonicItemData> mnemonicItems = new();
+    }
+
+    [Serializable]
     public class RecallResponse
     {
         public string word;

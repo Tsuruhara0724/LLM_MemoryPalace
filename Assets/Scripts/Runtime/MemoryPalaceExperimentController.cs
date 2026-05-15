@@ -4,11 +4,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.Networking;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace MemPalaceLLM
 {
@@ -25,8 +27,17 @@ namespace MemPalaceLLM
         private const float BuilderRotateDragScale = 0.45f;
         private const float BuilderScaleDragScale = 0.01f;
         private const float VrDefaultHeadHeight = 1.62f;
-        private const float VrTouchRadius = 0.18f;
+        private const float VrTouchRadius = 0.32f;
+        private const float VrControllerRayLength = 6.0f;
         private const float VrActionCooldownSeconds = 0.35f;
+        private const string VrSessionPackageVersion = "1.0";
+        private const string VrSessionPackageFileName = "session_package_latest.json";
+        private const string VrSessionPackageFolderName = "VRSessionPackages";
+        private const string VrSessionPackageAdbReverseUrl = "http://127.0.0.1:7777/session_package_latest.json";
+        private const string VrSessionPackageCampusPcUrl = "http://163.221.38.241:7777/session_package_latest.json";
+        private static readonly UTF8Encoding Utf8WithoutBom = new UTF8Encoding(false);
+        private static readonly UnityEngine.XR.InputFeatureUsage<Vector3> XrPointerPositionUsage = new UnityEngine.XR.InputFeatureUsage<Vector3>("pointerPosition");
+        private static readonly UnityEngine.XR.InputFeatureUsage<Quaternion> XrPointerRotationUsage = new UnityEngine.XR.InputFeatureUsage<Quaternion>("pointerRotation");
 
         private enum BuilderToolMode
         {
@@ -115,10 +126,10 @@ namespace MemPalaceLLM
         private Transform roomRoot;
         private Transform vrRigRoot;
         private Transform vrWorldUiRoot;
-        private Transform vrTouchRoot;
-        private GameObject vrLeftHandTouchProxy;
-        private GameObject vrRightHandTouchProxy;
+        private LineRenderer vrLeftControllerRay;
+        private LineRenderer vrRightControllerRay;
         private StudyInteractable vrTouchedInteractable;
+        private VrMenuInteractable vrTouchedMenuButton;
         private string vrTouchedHandLabel = string.Empty;
         private Text vrProgressText;
         private Text vrTitleText;
@@ -127,6 +138,14 @@ namespace MemPalaceLLM
         private Text vrCueText;
         private Text vrStoryText;
         private Text vrActionText;
+        private Text vrMenuTitleText;
+        private Text vrMenuUrlText;
+        private Text vrMenuStatusText;
+        private Text vrMenuHintText;
+        private VrMenuInteractable vrUseUsbUrlButton;
+        private VrMenuInteractable vrUseCampusPcUrlButton;
+        private VrMenuInteractable vrDownloadPackageButton;
+        private VrMenuInteractable vrEnterStudyButton;
         private Font labelFont;
 
         private readonly List<Rect> guiBlockRects = new();
@@ -203,6 +222,7 @@ namespace MemPalaceLLM
         private string ollamaModel = "qwen3:8b";
         private string imageGenerationEndpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img";
         private string imageGenerationCheckpoint = string.Empty;
+        private string vrSessionPackageUrl = VrSessionPackageAdbReverseUrl;
         private bool enableVrStudyMode = true;
         private bool showAbstractMnemonicProps = false;
         private bool showLegacyRoomGenerator = false;
@@ -228,12 +248,17 @@ namespace MemPalaceLLM
         private string roomGenerationError = string.Empty;
         private string imageGenerationStatus = string.Empty;
         private string exportMessage = string.Empty;
+        private string vrSessionPackageStatus = string.Empty;
         private string customCsvText = string.Empty;
         private bool useCustomCsv;
         private bool isGenerating;
         private bool isGeneratingRoom;
         private bool isGeneratingFurniture;
         private bool isGeneratingGuidedFurnitureLayout;
+        private bool isDownloadingVrSessionPackage;
+        private bool isAutoBootingStandaloneVrSession;
+        private bool hasQueuedStandaloneVrAutoboot;
+        private bool hasLoadedVrSessionPackage;
         private bool usedLiveLlmForCurrentSession;
         private bool usingRandomAdvancedWordSet;
 
@@ -261,6 +286,7 @@ namespace MemPalaceLLM
         private string recognitionFeedback = string.Empty;
         private string lastJsonExportPath = string.Empty;
         private string lastCsvExportPath = string.Empty;
+        private string lastVrSessionPackageExportPath = string.Empty;
 
         private float ContentHeight => Screen.height - ContentTop - BottomMargin;
 
@@ -301,6 +327,17 @@ namespace MemPalaceLLM
             {
                 HandleRoomBuilderControls();
                 return;
+            }
+
+            if (ShouldShowStandaloneVrPackageMenu())
+            {
+                HandleStandaloneVrPackageMenuRuntime();
+                if (vrHeadTrackingActive)
+                {
+                    Cursor.visible = true;
+                    Cursor.lockState = CursorLockMode.None;
+                    return;
+                }
             }
 
             Cursor.visible = true;
@@ -700,7 +737,7 @@ namespace MemPalaceLLM
             }
 
             enableVrStudyMode = GUILayout.Toggle(enableVrStudyMode, "Use VR study runtime after entering the room");
-            GUILayout.Label("Desktop setup, room generation, and authoring stay unchanged. In VR study mode, movement is physical room-scale walking and mnemonic objects are selected by near-hand touch.", mutedStyle);
+            GUILayout.Label("Desktop setup, room generation, and authoring stay unchanged. In VR study mode, movement is physical room-scale walking and mnemonic objects are selected with controller rays.", mutedStyle);
 
             GUILayout.EndVertical();
 
@@ -755,9 +792,51 @@ namespace MemPalaceLLM
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("VR Session Package", smallTitleStyle);
+            GUILayout.Label("Desktop can export the current room and mnemonic items to JSON. Quest standalone can download that package over local network and enter Study without rebuilding the APK.", mutedStyle);
+            vrSessionPackageUrl = DrawLabeledTextField("Package URL", vrSessionPackageUrl);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Use USB Test URL", buttonStyle))
+            {
+                vrSessionPackageUrl = VrSessionPackageAdbReverseUrl;
+            }
+
+            if (GUILayout.Button("Use Campus PC URL", buttonStyle))
+            {
+                vrSessionPackageUrl = VrSessionPackageCampusPcUrl;
+            }
+            GUILayout.EndHorizontal();
+
+            GUI.enabled = !isDownloadingVrSessionPackage;
+            if (GUILayout.Button(isDownloadingVrSessionPackage ? "Downloading VR Session Package..." : "Download VR Session Package", buttonStyle))
+            {
+                BeginVrSessionPackageDownload();
+            }
+            GUI.enabled = true;
+
+            GUI.enabled = hasLoadedVrSessionPackage && currentItems.Count > 0;
+            if (GUILayout.Button("Enter Study Room From Loaded Package", buttonStyle))
+            {
+                EnterStudyRoom();
+            }
+            GUI.enabled = true;
+
+            if (currentItems.Count > 0)
+            {
+                GUILayout.Label($"Current package room: {RoomSpecCatalog.RoomName}", labelStyle);
+                GUILayout.Label($"Current package items: {currentItems.Count}", labelStyle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(vrSessionPackageStatus))
+            {
+                GUILayout.Label(vrSessionPackageStatus, mutedStyle);
+            }
+            GUILayout.EndVertical();
+
+            GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Next Step", smallTitleStyle);
 
-            GUI.enabled = !isGeneratingRoom;
+            GUI.enabled = !isGeneratingRoom && !isDownloadingVrSessionPackage;
             if (condition == ExperimentCondition.LlmGenerated)
             {
                 if (GUILayout.Button("Next: Generate Mnemonics", buttonStyle))
@@ -2007,6 +2086,27 @@ namespace MemPalaceLLM
             GUILayout.Label(statusMessage, mutedStyle);
             GUILayout.EndVertical();
 
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("VR Session Package", smallTitleStyle);
+            GUILayout.Label("Export the current room plus mnemonic items so a Quest standalone build can download the same session over local network.", mutedStyle);
+            GUI.enabled = !isGenerating && currentItems.Count > 0;
+            if (GUILayout.Button("Export VR Session Package", buttonStyle))
+            {
+                ExportCurrentVrSessionPackage();
+            }
+            GUI.enabled = true;
+
+            if (!string.IsNullOrWhiteSpace(lastVrSessionPackageExportPath))
+            {
+                GUILayout.Label(lastVrSessionPackageExportPath, labelStyle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(vrSessionPackageStatus))
+            {
+                GUILayout.Label(vrSessionPackageStatus, mutedStyle);
+            }
+            GUILayout.EndVertical();
+
             if (isGenerating)
             {
                 GUILayout.Space(8);
@@ -2159,7 +2259,7 @@ namespace MemPalaceLLM
             GUILayout.Space(8);
             GUILayout.Label("Controls", smallTitleStyle);
             GUILayout.Label(enableVrStudyMode && vrHeadTrackingActive
-                ? "VR: physically walk in the play area\nTouch a marker or cue prop with either hand to inspect it\nPress A / Grip while touching to capture a memory"
+                ? "VR: physically walk in the play area\nPoint a controller ray at a marker or cue prop to inspect it\nPress Trigger / A / Grip to capture a memory"
                 : "Right mouse drag: look around\nWASD: move\nQ / E: move down / up\nLeft click: inspect mnemonic marker", guideStyle);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
@@ -2208,7 +2308,7 @@ namespace MemPalaceLLM
             {
                 GUILayout.Label("How This Phase Works", smallTitleStyle);
                 GUILayout.Label(enableVrStudyMode && vrHeadTrackingActive
-                    ? "1. Walk physically through the real play area to move in the memory room.\n2. Move either hand close to a floating marker or cue prop and touch it to inspect the word, meaning, cue, and mnemonic.\n3. While still touching that object, press A / Grip to capture the memory.\n4. Mid and final tests unlock from those stored snapshots."
+                    ? "1. Walk physically through the real play area to move in the memory room.\n2. Point a controller ray at a floating marker or cue prop to inspect the word, meaning, cue, and mnemonic.\n3. Press Trigger / A / Grip while pointing at that object to capture the memory.\n4. Mid and final tests unlock from those stored snapshots."
                     : "1. Find the floating colored markers placed near key furniture anchors.\n2. Left-click one marker to inspect the word, meaning, cue, and mnemonic.\n3. When you feel the item is memorized, capture a snapshot.\n4. Mid and final tests unlock from those stored snapshots.", guideStyle);
                 GUILayout.Space(10);
                 GUILayout.Label("What You Are Seeing", smallTitleStyle);
@@ -2575,6 +2675,7 @@ namespace MemPalaceLLM
 
         private void EnterStudyRoom()
         {
+            Debug.Log($"[MemPalace] EnterStudyRoom called. Room={RoomSpecCatalog.RoomName}, Items={currentItems.Count}, Stage={stage}");
             BuildStudyRoom();
             stage = ExperimentStage.Study;
             studyStartTime = Time.unscaledTime;
@@ -4001,10 +4102,277 @@ namespace MemPalaceLLM
             lastCsvExportPath = Path.Combine(exportFolder, $"session_{participantId}_{timestamp}.csv");
 
             export.exportPath = lastJsonExportPath;
-            File.WriteAllText(lastJsonExportPath, JsonUtility.ToJson(export, true), Encoding.UTF8);
-            File.WriteAllText(lastCsvExportPath, BuildRecallCsv(export), Encoding.UTF8);
+            File.WriteAllText(lastJsonExportPath, JsonUtility.ToJson(export, true), Utf8WithoutBom);
+            File.WriteAllText(lastCsvExportPath, BuildRecallCsv(export), Utf8WithoutBom);
 
             exportMessage = "JSON and CSV were written successfully.";
+        }
+
+        private VrSessionPackage BuildCurrentVrSessionPackage()
+        {
+            return new VrSessionPackage
+            {
+                packageVersion = VrSessionPackageVersion,
+                exportedAtUtc = DateTime.UtcNow.ToString("o"),
+                sessionId = string.IsNullOrWhiteSpace(sessionId) ? DateTime.Now.ToString("yyyyMMdd_HHmmss") : sessionId,
+                participantId = participantId,
+                condition = condition,
+                wordSetId = activeWordSet?.setId ?? string.Empty,
+                wordSetName = activeWordSet?.displayName ?? string.Empty,
+                roomSpec = RoomSpecCatalog.CurrentRoom,
+                mnemonicItems = currentItems == null ? new List<MnemonicItemData>() : new List<MnemonicItemData>(currentItems)
+            };
+        }
+
+        private void ExportCurrentVrSessionPackage()
+        {
+            if (RoomSpecCatalog.CurrentRoom == null)
+            {
+                vrSessionPackageStatus = "Cannot export a VR session package because no active room is loaded.";
+                statusMessage = vrSessionPackageStatus;
+                return;
+            }
+
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                vrSessionPackageStatus = "Generate or author at least one mnemonic item before exporting a VR session package.";
+                statusMessage = vrSessionPackageStatus;
+                return;
+            }
+
+            var package = BuildCurrentVrSessionPackage();
+            sessionId = package.sessionId;
+
+            var exportFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", VrSessionPackageFolderName));
+            Directory.CreateDirectory(exportFolder);
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var latestPath = Path.Combine(exportFolder, VrSessionPackageFileName);
+            var timestampedPath = Path.Combine(exportFolder, $"session_package_{timestamp}.json");
+            var json = JsonUtility.ToJson(package, true);
+
+            File.WriteAllText(latestPath, json, Utf8WithoutBom);
+            File.WriteAllText(timestampedPath, json, Utf8WithoutBom);
+
+            lastVrSessionPackageExportPath = latestPath;
+            vrSessionPackageStatus = $"VR session package exported. Room: {package.roomSpec.roomName}, Items: {package.mnemonicItems.Count}.";
+            statusMessage = $"VR session package written to {latestPath}.";
+        }
+
+        private void BeginVrSessionPackageDownload()
+        {
+            if (string.IsNullOrWhiteSpace(vrSessionPackageUrl))
+            {
+                vrSessionPackageStatus = "Enter a package URL before downloading.";
+                return;
+            }
+
+            if (isGenerating || isGeneratingRoom || isGeneratingFurniture || isGeneratingGuidedFurnitureLayout)
+            {
+                vrSessionPackageStatus = "Wait for the current generation task to finish before downloading a VR session package.";
+                return;
+            }
+
+            if (isDownloadingVrSessionPackage)
+            {
+                return;
+            }
+
+            isDownloadingVrSessionPackage = true;
+            vrSessionPackageStatus = $"Downloading VR session package from {vrSessionPackageUrl.Trim()} ...";
+            Debug.Log("[MemPalace] Starting VR session package download from " + vrSessionPackageUrl.Trim());
+            StartCoroutine(DownloadVrSessionPackageRoutine(vrSessionPackageUrl.Trim()));
+        }
+
+        private IEnumerator DownloadVrSessionPackageRoutine(string url)
+        {
+            using (var request = UnityWebRequest.Get(url))
+            {
+                yield return request.SendWebRequest();
+
+                isDownloadingVrSessionPackage = false;
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    vrSessionPackageStatus = $"VR session package download failed: {request.error}";
+                    statusMessage = vrSessionPackageStatus;
+                    Debug.LogWarning("[MemPalace] VR session package download failed: " + request.error + " URL=" + url);
+                    yield break;
+                }
+
+                VrSessionPackage package;
+                try
+                {
+                    Debug.Log("[MemPalace] VR session package download succeeded. Bytes=" + request.downloadHandler.text.Length);
+                    package = JsonUtility.FromJson<VrSessionPackage>(SanitizeDownloadedJson(request.downloadHandler.text));
+                }
+                catch (ArgumentException ex)
+                {
+                    vrSessionPackageStatus = $"VR session package JSON could not be parsed: {ex.Message}";
+                    statusMessage = vrSessionPackageStatus;
+                    Debug.LogWarning("[MemPalace] VR session package JSON parse failed: " + ex.Message);
+                    yield break;
+                }
+
+                if (!ApplyVrSessionPackage(package))
+                {
+                    yield break;
+                }
+            }
+        }
+
+        private static string SanitizeDownloadedJson(string rawJson)
+        {
+            if (string.IsNullOrEmpty(rawJson))
+            {
+                return rawJson;
+            }
+
+            return rawJson.TrimStart('\uFEFF', '\u200B', '\u0000', ' ', '\t', '\r', '\n');
+        }
+
+        private bool IsStandaloneVrRuntime()
+        {
+            return enableVrStudyMode
+                && Application.platform == RuntimePlatform.Android
+                && !Application.isEditor;
+        }
+
+        private bool ShouldShowStandaloneVrPackageMenu()
+        {
+            return IsStandaloneVrRuntime() && stage == ExperimentStage.Setup;
+        }
+
+        private bool ShouldAutobootStandaloneVrSession()
+        {
+            return false;
+        }
+
+        private IEnumerator AutoBootStandaloneVrSessionRoutine()
+        {
+            if (isAutoBootingStandaloneVrSession)
+            {
+                yield break;
+            }
+
+            isAutoBootingStandaloneVrSession = true;
+            vrSessionPackageStatus = $"Quest auto-load is starting from {vrSessionPackageUrl}.";
+            statusMessage = vrSessionPackageStatus;
+            Debug.Log("[MemPalace] Standalone VR autoboot starting. URL=" + vrSessionPackageUrl);
+
+            yield return null;
+            yield return null;
+
+            if (currentItems != null && currentItems.Count > 0 && RoomSpecCatalog.CurrentRoom != null)
+            {
+                Debug.Log("[MemPalace] Standalone VR autoboot found existing session data. Entering study directly.");
+                EnterStudyRoom();
+                isAutoBootingStandaloneVrSession = false;
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(vrSessionPackageUrl))
+            {
+                vrSessionPackageStatus = "Quest auto-load failed because the VR session package URL is empty.";
+                statusMessage = vrSessionPackageStatus;
+                Debug.LogWarning("[MemPalace] Standalone VR autoboot stopped because package URL is empty.");
+                isAutoBootingStandaloneVrSession = false;
+                yield break;
+            }
+
+            isDownloadingVrSessionPackage = true;
+            vrSessionPackageStatus = $"Quest is downloading the VR session package from {vrSessionPackageUrl.Trim()} ...";
+            statusMessage = vrSessionPackageStatus;
+            yield return DownloadVrSessionPackageRoutine(vrSessionPackageUrl.Trim());
+
+            if (hasLoadedVrSessionPackage && currentItems != null && currentItems.Count > 0)
+            {
+                Debug.Log("[MemPalace] Standalone VR autoboot loaded package successfully. Entering study.");
+                EnterStudyRoom();
+            }
+            else
+            {
+                Debug.LogWarning("[MemPalace] Standalone VR autoboot finished without a usable package. Status=" + vrSessionPackageStatus);
+            }
+
+            isAutoBootingStandaloneVrSession = false;
+        }
+
+        private bool ApplyVrSessionPackage(VrSessionPackage package)
+        {
+            if (package == null)
+            {
+                vrSessionPackageStatus = "Downloaded file was empty or not a valid VR session package.";
+                statusMessage = vrSessionPackageStatus;
+                return false;
+            }
+
+            if (package.roomSpec == null)
+            {
+                vrSessionPackageStatus = "VR session package is missing roomSpec.";
+                statusMessage = vrSessionPackageStatus;
+                return false;
+            }
+
+            if (package.mnemonicItems == null || package.mnemonicItems.Count == 0)
+            {
+                vrSessionPackageStatus = "VR session package is missing mnemonic items.";
+                statusMessage = vrSessionPackageStatus;
+                return false;
+            }
+
+            ClearStudyRoom();
+            ResetSessionState(false);
+            RoomSpecCatalog.SetCurrentRoom(package.roomSpec);
+
+            condition = package.condition;
+            if (!string.IsNullOrWhiteSpace(package.participantId))
+            {
+                participantId = package.participantId;
+            }
+
+            sessionId = string.IsNullOrWhiteSpace(package.sessionId)
+                ? DateTime.Now.ToString("yyyyMMdd_HHmmss")
+                : package.sessionId;
+            activeWordSet = BuildWordSetFromPackage(package);
+            customCsvText = BuildCsvText(activeWordSet);
+            useCustomCsv = false;
+            usingRandomAdvancedWordSet = false;
+            currentItems = EnsureMnemonicDefaults(package.mnemonicItems);
+            hasLoadedVrSessionPackage = true;
+            generationError = string.Empty;
+            exportMessage = string.Empty;
+            stage = ExperimentStage.Setup;
+            MoveCameraToOverview();
+
+            vrSessionPackageStatus = $"Loaded VR session package. Room: {RoomSpecCatalog.RoomName}, Items: {currentItems.Count}.";
+            statusMessage = "VR session package applied successfully. You can now enter the Study Room.";
+            Debug.Log($"[MemPalace] Applied VR session package. Room={RoomSpecCatalog.RoomName}, Items={currentItems.Count}, Session={sessionId}");
+            return true;
+        }
+
+        private WordSetDefinition BuildWordSetFromPackage(VrSessionPackage package)
+        {
+            var words = new List<WordEntry>();
+            for (int i = 0; i < package.mnemonicItems.Count; i++)
+            {
+                words.Add(new WordEntry
+                {
+                    word = package.mnemonicItems[i].word,
+                    meaning = package.mnemonicItems[i].meaning,
+                    meaningJa = package.mnemonicItems[i].meaningJa
+                });
+            }
+
+            return new WordSetDefinition
+            {
+                setId = string.IsNullOrWhiteSpace(package.wordSetId) ? "vr_import" : package.wordSetId,
+                displayName = string.IsNullOrWhiteSpace(package.wordSetName) ? "Imported VR Session Package" : package.wordSetName,
+                description = string.IsNullOrWhiteSpace(package.exportedAtUtc)
+                    ? "Word material imported from a VR session package."
+                    : $"Word material imported from a VR session package exported at {package.exportedAtUtc}.",
+                words = words
+            };
         }
 
         private string BuildRecallCsv(ExperimentSessionExport export)
@@ -4043,9 +4411,13 @@ namespace MemPalaceLLM
             MoveCameraToOverview();
         }
 
-        private void ResetSessionState()
+        private void ResetSessionState(bool stopCoroutines = true)
         {
-            StopAllCoroutines();
+            if (stopCoroutines)
+            {
+                StopAllCoroutines();
+            }
+
             currentItems = new List<MnemonicItemData>();
             recallResponses.Clear();
             snapshotTestResponses.Clear();
@@ -4071,6 +4443,10 @@ namespace MemPalaceLLM
             imageGenerationStatus = string.Empty;
             lastJsonExportPath = string.Empty;
             lastCsvExportPath = string.Empty;
+            lastVrSessionPackageExportPath = string.Empty;
+            vrSessionPackageStatus = string.Empty;
+            isDownloadingVrSessionPackage = false;
+            hasLoadedVrSessionPackage = false;
             generatingImageCueWords.Clear();
 
             foreach (var snapshot in memorySnapshots.Values)
@@ -4130,15 +4506,10 @@ namespace MemPalaceLLM
                 vrWorldUiRoot = null;
             }
 
-            if (vrTouchRoot != null)
-            {
-                Destroy(vrTouchRoot.gameObject);
-                vrTouchRoot = null;
-            }
-
-            vrLeftHandTouchProxy = null;
-            vrRightHandTouchProxy = null;
+            vrLeftControllerRay = null;
+            vrRightControllerRay = null;
             vrTouchedInteractable = null;
+            vrTouchedMenuButton = null;
             vrTouchedHandLabel = string.Empty;
             vrProgressText = null;
             vrTitleText = null;
@@ -4147,6 +4518,14 @@ namespace MemPalaceLLM
             vrCueText = null;
             vrStoryText = null;
             vrActionText = null;
+            vrMenuTitleText = null;
+            vrMenuUrlText = null;
+            vrMenuStatusText = null;
+            vrMenuHintText = null;
+            vrUseUsbUrlButton = null;
+            vrUseCampusPcUrlButton = null;
+            vrDownloadPackageButton = null;
+            vrEnterStudyButton = null;
             vrHeadTrackingActive = false;
         }
 
@@ -7885,17 +8264,28 @@ namespace MemPalaceLLM
 
         private void ApplyPrimitiveMaterial(Renderer renderer, Color color)
         {
+            if (renderer == null)
+            {
+                return;
+            }
+
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            if (shader == null)
+            {
+                Debug.LogWarning("[MemPalace] Primitive material shader lookup failed.");
+                return;
+            }
+
             var material = new Material(shader);
             material.color = color;
 
             if (color.a < 0.99f)
             {
-                material.SetFloat("_Surface", 1f);
-                material.SetFloat("_Mode", 3f);
-                material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-                material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-                material.SetFloat("_ZWrite", 0f);
+                if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+                if (material.HasProperty("_Mode")) material.SetFloat("_Mode", 3f);
+                if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+                if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+                if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
                 material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 material.EnableKeyword("_ALPHABLEND_ON");
                 material.renderQueue = (int)RenderQueue.Transparent;
@@ -7928,6 +8318,41 @@ namespace MemPalaceLLM
             label.AddComponent<BillboardToMainCamera>();
         }
 
+        private void SetupVrRuntimeRig()
+        {
+            vrHeadTrackingActive = TryGetXrNodePose(XRNode.Head, out var headLocalPosition, out var headLocalRotation);
+            if (!vrHeadTrackingActive)
+            {
+                return;
+            }
+
+            var cameraPose = runtimeCamera.transform;
+            vrRigRoot = new GameObject("VRStudyRig").transform;
+            vrRigRoot.position = new Vector3(cameraPose.position.x, 0f, cameraPose.position.z);
+            vrRigRoot.rotation = Quaternion.Euler(0f, cameraPose.rotation.eulerAngles.y, 0f);
+            runtimeCamera.transform.SetParent(vrRigRoot, false);
+            runtimeCamera.transform.localPosition = NormalizeHeadLocalPosition(headLocalPosition);
+            runtimeCamera.transform.localRotation = headLocalRotation;
+        }
+
+        private void SetupStandaloneVrPackageMenuRuntime()
+        {
+            ClearVrStudyRuntime();
+            if (!enableVrStudyMode || runtimeCamera == null)
+            {
+                return;
+            }
+
+            EnsureVrUiEventSystem();
+            SetupVrRuntimeRig();
+            BuildVrPackageMenuPanel();
+            BuildVrControllerRays();
+            UpdateVrPackageMenuText();
+            statusMessage = vrHeadTrackingActive
+                ? "VR package loader is ready. Point a controller ray at a button and press Trigger / A / Grip."
+                : "VR package loader is ready, but no XR headset was detected. Desktop controls remain active.";
+        }
+
         private void SetupVrStudyRuntime()
         {
             ClearVrStudyRuntime();
@@ -7936,24 +8361,32 @@ namespace MemPalaceLLM
                 return;
             }
 
-            vrHeadTrackingActive = TryGetXrNodePose(XRNode.Head, out var headLocalPosition, out var headLocalRotation);
-            if (vrHeadTrackingActive)
-            {
-                var cameraPose = runtimeCamera.transform;
-                vrRigRoot = new GameObject("VRStudyRig").transform;
-                vrRigRoot.position = new Vector3(cameraPose.position.x, 0f, cameraPose.position.z);
-                vrRigRoot.rotation = Quaternion.Euler(0f, cameraPose.rotation.eulerAngles.y, 0f);
-                runtimeCamera.transform.SetParent(vrRigRoot, false);
-                runtimeCamera.transform.localPosition = NormalizeHeadLocalPosition(headLocalPosition);
-                runtimeCamera.transform.localRotation = headLocalRotation;
-            }
+            EnsureVrUiEventSystem();
+            SetupVrRuntimeRig();
 
             BuildVrStudyPanel();
-            BuildVrTouchHands();
+            BuildVrControllerRays();
             UpdateVrStudyPanelText();
             statusMessage = vrHeadTrackingActive
-                ? "VR study runtime ready. Walk physically and touch mnemonic markers or cue props with either hand."
+                ? "VR study runtime ready. Point a controller ray at mnemonic markers and press Trigger / A / Grip to capture."
                 : "VR study mode is enabled, but no XR headset was detected. Desktop study controls remain active.";
+        }
+
+        private void HandleStandaloneVrPackageMenuRuntime()
+        {
+            if (vrWorldUiRoot == null || vrMenuTitleText == null)
+            {
+                SetupStandaloneVrPackageMenuRuntime();
+                if (vrWorldUiRoot == null)
+                {
+                    return;
+                }
+            }
+
+            UpdateVrHeadPose();
+            HandleVrPackageMenuInteraction();
+            UpdateVrStudyPanelPose();
+            UpdateVrPackageMenuText();
         }
 
         private void HandleVrStudyRuntime()
@@ -7984,6 +8417,33 @@ namespace MemPalaceLLM
             }
         }
 
+        private void HandleVrPackageMenuInteraction()
+        {
+            if (runtimeCamera == null)
+            {
+                return;
+            }
+
+            var touchedButton = FindVrMenuButtonFromControllerRays(out var handLabel);
+
+            vrTouchedMenuButton = touchedButton;
+            vrTouchedHandLabel = touchedButton == null ? string.Empty : handLabel;
+            UpdateVrPackageMenuButtonVisuals();
+
+            if (Time.unscaledTime < nextVrActionTime || touchedButton == null || !IsVrMenuButtonEnabled(touchedButton))
+            {
+                return;
+            }
+
+            if (!GetVrControllerActivatePressed())
+            {
+                return;
+            }
+
+            ActivateVrMenuButton(touchedButton);
+            nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
+        }
+
         private void HandleVrTouchInteraction()
         {
             if (runtimeCamera == null)
@@ -7991,27 +8451,12 @@ namespace MemPalaceLLM
                 return;
             }
 
-            var leftTracked = UpdateVrTouchHand(XRNode.LeftHand, vrLeftHandTouchProxy, out var leftHandPosition);
-            var rightTracked = UpdateVrTouchHand(XRNode.RightHand, vrRightHandTouchProxy, out var rightHandPosition);
-            var touchedInteractable = FindNearestVrTouchedInteractable(
-                leftTracked,
-                leftHandPosition,
-                rightTracked,
-                rightHandPosition,
-                out var handLabel);
+            var touchedInteractable = FindStudyInteractableFromControllerRays(out var handLabel);
+
             vrTouchedInteractable = touchedInteractable;
             vrTouchedHandLabel = touchedInteractable == null ? string.Empty : handLabel;
 
-            UpdateVrTouchProxyColor(vrLeftHandTouchProxy, touchedInteractable != null && string.Equals(handLabel, "left hand", StringComparison.OrdinalIgnoreCase));
-            UpdateVrTouchProxyColor(vrRightHandTouchProxy, touchedInteractable != null && string.Equals(handLabel, "right hand", StringComparison.OrdinalIgnoreCase));
-
-            var rightHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-            var leftHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-            var capturePressed =
-                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.primaryButton) ||
-                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.gripButton) ||
-                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.primaryButton) ||
-                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.gripButton);
+            var capturePressed = GetVrControllerActivatePressed();
 
             if (Time.unscaledTime < nextVrActionTime)
             {
@@ -8025,7 +8470,7 @@ namespace MemPalaceLLM
 
             if (capturePressed && !isCapturingSnapshot)
             {
-                SelectStudyItem(touchedInteractable.Data, $"VR {handLabel} touched and captured mnemonic object.");
+                SelectStudyItem(touchedInteractable.Data, $"VR {handLabel} ray selected and captured mnemonic object.");
                 StartCoroutine(CaptureMemorySnapshotRoutine(touchedInteractable.Data));
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
                 return;
@@ -8033,65 +8478,206 @@ namespace MemPalaceLLM
 
             if (selectedStudyItem == null || !string.Equals(selectedStudyItem.word, touchedInteractable.Data.word, StringComparison.OrdinalIgnoreCase))
             {
-                SelectStudyItem(touchedInteractable.Data, $"VR {handLabel} touched mnemonic object.");
+                SelectStudyItem(touchedInteractable.Data, $"VR {handLabel} ray selected mnemonic object.");
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
             }
         }
 
-        private void BuildVrTouchHands()
+        private void BuildVrControllerRays()
         {
-            vrTouchRoot = new GameObject("VRStudyTouchHands").transform;
-            if (roomRoot != null)
-            {
-                vrTouchRoot.SetParent(roomRoot, true);
-            }
-
-            vrLeftHandTouchProxy = CreateVrTouchProxy("VRLeftHandTouchZone", new Color(0.42f, 0.86f, 1f, 0.26f));
-            vrRightHandTouchProxy = CreateVrTouchProxy("VRRightHandTouchZone", new Color(0.42f, 1f, 0.66f, 0.26f));
+            vrLeftControllerRay = CreateVrControllerRay("VRLeftControllerRay", new Color(0.42f, 0.86f, 1f, 0.92f));
+            vrRightControllerRay = CreateVrControllerRay("VRRightControllerRay", new Color(0.42f, 1f, 0.66f, 0.92f));
         }
 
-        private GameObject CreateVrTouchProxy(string name, Color color)
+        private LineRenderer CreateVrControllerRay(string name, Color color)
         {
-            var proxy = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            proxy.name = name;
-            proxy.transform.SetParent(vrTouchRoot, true);
-            proxy.transform.localScale = Vector3.one * (VrTouchRadius * 2f);
+            var rayObject = new GameObject(name);
+            rayObject.transform.SetParent(vrRigRoot != null ? vrRigRoot : roomRoot, true);
 
-            var renderer = proxy.GetComponent<Renderer>();
-            if (renderer != null)
+            var line = rayObject.AddComponent<LineRenderer>();
+            line.positionCount = 2;
+            line.useWorldSpace = true;
+            line.startWidth = 0.012f;
+            line.endWidth = 0.004f;
+            line.startColor = color;
+            line.endColor = new Color(color.r, color.g, color.b, 0.18f);
+            var material = CreateVrControllerRayMaterial(color);
+            if (material != null)
             {
-                ApplyPrimitiveMaterial(renderer, color);
+                line.material = material;
             }
-
-            var collider = proxy.GetComponent<Collider>();
-            if (collider != null)
-            {
-                Destroy(collider);
-            }
-
-            proxy.SetActive(false);
-            return proxy;
+            line.enabled = false;
+            return line;
         }
 
-        private bool UpdateVrTouchHand(XRNode node, GameObject proxy, out Vector3 worldPosition)
+        private Material CreateVrControllerRayMaterial(Color color)
         {
-            worldPosition = Vector3.zero;
-            if (proxy == null)
+            var shader =
+                Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("Sprites/Default") ??
+                Shader.Find("Unlit/Color") ??
+                Shader.Find("UI/Default") ??
+                Shader.Find("Hidden/Internal-Colored") ??
+                Shader.Find("Standard");
+            if (shader == null)
             {
+                return null;
+            }
+
+            var material = new Material(shader);
+            material.color = color;
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
+
+            if (material.HasProperty("_Color"))
+            {
+                material.SetColor("_Color", color);
+            }
+
+            return material;
+        }
+
+        private VrMenuInteractable FindVrMenuButtonFromControllerRays(out string handLabel)
+        {
+            handLabel = string.Empty;
+            var bestDistance = float.MaxValue;
+            VrMenuInteractable best = null;
+
+            if (TryGetControllerRay(XRNode.LeftHand, vrLeftControllerRay, out var leftRay, out var leftDistance))
+            {
+                if (Physics.Raycast(leftRay, out var hit, leftDistance, ~0, QueryTriggerInteraction.Collide))
+                {
+                    var candidate = hit.collider.GetComponent<VrMenuInteractable>() ?? hit.collider.GetComponentInParent<VrMenuInteractable>();
+                    if (candidate != null && hit.distance < bestDistance)
+                    {
+                        best = candidate;
+                        bestDistance = hit.distance;
+                        handLabel = "left controller";
+                    }
+                }
+            }
+
+            if (TryGetControllerRay(XRNode.RightHand, vrRightControllerRay, out var rightRay, out var rightDistance))
+            {
+                if (Physics.Raycast(rightRay, out var hit, rightDistance, ~0, QueryTriggerInteraction.Collide))
+                {
+                    var candidate = hit.collider.GetComponent<VrMenuInteractable>() ?? hit.collider.GetComponentInParent<VrMenuInteractable>();
+                    if (candidate != null && hit.distance < bestDistance)
+                    {
+                        best = candidate;
+                        handLabel = "right controller";
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        private StudyInteractable FindStudyInteractableFromControllerRays(out string handLabel)
+        {
+            handLabel = string.Empty;
+            var bestDistance = float.MaxValue;
+            StudyInteractable best = null;
+
+            if (TryGetControllerRay(XRNode.LeftHand, vrLeftControllerRay, out var leftRay, out var leftDistance))
+            {
+                if (Physics.Raycast(leftRay, out var hit, leftDistance, ~0, QueryTriggerInteraction.Collide))
+                {
+                    var candidate = hit.collider.GetComponent<StudyInteractable>() ?? hit.collider.GetComponentInParent<StudyInteractable>();
+                    if (candidate != null && candidate.Data != null && hit.distance < bestDistance)
+                    {
+                        best = candidate;
+                        bestDistance = hit.distance;
+                        handLabel = "left controller";
+                    }
+                }
+            }
+
+            if (TryGetControllerRay(XRNode.RightHand, vrRightControllerRay, out var rightRay, out var rightDistance))
+            {
+                if (Physics.Raycast(rightRay, out var hit, rightDistance, ~0, QueryTriggerInteraction.Collide))
+                {
+                    var candidate = hit.collider.GetComponent<StudyInteractable>() ?? hit.collider.GetComponentInParent<StudyInteractable>();
+                    if (candidate != null && candidate.Data != null && hit.distance < bestDistance)
+                    {
+                        best = candidate;
+                        handLabel = "right controller";
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        private bool TryGetControllerRay(XRNode node, LineRenderer line, out Ray ray, out float length)
+        {
+            ray = default;
+            length = VrControllerRayLength;
+
+            if (!TryGetXrControllerRayPose(node, out var localPosition, out var localRotation))
+            {
+                if (line != null)
+                {
+                    line.enabled = false;
+                }
+
                 return false;
             }
 
-            if (!TryGetXrNodePose(node, out var localPosition, out var localRotation))
+            var worldPosition = vrRigRoot != null ? vrRigRoot.TransformPoint(localPosition) : localPosition;
+            var worldRotation = vrRigRoot != null ? vrRigRoot.rotation * localRotation : localRotation;
+            ray = new Ray(worldPosition, worldRotation * Vector3.forward);
+
+            if (line != null)
             {
-                proxy.SetActive(false);
-                return false;
+                line.enabled = true;
+                line.SetPosition(0, ray.origin);
+                line.SetPosition(1, ray.origin + ray.direction * length);
             }
 
-            worldPosition = vrRigRoot != null ? vrRigRoot.TransformPoint(localPosition) : localPosition;
-            proxy.transform.position = worldPosition;
-            proxy.transform.rotation = vrRigRoot != null ? vrRigRoot.rotation * localRotation : localRotation;
-            proxy.SetActive(true);
             return true;
+        }
+
+        private static bool TryGetXrControllerRayPose(XRNode node, out Vector3 localPosition, out Quaternion localRotation)
+        {
+            localPosition = Vector3.zero;
+            localRotation = Quaternion.identity;
+
+            var device = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
+            if (!device.isValid)
+            {
+                return false;
+            }
+
+            var hasPosition = device.TryGetFeatureValue(XrPointerPositionUsage, out localPosition);
+            var hasRotation = device.TryGetFeatureValue(XrPointerRotationUsage, out localRotation);
+
+            if (!hasPosition)
+            {
+                hasPosition = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out localPosition);
+            }
+
+            if (!hasRotation)
+            {
+                hasRotation = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out localRotation);
+            }
+
+            return hasPosition || hasRotation;
+        }
+
+        private static bool GetVrControllerActivatePressed()
+        {
+            var rightHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+            var leftHand = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+            return
+                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.triggerButton) ||
+                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.primaryButton) ||
+                GetXrButton(rightHand, UnityEngine.XR.CommonUsages.gripButton) ||
+                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.triggerButton) ||
+                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.primaryButton) ||
+                GetXrButton(leftHand, UnityEngine.XR.CommonUsages.gripButton);
         }
 
         private StudyInteractable FindNearestVrTouchedInteractable(
@@ -8113,6 +8699,30 @@ namespace MemPalaceLLM
             if (rightTracked)
             {
                 CheckVrTouchCandidates(rightPosition, "right hand", ref nearest, ref nearestDistance, ref handLabel);
+            }
+
+            return nearest;
+        }
+
+        private VrMenuInteractable FindNearestVrTouchedMenuButton(
+            bool leftTracked,
+            Vector3 leftPosition,
+            bool rightTracked,
+            Vector3 rightPosition,
+            out string handLabel)
+        {
+            VrMenuInteractable nearest = null;
+            var nearestDistance = float.MaxValue;
+            handLabel = string.Empty;
+
+            if (leftTracked)
+            {
+                CheckVrMenuTouchCandidates(leftPosition, "left hand", ref nearest, ref nearestDistance, ref handLabel);
+            }
+
+            if (rightTracked)
+            {
+                CheckVrMenuTouchCandidates(rightPosition, "right hand", ref nearest, ref nearestDistance, ref handLabel);
             }
 
             return nearest;
@@ -8144,6 +8754,177 @@ namespace MemPalaceLLM
             }
         }
 
+        private void CheckVrMenuTouchCandidates(
+            Vector3 handPosition,
+            string handLabel,
+            ref VrMenuInteractable nearest,
+            ref float nearestDistance,
+            ref string nearestHandLabel)
+        {
+            var hits = Physics.OverlapSphere(handPosition, VrTouchRadius, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                var interactable = hits[i].GetComponent<VrMenuInteractable>() ?? hits[i].GetComponentInParent<VrMenuInteractable>();
+                if (interactable == null)
+                {
+                    continue;
+                }
+
+                var distance = (hits[i].ClosestPoint(handPosition) - handPosition).sqrMagnitude;
+                if (distance < nearestDistance)
+                {
+                    nearest = interactable;
+                    nearestDistance = distance;
+                    nearestHandLabel = handLabel;
+                }
+            }
+        }
+
+        private void ActivateVrMenuButton(VrMenuInteractable button)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            switch (button.ActionId)
+            {
+                case "use_usb_url":
+                    vrSessionPackageUrl = VrSessionPackageAdbReverseUrl;
+                    vrSessionPackageStatus = "Quest package source switched to the USB reverse test URL.";
+                    statusMessage = vrSessionPackageStatus;
+                    break;
+                case "use_campus_url":
+                    vrSessionPackageUrl = VrSessionPackageCampusPcUrl;
+                    vrSessionPackageStatus = "Quest package source switched to the campus PC URL.";
+                    statusMessage = vrSessionPackageStatus;
+                    break;
+                case "download_package":
+                    BeginVrSessionPackageDownload();
+                    break;
+                case "enter_study":
+                    if (hasLoadedVrSessionPackage && currentItems != null && currentItems.Count > 0)
+                    {
+                        EnterStudyRoom();
+                    }
+                    else
+                    {
+                        vrSessionPackageStatus = "Download a VR session package first, then enter the Study Room.";
+                        statusMessage = vrSessionPackageStatus;
+                    }
+                    break;
+            }
+        }
+
+        private bool IsVrMenuButtonEnabled(VrMenuInteractable button)
+        {
+            if (button == null)
+            {
+                return false;
+            }
+
+            return button.ActionId switch
+            {
+                "use_usb_url" => !isDownloadingVrSessionPackage,
+                "use_campus_url" => !isDownloadingVrSessionPackage,
+                "download_package" => !isDownloadingVrSessionPackage,
+                "enter_study" => !isDownloadingVrSessionPackage && hasLoadedVrSessionPackage && currentItems != null && currentItems.Count > 0,
+                _ => false
+            };
+        }
+
+        private string GetVrMenuButtonLabel(VrMenuInteractable button)
+        {
+            if (button == null)
+            {
+                return string.Empty;
+            }
+
+            return button.ActionId switch
+            {
+                "use_usb_url" => vrSessionPackageUrl == VrSessionPackageAdbReverseUrl ? "Use USB Test URL (Selected)" : "Use USB Test URL",
+                "use_campus_url" => vrSessionPackageUrl == VrSessionPackageCampusPcUrl ? "Use Campus PC URL (Selected)" : "Use Campus PC URL",
+                "download_package" => isDownloadingVrSessionPackage ? "Downloading VR Session Package..." : "Download VR Session Package",
+                "enter_study" => "Next: Enter Study Room",
+                _ => button.ActionId
+            };
+        }
+
+        private void UpdateVrPackageMenuButtonVisuals()
+        {
+            SetVrMenuButtonVisual(vrUseUsbUrlButton, IsVrMenuButtonEnabled(vrUseUsbUrlButton), vrTouchedMenuButton == vrUseUsbUrlButton, vrSessionPackageUrl == VrSessionPackageAdbReverseUrl);
+            SetVrMenuButtonVisual(vrUseCampusPcUrlButton, IsVrMenuButtonEnabled(vrUseCampusPcUrlButton), vrTouchedMenuButton == vrUseCampusPcUrlButton, vrSessionPackageUrl == VrSessionPackageCampusPcUrl);
+            SetVrMenuButtonVisual(vrDownloadPackageButton, IsVrMenuButtonEnabled(vrDownloadPackageButton), vrTouchedMenuButton == vrDownloadPackageButton, false);
+            SetVrMenuButtonVisual(vrEnterStudyButton, IsVrMenuButtonEnabled(vrEnterStudyButton), vrTouchedMenuButton == vrEnterStudyButton, false);
+        }
+
+        private void SetVrMenuButtonVisual(VrMenuInteractable button, bool isEnabled, bool isTouched, bool isSelected)
+        {
+            if (button == null || button.Background == null)
+            {
+                return;
+            }
+
+            button.Label.text = GetVrMenuButtonLabel(button);
+            button.Label.color = isEnabled ? Color.white : new Color(0.74f, 0.76f, 0.79f);
+
+            if (!isEnabled)
+            {
+                button.Background.color = new Color(0.18f, 0.20f, 0.24f, 0.94f);
+                return;
+            }
+
+            if (isTouched)
+            {
+                button.Background.color = new Color(0.90f, 0.73f, 0.30f, 0.96f);
+                return;
+            }
+
+            button.Background.color = isSelected
+                ? new Color(0.22f, 0.48f, 0.82f, 0.94f)
+                : new Color(0.17f, 0.22f, 0.30f, 0.94f);
+        }
+
+        private void UpdateVrPackageMenuText()
+        {
+            if (vrMenuTitleText == null)
+            {
+                return;
+            }
+
+            var loadedSummary = hasLoadedVrSessionPackage && currentItems != null && currentItems.Count > 0
+                ? $"Loaded package: {currentItems.Count} mnemonic item(s) for {RoomSpecCatalog.RoomName}."
+                : "No VR session package is loaded yet.";
+
+            vrMenuTitleText.text = "VR Session Package";
+            vrMenuUrlText.text = $"Package URL\n{vrSessionPackageUrl}";
+            vrMenuStatusText.text = string.IsNullOrWhiteSpace(vrSessionPackageStatus)
+                ? loadedSummary
+                : loadedSummary + "\n" + vrSessionPackageStatus;
+
+            if (!vrHeadTrackingActive)
+            {
+                vrMenuHintText.text = "No XR headset detected. Desktop controls remain active.";
+            }
+            else if (vrTouchedMenuButton != null)
+            {
+                if (!IsVrMenuButtonEnabled(vrTouchedMenuButton))
+                {
+                    vrMenuHintText.text = $"Aiming at {GetVrMenuButtonLabel(vrTouchedMenuButton)} with {vrTouchedHandLabel}. This button is not available yet.";
+                }
+                else
+                {
+                    vrMenuHintText.text = $"Aiming at {GetVrMenuButtonLabel(vrTouchedMenuButton)} with {vrTouchedHandLabel}. Press Trigger / A / Grip to activate.";
+                }
+            }
+            else
+            {
+                vrMenuHintText.text = "Point a controller ray at a button, then press Trigger / A / Grip.";
+            }
+
+            UpdateVrPackageMenuButtonVisuals();
+        }
+
         private void UpdateVrTouchProxyColor(GameObject proxy, bool isTouchingTarget)
         {
             if (proxy == null)
@@ -8162,6 +8943,25 @@ namespace MemPalaceLLM
                 : new Color(0.42f, 0.86f, 1f, 0.26f);
         }
 
+        private void EnsureVrUiEventSystem()
+        {
+            if (EventSystem.current != null)
+            {
+                var existingModule = EventSystem.current.GetComponent<InputSystemUIInputModule>();
+                if (existingModule != null && existingModule.actionsAsset == null)
+                {
+                    existingModule.AssignDefaultActions();
+                }
+
+                return;
+            }
+
+            var eventSystemObject = new GameObject("EventSystem");
+            eventSystemObject.AddComponent<EventSystem>();
+            var inputModule = eventSystemObject.AddComponent<InputSystemUIInputModule>();
+            inputModule.AssignDefaultActions();
+        }
+
         private void BuildVrStudyPanel()
         {
             vrWorldUiRoot = new GameObject("VRStudyWorldUI").transform;
@@ -8172,6 +8972,7 @@ namespace MemPalaceLLM
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.worldCamera = runtimeCamera;
             canvas.sortingOrder = 5;
+            panel.AddComponent<TrackedDeviceGraphicRaycaster>();
 
             var rect = panel.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(760f, 520f);
@@ -8187,6 +8988,37 @@ namespace MemPalaceLLM
             vrCueText = CreateVrPanelText(panel.transform, "Cue", 18, new Rect(26f, -282f, 708f, 82f), new Color(0.94f, 0.96f, 1f));
             vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -392f, 708f, 100f), new Color(0.94f, 0.96f, 1f));
             vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -486f, 708f, 60f), new Color(0.95f, 0.86f, 0.48f));
+
+            UpdateVrStudyPanelPose();
+        }
+
+        private void BuildVrPackageMenuPanel()
+        {
+            vrWorldUiRoot = new GameObject("VRPackageWorldUI").transform;
+            var panel = new GameObject("VRPackagePanel");
+            panel.transform.SetParent(vrWorldUiRoot);
+
+            var canvas = panel.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = runtimeCamera;
+            canvas.sortingOrder = 5;
+            panel.AddComponent<TrackedDeviceGraphicRaycaster>();
+
+            var rect = panel.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(820f, 620f);
+            panel.transform.localScale = Vector3.one * 0.0019f;
+
+            var image = panel.AddComponent<Image>();
+            image.color = new Color(0.05f, 0.07f, 0.10f, 0.92f);
+
+            vrMenuTitleText = CreateVrPanelText(panel.transform, "PackageTitle", 34, new Rect(26f, -34f, 768f, 48f), Color.white);
+            vrMenuUrlText = CreateVrPanelText(panel.transform, "PackageUrl", 18, new Rect(26f, -94f, 768f, 86f), new Color(0.88f, 0.92f, 1f));
+            vrUseUsbUrlButton = CreateVrMenuButton(panel.transform, "UseUsbUrlButton", new Rect(26f, -214f, 370f, 66f), "Use USB Test URL", "use_usb_url");
+            vrUseCampusPcUrlButton = CreateVrMenuButton(panel.transform, "UseCampusUrlButton", new Rect(424f, -214f, 370f, 66f), "Use Campus PC URL", "use_campus_url");
+            vrDownloadPackageButton = CreateVrMenuButton(panel.transform, "DownloadPackageButton", new Rect(26f, -304f, 768f, 72f), "Download VR Session Package", "download_package");
+            vrEnterStudyButton = CreateVrMenuButton(panel.transform, "EnterStudyButton", new Rect(26f, -396f, 768f, 72f), "Next: Enter Study Room", "enter_study");
+            vrMenuStatusText = CreateVrPanelText(panel.transform, "PackageStatus", 18, new Rect(26f, -494f, 768f, 78f), new Color(0.90f, 0.94f, 1f));
+            vrMenuHintText = CreateVrPanelText(panel.transform, "PackageHint", 16, new Rect(26f, -574f, 768f, 34f), new Color(0.95f, 0.86f, 0.48f));
 
             UpdateVrStudyPanelPose();
         }
@@ -8211,6 +9043,52 @@ namespace MemPalaceLLM
             textRect.anchoredPosition = new Vector2(rect.x, rect.y);
             textRect.sizeDelta = new Vector2(rect.width, rect.height);
             return text;
+        }
+
+        private VrMenuInteractable CreateVrMenuButton(Transform parent, string name, Rect rect, string label, string actionId)
+        {
+            var buttonObject = new GameObject(name);
+            buttonObject.transform.SetParent(parent, false);
+
+            var image = buttonObject.AddComponent<Image>();
+            image.color = new Color(0.17f, 0.22f, 0.30f, 0.94f);
+
+            var rectTransform = buttonObject.GetComponent<RectTransform>();
+            rectTransform.anchorMin = new Vector2(0f, 1f);
+            rectTransform.anchorMax = new Vector2(0f, 1f);
+            rectTransform.pivot = new Vector2(0f, 1f);
+            rectTransform.anchoredPosition = new Vector2(rect.x, rect.y);
+            rectTransform.sizeDelta = new Vector2(rect.width, rect.height);
+
+            var button = buttonObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.ColorTint;
+
+            var collider = buttonObject.AddComponent<BoxCollider>();
+            collider.size = new Vector3(rect.width, rect.height, 12f);
+            collider.center = new Vector3(rect.width * 0.5f, -rect.height * 0.5f, 0f);
+
+            var textObject = new GameObject("Label");
+            textObject.transform.SetParent(buttonObject.transform, false);
+
+            var text = textObject.AddComponent<Text>();
+            text.font = GetLabelFont();
+            text.fontSize = 22;
+            text.color = Color.white;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
+            text.text = label;
+
+            var textRect = textObject.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(18f, 12f);
+            textRect.offsetMax = new Vector2(-18f, -12f);
+
+            var interactable = buttonObject.AddComponent<VrMenuInteractable>().Initialize(actionId, image, text);
+            button.onClick.AddListener(() => ActivateVrMenuButton(interactable));
+            return interactable;
         }
 
         private void UpdateVrStudyPanelPose()
@@ -8242,12 +9120,12 @@ namespace MemPalaceLLM
             if (selectedStudyItem == null)
             {
                 vrTitleText.text = "Find a memory marker";
-                vrMeaningText.text = "Walk physically through your play area, then touch a floating marker or cue prop with either hand.";
-                vrAnchorText.text = "VR uses room-scale movement only. No joystick locomotion or ray selection.";
+                vrMeaningText.text = "Walk physically through your play area, then point a controller ray at a floating marker or cue prop.";
+                vrAnchorText.text = "VR uses room-scale movement only. No joystick locomotion. Use controller ray selection.";
                 vrCueText.text = "Scene to Imagine appears here after selection.";
                 vrStoryText.text = "Cue Story appears here after selection.";
                 vrActionText.text = vrHeadTrackingActive
-                    ? "Touch: inspect marker    A / Grip while touching: capture memory"
+                    ? "Ray hover: inspect marker    Trigger / A / Grip: capture memory"
                     : "No XR headset detected. Use desktop mouse and keyboard for now.";
                 return;
             }
@@ -8263,11 +9141,11 @@ namespace MemPalaceLLM
                 vrTouchedInteractable.Data != null &&
                 string.Equals(vrTouchedInteractable.Data.word, selectedStudyItem.word, StringComparison.OrdinalIgnoreCase);
             var touchHint = selectedIsTouched
-                ? $"Touching with {vrTouchedHandLabel}. "
-                : "Walk to this object and touch it first. ";
+                ? $"Aiming with {vrTouchedHandLabel}. "
+                : "Point a controller ray at this object. ";
             vrActionText.text = hasSnapshot
-                ? touchHint + "Press A / Grip while touching to replace the stored snapshot."
-                : touchHint + "Press A / Grip while touching to capture this memory for the image-choice tests.";
+                ? touchHint + "Press Trigger / A / Grip if you want to replace the stored snapshot."
+                : touchHint + "Press Trigger / A / Grip to capture this memory for the image-choice tests.";
         }
 
         private static bool TryGetXrNodePose(XRNode node, out Vector3 localPosition, out Quaternion localRotation)
@@ -9501,6 +10379,21 @@ namespace MemPalaceLLM
     public sealed class StudyInteractable : MonoBehaviour
     {
         public MnemonicItemData Data;
+    }
+
+    public sealed class VrMenuInteractable : MonoBehaviour
+    {
+        public string ActionId;
+        public Image Background;
+        public Text Label;
+
+        public VrMenuInteractable Initialize(string actionId, Image background, Text label)
+        {
+            ActionId = actionId;
+            Background = background;
+            Label = label;
+            return this;
+        }
     }
 
     public sealed class HoverSpinAnimation : MonoBehaviour
