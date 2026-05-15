@@ -12,7 +12,8 @@ namespace MemPalaceLLM
     {
         private const int ErrorPreviewLength = 800;
         private const int RequestTimeoutSeconds = 360;
-        private const int MnemonicChunkSize = 3;
+        private const int MnemonicChunkSize = 4;
+        private const string MnemonicModelKeepAlive = "30m";
 
         [Serializable]
         private class OllamaRequestOptions
@@ -29,6 +30,7 @@ namespace MemPalaceLLM
             public string system;
             public string format;
             public bool stream;
+            public string keep_alive;
             public OllamaRequestOptions options;
         }
 
@@ -518,10 +520,11 @@ namespace MemPalaceLLM
                 system = "You are an expert memory-palace mnemonic designer and a strict JSON API. Design simple, concrete, imageable memory hooks at assigned locations, then return exactly one valid JSON object and nothing else. Use double quotes for every key and string. Escape any inner quotes. No markdown. No commentary.",
                 format = "json",
                 stream = false,
+                keep_alive = MnemonicModelKeepAlive,
                 options = new OllamaRequestOptions
                 {
-                    temperature = 0.5f,
-                    num_predict = Mathf.Clamp(words.Count * 280 + 320, 850, 1400)
+                    temperature = 0.35f,
+                    num_predict = Mathf.Clamp(words.Count * 180 + 140, 520, 880)
                 }
             };
 

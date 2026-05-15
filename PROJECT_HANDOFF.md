@@ -4,17 +4,212 @@ Last updated: 2026-05-15
 
 This document is the restart point for a new Codex/Claude/API session after chat history is lost. Read this first, then inspect the files mentioned below before editing.
 
+## Latest Session Summary
+
+This handoff supersedes part of the older "next major task" section below.
+
+What was completed in the latest session:
+
+- Implemented the first-pass wireless Quest session package workflow in code.
+- Added `VrSessionPackage` model in `Assets/Scripts/Data/ExperimentModels.cs`.
+- Added PC-side export UI and logic in `Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs`.
+- Added runtime/Quest-side URL download UI and package import logic in `Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs`.
+- Added a safe `ResetSessionState(bool stopCoroutines = true)` overload so package import can reset session state without killing the currently running download coroutine.
+- Default package URL in code now points to the USB/ADB reverse test path:
+  - `http://127.0.0.1:7777/session_package_latest.json`
+  - The setup UI also has quick buttons for `Use USB Test URL` and `Use Campus PC URL`.
+
+Current blocker:
+
+- Android toolchain is repaired through a user-writable toolchain folder and batch APK builds now succeed.
+- A Quest Pro was detected by ADB after developer mode was enabled, and the first APK install succeeded.
+- Unity/ADB later restarted the ADB server, so the headset is currently `unauthorized` again until the user accepts `Allow USB debugging` in the headset.
+- After authorization, reinstall `Builds\MemPalaceLLM.apk`, restore `adb reverse tcp:7777 tcp:7777`, launch `jp.naist.MemPalace`, and test package download/import.
+
+Very important collaboration notes:
+
+- The user prefers communication in Chinese.
+- Do not revert the Unity-generated settings/assets unless you understand why they changed.
+- The working tree is dirty now; see the updated repository state below.
+
+## Current Priority
+
+The current highest-priority task is no longer "implement session package export/import" because that code is already in place.
+
+The current priority is:
+
+1. Re-authorize Quest Pro USB debugging if ADB shows `unauthorized`.
+2. Install the latest verified VR APK from `Builds\MemPalaceLLM.apk`.
+3. Restore `adb reverse tcp:7777 tcp:7777` for the USB package-download demo path.
+4. Launch the APK and test downloading/importing `VRSessionPackages/session_package_latest.json`.
+
 ## Current Repository State
 
 - Workspace: `C:\E\UnityProjects\Naist\LLM_MemoryPalace\MemPalaceLLM`
 - GitHub remote: `https://github.com/Tsuruhara0724/LLM_MemoryPalace.git`
 - Branch: `main`
-- Working tree at handoff time: clean
+- Working tree is currently dirty. Important modified/untracked paths include:
+  - `Assets/Scripts/Data/ExperimentModels.cs`
+  - `Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs`
+  - `ProjectSettings/ProjectSettings.asset`
+  - `ProjectSettings/EditorBuildSettings.asset`
+  - `Packages/manifest.json`
+  - `Packages/packages-lock.json`
+  - `Assets/XR/`
+  - `Assets/Settings/Build Profiles/`
+  - `VRSessionPackages/`
+  - several Unity-generated URP/XR/settings assets
 - Recent commits:
   - `c473f24 Set generated L-shape room as default`
   - `01abe65 Add room-scale VR touch interaction`
   - `91da708 Fix VR input compile errors`
   - `5bf3069 Save Unity memory palace baseline`
+
+## Exact Code Changes Already Made
+
+These are the key code entry points already added and should not be re-implemented from scratch:
+
+- `Assets/Scripts/Data/ExperimentModels.cs`
+  - `VrSessionPackage` at around line 110
+
+- `Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs`
+  - default URL field:
+    - `private string vrSessionPackageUrl = VrSessionPackageAdbReverseUrl;`
+  - package URL constants:
+    - `VrSessionPackageAdbReverseUrl = "http://127.0.0.1:7777/session_package_latest.json"`
+    - `VrSessionPackageCampusPcUrl = "http://163.221.38.241:7777/session_package_latest.json"`
+  - Setup screen package UI around line 760+
+  - Generation screen export UI around line 2050+
+  - methods:
+    - `ExportCurrentVrSessionPackage()`
+    - `BeginVrSessionPackageDownload()`
+    - `DownloadVrSessionPackageRoutine(string url)`
+    - `ApplyVrSessionPackage(VrSessionPackage package)`
+    - `BuildWordSetFromPackage(VrSessionPackage package)`
+  - `ResetSessionState(bool stopCoroutines = true)` overload
+
+Current exported package files already present:
+
+- `VRSessionPackages/session_package_latest.json`
+- `VRSessionPackages/session_package_20260515_143819.json`
+- `VRSessionPackages/session_package_20260515_144803.json`
+
+## Current Unity / Quest Build State
+
+Unity version:
+
+- `6000.3.12f1`
+
+What happened in this session:
+
+- Android Build Support initially looked partially installed/broken in Unity Hub.
+- Unity's AndroidPlayer install under Program Files still lacks embedded `OpenJDK`, `SDK`, and `NDK`, but Unity Hub cached module ZIPs were extracted into:
+  - `C:\Users\cheny\AppData\Local\UnityAndroidToolchains\6000.3.12f1`
+- Batch build uses `Assets/Editor/CodexAndroidBuild.cs` to point Unity at that external JDK/SDK/NDK/Gradle toolchain.
+- `Builds\MemPalaceLLM.apk` was built successfully.
+- The final checked APK manifest includes:
+  - `android.hardware.vr.headtracking`
+  - `com.oculus.intent.category.VR`
+  - `com.oculus.supportedDevices = quest|quest2|cambria|eureka|quest3s`
+- `VRSessionPackages` is being served by a Python HTTP server on port `7777`; for current USB testing use:
+  - `adb reverse tcp:7777 tcp:7777`
+  - `http://127.0.0.1:7777/session_package_latest.json`
+- Quest wireless network and PC Ethernet are on different campus subnets right now, so the old direct URL `http://163.221.38.241:7777/...` may not be reachable from the headset without routing/firewall changes.
+- Quest Pro ADB was working as `device`, then Unity restarted ADB and it returned to `unauthorized`; the user needs to accept the USB debugging prompt again.
+
+Current verified filesystem state of the Unity Android module:
+
+```text
+C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer
+  Apk/
+  Bee/
+  Data/
+  Documentation/
+  Source/
+  Tools/
+  Variations/
+  AndroidPlayerBuildProgram.exe
+  ...
+  Tools/gradle exists
+  OpenJDK missing
+  SDK missing
+  NDK missing
+```
+
+There is also a temporary repair-download directory from an aborted automated recovery attempt:
+
+```text
+%TEMP%\unity_android_fix_6000.3.12f1
+```
+
+Observed files there include:
+
+- `openjdk.zip`
+- `sdktools.zip`
+- `buildtools.zip`
+- `cmdline.zip`
+- `platform34.zip`
+- `ndk.zip` (likely incomplete because the scripted recovery was user-aborted)
+
+Do not assume those ZIPs are complete or correct without checking sizes/hashes.
+
+## Current Recommended Next Steps For The Next Agent
+
+Start here, not from scratch.
+
+1. Read this handoff and confirm the working tree with:
+
+```powershell
+git status --short
+```
+
+2. Verify the current Unity Android toolchain filesystem state:
+
+```powershell
+Get-ChildItem "C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer"
+```
+
+3. Repair the missing `OpenJDK`, `SDK`, and `NDK` directories under the Unity AndroidPlayer install.
+   - Likely options:
+     - reinstall the missing submodules correctly via Unity Hub if possible
+     - or manually download/extract the exact module payloads into the expected paths
+   - The previous scripted attempt was interrupted by the user and should be treated as incomplete.
+
+4. Re-open Unity and confirm in `Edit -> Preferences -> External Tools` that these are valid:
+
+```text
+C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer\OpenJDK
+C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK
+C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer\NDK
+```
+
+5. In Unity:
+   - `Build Profiles -> Android`
+   - `Add Build Profile`
+   - `Switch Platform`
+   - verify `Assets/Scenes/SampleScene.unity` is in the scene list
+   - verify `Player Settings` values for Android
+   - verify `XR Plug-in Management -> Android -> OpenXR`
+
+6. Then build/install to Quest and test the package workflow:
+   - export package from Editor
+   - host `VRSessionPackages` with:
+
+```powershell
+cd C:\E\UnityProjects\Naist\LLM_MemoryPalace\MemPalaceLLM\VRSessionPackages
+python -m http.server 7777
+```
+
+   - run Quest standalone app
+   - download `http://<PC_IP>:7777/session_package_latest.json`
+   - enter study room from loaded package
+
+## Important Caveat About The Older Sections Below
+
+The older sections below still contain useful project background, but they are stale in two ways:
+
+- They describe the wireless session package flow as not yet implemented. It has now been implemented in code.
+- They say the working tree was clean. It is no longer clean.
 
 ## Research/System Goal
 
@@ -412,29 +607,44 @@ git status --short
 git log --oneline -5
 ```
 
-2. Inspect:
+2. Inspect code changes already made:
 
 ```text
 Assets/Scripts/Data/ExperimentModels.cs
-Assets/Scripts/Data/RoomSpecModels.cs
 Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs
 ```
 
-3. Implement `VrSessionPackage`.
+3. Verify Unity Android toolchain filesystem state:
 
-4. Add PC export button and method.
+```text
+C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer
+```
 
-5. Add URL download/import UI and coroutine.
+Specifically confirm whether these exist:
 
-6. Test in Unity Editor first by exporting and importing from `http://localhost:7777/session_package_latest.json` or a local file-equivalent if convenient.
+```text
+OpenJDK
+SDK
+NDK
+Tools\gradle
+```
 
-7. Then build Quest APK and test download from PC local IP.
+4. Repair missing Android submodules (`OpenJDK`, `SDK`, `NDK`) under the Unity install.
+
+5. Re-open Unity and verify `Edit -> Preferences -> External Tools` no longer reports missing JDK/SDK/NDK paths.
+
+6. In Unity, verify Android build configuration:
+   - Build Profiles
+   - Player Settings
+   - XR Plug-in Management / OpenXR
+   - Scene list
+
+7. Build/install Quest APK and test the already-implemented package flow using `VRSessionPackages/session_package_latest.json`.
 
 ## A Good Prompt To Continue Work
 
 If handing this to another coding agent, use:
 
 ```text
-Read PROJECT_HANDOFF.md first. Then implement the first milestone of the wireless Quest standalone workflow: add a serializable VR session package containing RoomSpecDefinition and List<MnemonicItemData>, add PC-side export to VRSessionPackages/session_package_latest.json, and add Quest/runtime UI to download a package from URL using UnityWebRequest, apply RoomSpecCatalog.SetCurrentRoom(package.roomSpec), set currentItems, and allow entering Study Room. Keep existing desktop workflow, LLM generation, default room, and VR room-scale touch behavior unchanged.
+Read PROJECT_HANDOFF.md first. The VR session package workflow is already implemented in code. Continue from the current blocker: Unity 6000.3.12f1 recognizes the Android platform again, but `OpenJDK`, `SDK`, and `NDK` are still missing under `C:\Program Files\Unity\Hub\Editor\6000.3.12f1\Editor\Data\PlaybackEngines\AndroidPlayer`, so Unity External Tools reports invalid paths and Quest build cannot proceed. Repair the Android submodules, verify External Tools paths, then build/install a Quest standalone APK and test downloading `VRSessionPackages/session_package_latest.json` into the headset app. Keep the existing desktop workflow, LLM generation, default room, and VR room-scale touch behavior unchanged.
 ```
-
