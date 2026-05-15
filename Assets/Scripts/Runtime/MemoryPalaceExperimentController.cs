@@ -9,6 +9,8 @@ using UnityEngine.Networking;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 using UnityEngine.XR;
+using XRCommonUsages = UnityEngine.XR.CommonUsages;
+using XRInputDevice = UnityEngine.XR.InputDevice;
 
 namespace MemPalaceLLM
 {
@@ -27,6 +29,8 @@ namespace MemPalaceLLM
         private const float VrDefaultHeadHeight = 1.62f;
         private const float VrPointerDistance = 8f;
         private const float VrActionCooldownSeconds = 0.35f;
+        private const float StudyDetailMaxDistance = 2.85f;
+        private const float StudyDetailFacingDotThreshold = 0.5f;
 
         private enum BuilderToolMode
         {
@@ -124,6 +128,9 @@ namespace MemPalaceLLM
         private Text vrCueText;
         private Text vrStoryText;
         private Text vrActionText;
+        private Text vrPreviewHeaderText;
+        private RawImage vrPreviewImage;
+        private Text vrPreviewInfoText;
         private Font labelFont;
 
         private readonly List<Rect> guiBlockRects = new();
@@ -134,6 +141,7 @@ namespace MemPalaceLLM
         private readonly List<SnapshotTestResponse> snapshotTestResponses = new();
         private readonly Dictionary<string, Texture2D> memorySnapshots = new();
         private readonly Dictionary<string, Texture2D> mnemonicImageCues = new();
+        private readonly Dictionary<string, Transform> studyItemTargets = new();
         private readonly HashSet<string> generatingImageCueWords = new();
         private readonly List<string> recognitionQueue = new();
         private readonly List<string> recognitionOptions = new();
@@ -279,6 +287,8 @@ namespace MemPalaceLLM
 
             if (stage == ExperimentStage.Study)
             {
+                UpdateSelectedStudyItemVisibility();
+
                 if (enableVrStudyMode)
                 {
                     HandleVrStudyRuntime();
@@ -2020,7 +2030,7 @@ namespace MemPalaceLLM
             {
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{item.word}  -  {item.anchorLabel}", smallTitleStyle);
-                GUILayout.Label(item.meaning + (string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : $" ({item.meaningJa})"), mutedStyle);
+                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
                 DrawBilingualSection("Overlay Cue Scene / Image Scene", item.visualCue, item.visualCueJa, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
                 DrawBilingualSection("Cue Story / Memory Link", item.mnemonic, item.mnemonicJa, smallTitleStyle, labelStyle);
@@ -2078,7 +2088,7 @@ namespace MemPalaceLLM
                 var item = currentItems[i];
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{i + 1}. {item.word}", titleStyle);
-                GUILayout.Label(item.meaning + (string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : $" ({item.meaningJa})"), mutedStyle);
+                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
 
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("< Anchor", GUILayout.Width(100f), GUILayout.Height(28f)))
@@ -2186,13 +2196,15 @@ namespace MemPalaceLLM
             }
             GUILayout.EndArea();
 
-            var rightPanelHeight = Mathf.Max(300f, ContentHeight - 10f);
-            var rightPanelRect = new Rect(Screen.width - 448f, ContentTop, 430f, rightPanelHeight);
-            GUI.Box(rightPanelRect, GUIContent.none, panelStyle);
-            RegisterGuiRect(rightPanelRect);
+            if (selectedStudyItem != null)
+            {
+                var rightPanelHeight = Mathf.Max(300f, ContentHeight - 10f);
+                var rightPanelRect = new Rect(Screen.width - 448f, ContentTop, 430f, rightPanelHeight);
+                GUI.Box(rightPanelRect, GUIContent.none, panelStyle);
+                RegisterGuiRect(rightPanelRect);
 
-            GUILayout.BeginArea(rightPanelRect);
-            studyDetailScroll = GUILayout.BeginScrollView(studyDetailScroll, false, true);
+                GUILayout.BeginArea(rightPanelRect);
+                studyDetailScroll = GUILayout.BeginScrollView(studyDetailScroll, false, true);
             if (selectedStudyItem == null)
             {
                 GUILayout.Label("How This Phase Works", smallTitleStyle);
@@ -2216,7 +2228,7 @@ namespace MemPalaceLLM
 
                 GUILayout.Label("Selected Mnemonic", smallTitleStyle);
                 GUILayout.Label(selectedStudyItem.word, titleStyle);
-                GUILayout.Label(selectedStudyItem.meaning + (string.IsNullOrWhiteSpace(selectedStudyItem.meaningJa) ? string.Empty : $" ({selectedStudyItem.meaningJa})"), mutedStyle);
+                GUILayout.Label(GetDisplayMeaningText(selectedStudyItem), mutedStyle);
                 GUILayout.Label($"Anchor: {selectedStudyItem.anchorLabel}", mutedStyle);
                 GUILayout.Space(10);
                 DrawBilingualSection("Overlay Cue Scene / Image Scene", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa, smallTitleStyle, guideStyle);
@@ -2261,13 +2273,10 @@ namespace MemPalaceLLM
                         StartCoroutine(CaptureMemorySnapshotRoutine(selectedStudyItem));
                     }
                 }
-                if (GUILayout.Button("Close Detail Panel", buttonStyle))
-                {
-                    selectedStudyItem = null;
-                }
             }
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
+                GUILayout.EndScrollView();
+                GUILayout.EndArea();
+            }
         }
 
         private void DrawRecallView()
@@ -2346,9 +2355,7 @@ namespace MemPalaceLLM
                         GUILayout.Space(8);
                         GUILayout.Label("Correct Word / 正解語彙", smallTitleStyle);
                         GUILayout.Label(answeredItem.word, labelStyle);
-                        GUILayout.Label(
-                            answeredItem.meaning + (string.IsNullOrWhiteSpace(answeredItem.meaningJa) ? string.Empty : $" ({answeredItem.meaningJa})"),
-                            mutedStyle);
+                        GUILayout.Label(GetDisplayMeaningText(answeredItem), mutedStyle);
                     }
                     GUILayout.EndVertical();
                 }
@@ -2830,14 +2837,14 @@ namespace MemPalaceLLM
             {
                 prompt = BuildMnemonicImagePrompt(item),
                 negative_prompt = BuildMnemonicImageNegativePrompt(),
-                width = 576,
-                height = 576,
-                steps = 30,
-                cfg_scale = 8f,
-                sampler_name = "DPM++ 2M Karras",
-                override_settings = BuildImageOverrideSettings(),
-                override_settings_restore_afterwards = true
+                width = 512,
+                height = 512,
+                steps = 20,
+                cfg_scale = 7f,
+                sampler_name = "DPM++ 2M"
             };
+            requestBody.override_settings = BuildImageOverrideSettings();
+            requestBody.override_settings_restore_afterwards = requestBody.override_settings != null;
             var json = JsonUtility.ToJson(requestBody);
 
             using (var request = new UnityWebRequest(imageGenerationEndpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
@@ -2854,7 +2861,7 @@ namespace MemPalaceLLM
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
-                    imageGenerationStatus = $"Image generation failed: {request.error}. Check that Stable Diffusion WebUI is running with --api.";
+                    imageGenerationStatus = BuildStableDiffusionErrorStatus(request);
                     yield break;
                 }
 
@@ -3217,6 +3224,63 @@ namespace MemPalaceLLM
             };
         }
 
+        private static string BuildStableDiffusionErrorStatus(UnityWebRequest request)
+        {
+            var detail = ExtractStableDiffusionErrorDetail(request);
+            if (request == null)
+            {
+                return "Image generation failed.";
+            }
+
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                detail = request.error;
+            }
+
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                detail = "Unknown Stable Diffusion error.";
+            }
+
+            return request.responseCode > 0
+                ? $"Image generation failed ({request.responseCode}): {detail}"
+                : $"Image generation failed: {detail}";
+        }
+
+        private static string ExtractStableDiffusionErrorDetail(UnityWebRequest request)
+        {
+            if (request?.downloadHandler == null)
+            {
+                return string.Empty;
+            }
+
+            var raw = request.downloadHandler.text;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                var parsed = JsonUtility.FromJson<StableDiffusionErrorResponse>(raw);
+                if (!string.IsNullOrWhiteSpace(parsed?.error))
+                {
+                    return parsed.error.Trim();
+                }
+
+                if (!string.IsNullOrWhiteSpace(parsed?.detail))
+                {
+                    return parsed.detail.Trim();
+                }
+            }
+            catch
+            {
+            }
+
+            raw = raw.Replace('\n', ' ').Replace('\r', ' ').Trim();
+            return raw.Length > 240 ? raw.Substring(0, 240) + "..." : raw;
+        }
+
         private static bool IsAlreadyAnchorGroundedImagePrompt(string prompt, string anchor)
         {
             if (string.IsNullOrWhiteSpace(prompt) || string.IsNullOrWhiteSpace(anchor))
@@ -3258,6 +3322,24 @@ namespace MemPalaceLLM
             }
 
             return string.IsNullOrWhiteSpace(item.meaningJa) ? "the target meaning" : item.meaningJa.Trim();
+        }
+
+        private static string GetDisplayMeaningText(MnemonicItemData item)
+        {
+            if (item == null)
+            {
+                return string.Empty;
+            }
+
+            var english = string.IsNullOrWhiteSpace(item.meaning) ? string.Empty : item.meaning.Trim();
+            var japanese = string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : item.meaningJa.Trim();
+
+            if (!string.IsNullOrWhiteSpace(japanese))
+            {
+                return string.IsNullOrWhiteSpace(english) ? japanese : $"{japanese} ({english})";
+            }
+
+            return english;
         }
 
         private bool ApplyMeaningFirstMnemonicGuardrails(MnemonicItemData item)
@@ -4088,6 +4170,7 @@ namespace MemPalaceLLM
         private void ClearStudyRoom()
         {
             ClearVrStudyRuntime();
+            studyItemTargets.Clear();
 
             if (roomRoot == null)
             {
@@ -4126,6 +4209,9 @@ namespace MemPalaceLLM
             vrCueText = null;
             vrStoryText = null;
             vrActionText = null;
+            vrPreviewHeaderText = null;
+            vrPreviewImage = null;
+            vrPreviewInfoText = null;
             vrHeadTrackingActive = false;
         }
 
@@ -7427,6 +7513,7 @@ namespace MemPalaceLLM
             }
 
             roomRoot = new GameObject("StudyRoomRuntime").transform;
+            studyItemTargets.Clear();
             var roomSpec = RoomSpecCatalog.CurrentRoom;
 
             for (int i = 0; i < roomSpec.environmentPrimitives.Count; i++)
@@ -7454,6 +7541,7 @@ namespace MemPalaceLLM
 
             var interactable = go.AddComponent<StudyInteractable>();
             interactable.Data = item;
+            studyItemTargets[item.word] = go.transform;
 
             var renderer = go.GetComponent<Renderer>();
             if (renderer != null)
@@ -7915,24 +8003,14 @@ namespace MemPalaceLLM
                 return;
             }
 
-            vrHeadTrackingActive = TryGetXrNodePose(XRNode.Head, out var headLocalPosition, out var headLocalRotation);
-            if (vrHeadTrackingActive)
-            {
-                var cameraPose = runtimeCamera.transform;
-                vrRigRoot = new GameObject("VRStudyRig").transform;
-                vrRigRoot.position = new Vector3(cameraPose.position.x, 0f, cameraPose.position.z);
-                vrRigRoot.rotation = Quaternion.Euler(0f, cameraPose.rotation.eulerAngles.y, 0f);
-                runtimeCamera.transform.SetParent(vrRigRoot, false);
-                runtimeCamera.transform.localPosition = NormalizeHeadLocalPosition(headLocalPosition);
-                runtimeCamera.transform.localRotation = headLocalRotation;
-            }
+            vrHeadTrackingActive = TryInitializeVrRig();
 
             BuildVrStudyPanel();
             BuildVrPointer();
             UpdateVrStudyPanelText();
             statusMessage = vrHeadTrackingActive
                 ? "VR study runtime ready. Use controller ray to inspect markers."
-                : "VR study mode is enabled, but no XR headset was detected. Desktop study controls remain active.";
+                : "VR study mode is enabled. Waiting for XR headset and controllers to become active.";
         }
 
         private void HandleVrStudyRuntime()
@@ -7951,8 +8029,14 @@ namespace MemPalaceLLM
 
         private void UpdateVrHeadPose()
         {
-            if (vrRigRoot == null || runtimeCamera == null)
+            if (runtimeCamera == null)
             {
+                return;
+            }
+
+            if (vrRigRoot == null && !TryInitializeVrRig())
+            {
+                vrHeadTrackingActive = false;
                 return;
             }
 
@@ -7961,6 +8045,10 @@ namespace MemPalaceLLM
                 runtimeCamera.transform.localPosition = NormalizeHeadLocalPosition(headLocalPosition);
                 runtimeCamera.transform.localRotation = headLocalRotation;
                 vrHeadTrackingActive = true;
+            }
+            else
+            {
+                vrHeadTrackingActive = false;
             }
         }
 
@@ -7972,7 +8060,7 @@ namespace MemPalaceLLM
             }
 
             var leftHand = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-            if (!leftHand.isValid || !leftHand.TryGetFeatureValue(CommonUsages.primary2DAxis, out var axis))
+            if (!leftHand.isValid || !leftHand.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out var axis))
             {
                 return;
             }
@@ -8004,32 +8092,37 @@ namespace MemPalaceLLM
             }
 
             var ray = BuildVrPointerRay(out var hasControllerRay);
-            var hitPoint = ray.origin + ray.direction * VrPointerDistance;
-            StudyInteractable pointedInteractable = null;
-
-            if (Physics.Raycast(ray, out var hit, VrPointerDistance))
-            {
-                hitPoint = hit.point;
-                pointedInteractable = hit.collider.GetComponent<StudyInteractable>();
-            }
+            var pointedInteractable = FindStudyInteractable(ray, VrPointerDistance, out var hitPoint);
 
             UpdateVrPointerVisual(ray.origin, hitPoint, pointedInteractable != null);
 
             var rightHand = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-            var selectPressed = GetXrButton(rightHand, CommonUsages.triggerButton);
-            var capturePressed = GetXrButton(rightHand, CommonUsages.primaryButton) || GetXrButton(rightHand, CommonUsages.gripButton);
-            if (!hasControllerRay)
-            {
-                selectPressed = false;
-                capturePressed = false;
-            }
+            var leftHand = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+            var triggerPressed =
+                GetXrButton(rightHand, XRCommonUsages.triggerButton) ||
+                GetXrAxisPressed(rightHand, XRCommonUsages.trigger) ||
+                GetXrButton(leftHand, XRCommonUsages.triggerButton) ||
+                GetXrAxisPressed(leftHand, XRCommonUsages.trigger);
+            var primaryPressed =
+                GetXrButton(rightHand, XRCommonUsages.primaryButton) ||
+                GetXrButton(leftHand, XRCommonUsages.primaryButton);
+            var gripPressed =
+                GetXrButton(rightHand, XRCommonUsages.gripButton) ||
+                GetXrAxisPressed(rightHand, XRCommonUsages.grip) ||
+                GetXrButton(leftHand, XRCommonUsages.gripButton) ||
+                GetXrAxisPressed(leftHand, XRCommonUsages.grip);
+            var selectPressed = triggerPressed || primaryPressed;
+            var capturePressed = primaryPressed || gripPressed;
 
             if (Time.unscaledTime < nextVrActionTime)
             {
                 return;
             }
 
-            if (selectPressed && pointedInteractable != null)
+            var pointingAtDifferentItem = pointedInteractable != null &&
+                                          (selectedStudyItem == null || !string.Equals(pointedInteractable.Data.word, selectedStudyItem.word, StringComparison.Ordinal));
+
+            if (selectPressed && pointedInteractable != null && (triggerPressed || pointingAtDifferentItem || !hasControllerRay))
             {
                 SelectStudyItem(pointedInteractable.Data, "VR controller ray selected mnemonic marker.");
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
@@ -8045,6 +8138,11 @@ namespace MemPalaceLLM
 
         private Ray BuildVrPointerRay(out bool hasControllerRay)
         {
+            if (vrRigRoot == null)
+            {
+                TryInitializeVrRig();
+            }
+
             if (TryGetXrNodePose(XRNode.RightHand, out var controllerPosition, out var controllerRotation))
             {
                 hasControllerRay = true;
@@ -8055,6 +8153,30 @@ namespace MemPalaceLLM
 
             hasControllerRay = false;
             return new Ray(runtimeCamera.transform.position, runtimeCamera.transform.forward);
+        }
+
+        private bool TryInitializeVrRig()
+        {
+            if (vrRigRoot != null || runtimeCamera == null)
+            {
+                return vrRigRoot != null;
+            }
+
+            if (!TryGetXrNodePose(XRNode.Head, out var headLocalPosition, out var headLocalRotation))
+            {
+                return false;
+            }
+
+            var cameraPose = runtimeCamera.transform;
+            vrRigRoot = new GameObject("VRStudyRig").transform;
+            vrRigRoot.position = new Vector3(cameraPose.position.x, 0f, cameraPose.position.z);
+            vrRigRoot.rotation = Quaternion.Euler(0f, cameraPose.rotation.eulerAngles.y, 0f);
+            runtimeCamera.transform.SetParent(vrRigRoot, false);
+            runtimeCamera.transform.localPosition = NormalizeHeadLocalPosition(headLocalPosition);
+            runtimeCamera.transform.localRotation = headLocalRotation;
+            vrHeadTrackingActive = true;
+            statusMessage = "XR headset detected. Controller ray and head tracking are active.";
+            return true;
         }
 
         private void BuildVrPointer()
@@ -8099,6 +8221,42 @@ namespace MemPalaceLLM
             }
         }
 
+        private static void SetObjectMaterial(GameObject target, Color color)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            var renderer = target.GetComponent<Renderer>();
+            if (renderer == null)
+            {
+                return;
+            }
+
+            var shader =
+                Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("Standard") ??
+                Shader.Find("Sprites/Default");
+            if (shader == null)
+            {
+                return;
+            }
+
+            var material = new Material(shader);
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
+
+            if (material.HasProperty("_Color"))
+            {
+                material.SetColor("_Color", color);
+            }
+
+            renderer.material = material;
+        }
+
         private void BuildVrStudyPanel()
         {
             vrWorldUiRoot = new GameObject("VRStudyWorldUI").transform;
@@ -8111,8 +8269,8 @@ namespace MemPalaceLLM
             canvas.sortingOrder = 5;
 
             var rect = panel.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(760f, 520f);
-            panel.transform.localScale = Vector3.one * 0.0019f;
+            rect.sizeDelta = new Vector2(760f, 760f);
+            panel.transform.localScale = Vector3.one * 0.00155f;
 
             var image = panel.AddComponent<Image>();
             image.color = new Color(0.05f, 0.07f, 0.10f, 0.88f);
@@ -8122,8 +8280,11 @@ namespace MemPalaceLLM
             vrMeaningText = CreateVrPanelText(panel.transform, "Meaning", 20, new Rect(26f, -152f, 708f, 44f), new Color(0.90f, 0.94f, 1f));
             vrAnchorText = CreateVrPanelText(panel.transform, "Anchor", 18, new Rect(26f, -198f, 708f, 36f), new Color(0.70f, 0.78f, 0.90f));
             vrCueText = CreateVrPanelText(panel.transform, "Cue", 18, new Rect(26f, -282f, 708f, 82f), new Color(0.94f, 0.96f, 1f));
-            vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -392f, 708f, 100f), new Color(0.94f, 0.96f, 1f));
-            vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -486f, 708f, 60f), new Color(0.95f, 0.86f, 0.48f));
+            vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -382f, 708f, 74f), new Color(0.94f, 0.96f, 1f));
+            vrPreviewHeaderText = CreateVrPanelText(panel.transform, "PreviewHeader", 20, new Rect(26f, -462f, 708f, 28f), Color.white);
+            vrPreviewImage = CreateVrPanelImage(panel.transform, "PreviewImage", new Rect(26f, -494f, 290f, 170f), new Color(0.14f, 0.16f, 0.20f, 0.98f));
+            vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 170f), new Color(0.84f, 0.88f, 0.94f));
+            vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -690f, 708f, 42f), new Color(0.95f, 0.86f, 0.48f));
 
             UpdateVrStudyPanelPose();
         }
@@ -8148,6 +8309,24 @@ namespace MemPalaceLLM
             textRect.anchoredPosition = new Vector2(rect.x, rect.y);
             textRect.sizeDelta = new Vector2(rect.width, rect.height);
             return text;
+        }
+
+        private RawImage CreateVrPanelImage(Transform parent, string name, Rect rect, Color color)
+        {
+            var imageObject = new GameObject(name);
+            imageObject.transform.SetParent(parent, false);
+
+            var image = imageObject.AddComponent<RawImage>();
+            image.texture = Texture2D.whiteTexture;
+            image.color = color;
+
+            var imageRect = imageObject.GetComponent<RectTransform>();
+            imageRect.anchorMin = new Vector2(0f, 1f);
+            imageRect.anchorMax = new Vector2(0f, 1f);
+            imageRect.pivot = new Vector2(0f, 1f);
+            imageRect.anchoredPosition = new Vector2(rect.x, rect.y);
+            imageRect.sizeDelta = new Vector2(rect.width, rect.height);
+            return image;
         }
 
         private void UpdateVrStudyPanelPose()
@@ -8179,26 +8358,66 @@ namespace MemPalaceLLM
             if (selectedStudyItem == null)
             {
                 vrTitleText.text = "Find a memory marker";
-                vrMeaningText.text = "Aim the controller ray at a floating marker and press trigger.";
-                vrAnchorText.text = "Desktop controls remain available in the Game view.";
-                vrCueText.text = "Scene to Imagine appears here after selection.";
-                vrStoryText.text = "Cue Story appears here after selection.";
+                vrMeaningText.text = "Aim the controller ray at a floating marker and press Trigger or A.";
+                vrAnchorText.text = "Detailed cue text appears only while the selected object stays in view.";
+                vrCueText.text = string.Empty;
+                vrStoryText.text = string.Empty;
+                vrPreviewHeaderText.text = string.Empty;
+                vrPreviewInfoText.text = string.Empty;
+                SetVrPanelPreview(vrPreviewImage, null);
                 vrActionText.text = vrHeadTrackingActive
-                    ? "Trigger: inspect marker    A / Grip: capture selected memory"
+                    ? "Trigger or A: inspect marker    A / Grip: capture selected memory"
                     : "No XR headset detected. Use desktop mouse and keyboard for now.";
                 return;
             }
 
             vrTitleText.text = selectedStudyItem.word;
-            vrMeaningText.text = selectedStudyItem.meaning + (string.IsNullOrWhiteSpace(selectedStudyItem.meaningJa) ? string.Empty : $" ({selectedStudyItem.meaningJa})");
+            vrMeaningText.text = GetDisplayMeaningText(selectedStudyItem);
             vrAnchorText.text = "Anchor: " + selectedStudyItem.anchorLabel;
             vrCueText.text = "Scene: " + (selectedStudyItem.visualCue ?? string.Empty);
             vrStoryText.text = "Story: " + (selectedStudyItem.mnemonic ?? string.Empty);
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
+            if (hasSnapshot && memorySnapshots.TryGetValue(selectedStudyItem.word, out var snapshotTexture) && snapshotTexture != null)
+            {
+                vrPreviewHeaderText.text = "Stored Snapshot";
+                vrPreviewInfoText.text = "This memory has already been captured. You can replace it with A / Grip.";
+                SetVrPanelPreview(vrPreviewImage, snapshotTexture);
+            }
+            else if (mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null)
+            {
+                vrPreviewHeaderText.text = "Generated Image Cue";
+                vrPreviewInfoText.text = "Look at this image, then press A / Grip to store it into the snapshot panel.";
+                SetVrPanelPreview(vrPreviewImage, cueTexture);
+            }
+            else
+            {
+                vrPreviewHeaderText.text = "Generated Image Cue";
+                vrPreviewInfoText.text = "No generated image is available for this item yet.";
+                SetVrPanelPreview(vrPreviewImage, null);
+            }
+
             vrActionText.text = hasSnapshot
                 ? "Snapshot stored. Press A / Grip to replace it with the current cue."
                 : "Press A / Grip to capture this memory for the image-choice tests.";
+        }
+
+        private static void SetVrPanelPreview(RawImage image, Texture texture)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            if (texture == null)
+            {
+                image.texture = Texture2D.whiteTexture;
+                image.color = new Color(0.14f, 0.16f, 0.20f, 0.98f);
+                return;
+            }
+
+            image.texture = texture;
+            image.color = Color.white;
         }
 
         private static bool TryGetXrNodePose(XRNode node, out Vector3 localPosition, out Quaternion localRotation)
@@ -8207,19 +8426,51 @@ namespace MemPalaceLLM
             localRotation = Quaternion.identity;
 
             var device = InputDevices.GetDeviceAtXRNode(node);
-            if (!device.isValid)
+            if (device.isValid)
             {
-                return false;
+                var hasPosition = device.TryGetFeatureValue(XRCommonUsages.devicePosition, out localPosition);
+                var hasRotation = device.TryGetFeatureValue(XRCommonUsages.deviceRotation, out localRotation);
+
+                if (node == XRNode.Head)
+                {
+                    hasPosition |= device.TryGetFeatureValue(XRCommonUsages.centerEyePosition, out localPosition);
+                    hasRotation |= device.TryGetFeatureValue(XRCommonUsages.centerEyeRotation, out localRotation);
+                }
+
+                if (hasPosition || hasRotation)
+                {
+                    return true;
+                }
             }
 
-            var hasPosition = device.TryGetFeatureValue(CommonUsages.devicePosition, out localPosition);
-            var hasRotation = device.TryGetFeatureValue(CommonUsages.deviceRotation, out localRotation);
-            return hasPosition || hasRotation;
+            var nodeStates = new List<XRNodeState>();
+            InputTracking.GetNodeStates(nodeStates);
+            for (var i = 0; i < nodeStates.Count; i++)
+            {
+                if (nodeStates[i].nodeType != node)
+                {
+                    continue;
+                }
+
+                var hasPosition = nodeStates[i].TryGetPosition(out localPosition);
+                var hasRotation = nodeStates[i].TryGetRotation(out localRotation);
+                if (hasPosition || hasRotation)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
-        private static bool GetXrButton(InputDevice device, InputFeatureUsage<bool> usage)
+        private static bool GetXrButton(XRInputDevice device, InputFeatureUsage<bool> usage)
         {
             return device.isValid && device.TryGetFeatureValue(usage, out var pressed) && pressed;
+        }
+
+        private static bool GetXrAxisPressed(XRInputDevice device, InputFeatureUsage<float> usage, float threshold = 0.6f)
+        {
+            return device.isValid && device.TryGetFeatureValue(usage, out var value) && value >= threshold;
         }
 
         private static Vector3 NormalizeHeadLocalPosition(Vector3 localPosition)
@@ -8240,8 +8491,82 @@ namespace MemPalaceLLM
             }
 
             selectedStudyItem = item;
+            studyDetailScroll = Vector2.zero;
             viewedWords.Add(selectedStudyItem.word);
             LogInteraction("inspect", selectedStudyItem.word, selectedStudyItem.anchorId, details);
+        }
+
+        private static StudyInteractable FindStudyInteractable(Ray ray, float maxDistance, out Vector3 hitPoint)
+        {
+            hitPoint = ray.origin + ray.direction * maxDistance;
+            var hits = Physics.RaycastAll(ray, maxDistance);
+            if (hits == null || hits.Length == 0)
+            {
+                return null;
+            }
+
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            hitPoint = hits[0].point;
+            for (var i = 0; i < hits.Length; i++)
+            {
+                var interactable = hits[i].collider.GetComponent<StudyInteractable>();
+                if (interactable == null)
+                {
+                    interactable = hits[i].collider.GetComponentInParent<StudyInteractable>();
+                }
+
+                if (interactable != null)
+                {
+                    hitPoint = hits[i].point;
+                    return interactable;
+                }
+            }
+
+            return null;
+        }
+
+        private void UpdateSelectedStudyItemVisibility()
+        {
+            if (selectedStudyItem == null)
+            {
+                return;
+            }
+
+            if (ShouldHideSelectedStudyItem())
+            {
+                selectedStudyItem = null;
+                studyDetailScroll = Vector2.zero;
+                nextVrActionTime = 0f;
+            }
+        }
+
+        private bool ShouldHideSelectedStudyItem()
+        {
+            if (runtimeCamera == null || selectedStudyItem == null)
+            {
+                return false;
+            }
+
+            if (!studyItemTargets.TryGetValue(selectedStudyItem.word, out var target) || target == null)
+            {
+                return false;
+            }
+
+            var targetPosition = target.position + Vector3.up * 0.08f;
+            var toTarget = targetPosition - runtimeCamera.transform.position;
+            if (toTarget.sqrMagnitude > StudyDetailMaxDistance * StudyDetailMaxDistance)
+            {
+                return true;
+            }
+
+            var distance = toTarget.magnitude;
+            if (distance < 0.001f)
+            {
+                return false;
+            }
+
+            var facingDot = Vector3.Dot(runtimeCamera.transform.forward.normalized, toTarget / distance);
+            return facingDot < StudyDetailFacingDotThreshold;
         }
 
         private void ResetCameraForStudy()
@@ -8366,13 +8691,10 @@ namespace MemPalaceLLM
             if (mouse.leftButton.wasPressedThisFrame && !IsPointerOverGui())
             {
                 var ray = runtimeCamera.ScreenPointToRay(mouse.position.ReadValue());
-                if (Physics.Raycast(ray, out var hit, 100f))
+                var interactable = FindStudyInteractable(ray, 100f, out _);
+                if (interactable != null)
                 {
-                    var interactable = hit.collider.GetComponent<StudyInteractable>();
-                    if (interactable != null)
-                    {
-                        SelectStudyItem(interactable.Data, "Clicked mnemonic object.");
-                    }
+                    SelectStudyItem(interactable.Data, "Clicked mnemonic object.");
                 }
             }
         }
@@ -9408,6 +9730,13 @@ namespace MemPalaceLLM
         private sealed class StableDiffusionTxt2ImgResponse
         {
             public string[] images;
+        }
+
+        [Serializable]
+        private sealed class StableDiffusionErrorResponse
+        {
+            public string error;
+            public string detail;
         }
     }
 
