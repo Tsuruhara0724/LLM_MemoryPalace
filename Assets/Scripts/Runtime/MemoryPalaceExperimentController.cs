@@ -128,6 +128,9 @@ namespace MemPalaceLLM
         private Text vrCueText;
         private Text vrStoryText;
         private Text vrActionText;
+        private Text vrPreviewHeaderText;
+        private RawImage vrPreviewImage;
+        private Text vrPreviewInfoText;
         private Font labelFont;
 
         private readonly List<Rect> guiBlockRects = new();
@@ -2027,7 +2030,7 @@ namespace MemPalaceLLM
             {
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{item.word}  -  {item.anchorLabel}", smallTitleStyle);
-                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
+                GUILayout.Label(item.meaning + (string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : $" ({item.meaningJa})"), mutedStyle);
                 DrawBilingualSection("Overlay Cue Scene / Image Scene", item.visualCue, item.visualCueJa, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
                 DrawBilingualSection("Cue Story / Memory Link", item.mnemonic, item.mnemonicJa, smallTitleStyle, labelStyle);
@@ -2085,7 +2088,7 @@ namespace MemPalaceLLM
                 var item = currentItems[i];
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{i + 1}. {item.word}", titleStyle);
-                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
+                GUILayout.Label(item.meaning + (string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : $" ({item.meaningJa})"), mutedStyle);
 
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("< Anchor", GUILayout.Width(100f), GUILayout.Height(28f)))
@@ -2225,7 +2228,7 @@ namespace MemPalaceLLM
 
                 GUILayout.Label("Selected Mnemonic", smallTitleStyle);
                 GUILayout.Label(selectedStudyItem.word, titleStyle);
-                GUILayout.Label(GetDisplayMeaningText(selectedStudyItem), mutedStyle);
+                GUILayout.Label(selectedStudyItem.meaning + (string.IsNullOrWhiteSpace(selectedStudyItem.meaningJa) ? string.Empty : $" ({selectedStudyItem.meaningJa})"), mutedStyle);
                 GUILayout.Label($"Anchor: {selectedStudyItem.anchorLabel}", mutedStyle);
                 GUILayout.Space(10);
                 DrawBilingualSection("Overlay Cue Scene / Image Scene", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa, smallTitleStyle, guideStyle);
@@ -2352,7 +2355,9 @@ namespace MemPalaceLLM
                         GUILayout.Space(8);
                         GUILayout.Label("Correct Word / 正解語彙", smallTitleStyle);
                         GUILayout.Label(answeredItem.word, labelStyle);
-                        GUILayout.Label(GetDisplayMeaningText(answeredItem), mutedStyle);
+                        GUILayout.Label(
+                            answeredItem.meaning + (string.IsNullOrWhiteSpace(answeredItem.meaningJa) ? string.Empty : $" ({answeredItem.meaningJa})"),
+                            mutedStyle);
                     }
                     GUILayout.EndVertical();
                 }
@@ -3321,24 +3326,6 @@ namespace MemPalaceLLM
             return string.IsNullOrWhiteSpace(item.meaningJa) ? "the target meaning" : item.meaningJa.Trim();
         }
 
-        private static string GetDisplayMeaningText(MnemonicItemData item)
-        {
-            if (item == null)
-            {
-                return string.Empty;
-            }
-
-            var english = string.IsNullOrWhiteSpace(item.meaning) ? string.Empty : item.meaning.Trim();
-            var japanese = string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : item.meaningJa.Trim();
-
-            if (!string.IsNullOrWhiteSpace(japanese))
-            {
-                return string.IsNullOrWhiteSpace(english) ? japanese : $"{japanese} ({english})";
-            }
-
-            return english;
-        }
-
         private bool ApplyMeaningFirstMnemonicGuardrails(MnemonicItemData item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.word))
@@ -4206,6 +4193,9 @@ namespace MemPalaceLLM
             vrCueText = null;
             vrStoryText = null;
             vrActionText = null;
+            vrPreviewHeaderText = null;
+            vrPreviewImage = null;
+            vrPreviewInfoText = null;
             vrHeadTrackingActive = false;
         }
 
@@ -8263,8 +8253,8 @@ namespace MemPalaceLLM
             canvas.sortingOrder = 5;
 
             var rect = panel.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(760f, 520f);
-            panel.transform.localScale = Vector3.one * 0.0019f;
+            rect.sizeDelta = new Vector2(760f, 760f);
+            panel.transform.localScale = Vector3.one * 0.00155f;
 
             var image = panel.AddComponent<Image>();
             image.color = new Color(0.05f, 0.07f, 0.10f, 0.88f);
@@ -8274,8 +8264,11 @@ namespace MemPalaceLLM
             vrMeaningText = CreateVrPanelText(panel.transform, "Meaning", 20, new Rect(26f, -152f, 708f, 44f), new Color(0.90f, 0.94f, 1f));
             vrAnchorText = CreateVrPanelText(panel.transform, "Anchor", 18, new Rect(26f, -198f, 708f, 36f), new Color(0.70f, 0.78f, 0.90f));
             vrCueText = CreateVrPanelText(panel.transform, "Cue", 18, new Rect(26f, -282f, 708f, 82f), new Color(0.94f, 0.96f, 1f));
-            vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -392f, 708f, 100f), new Color(0.94f, 0.96f, 1f));
-            vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -486f, 708f, 60f), new Color(0.95f, 0.86f, 0.48f));
+            vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -382f, 708f, 74f), new Color(0.94f, 0.96f, 1f));
+            vrPreviewHeaderText = CreateVrPanelText(panel.transform, "PreviewHeader", 20, new Rect(26f, -462f, 708f, 28f), Color.white);
+            vrPreviewImage = CreateVrPanelImage(panel.transform, "PreviewImage", new Rect(26f, -494f, 290f, 170f), new Color(0.14f, 0.16f, 0.20f, 0.98f));
+            vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 170f), new Color(0.84f, 0.88f, 0.94f));
+            vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -690f, 708f, 42f), new Color(0.95f, 0.86f, 0.48f));
 
             UpdateVrStudyPanelPose();
         }
@@ -8300,6 +8293,24 @@ namespace MemPalaceLLM
             textRect.anchoredPosition = new Vector2(rect.x, rect.y);
             textRect.sizeDelta = new Vector2(rect.width, rect.height);
             return text;
+        }
+
+        private RawImage CreateVrPanelImage(Transform parent, string name, Rect rect, Color color)
+        {
+            var imageObject = new GameObject(name);
+            imageObject.transform.SetParent(parent, false);
+
+            var image = imageObject.AddComponent<RawImage>();
+            image.texture = Texture2D.whiteTexture;
+            image.color = color;
+
+            var imageRect = imageObject.GetComponent<RectTransform>();
+            imageRect.anchorMin = new Vector2(0f, 1f);
+            imageRect.anchorMax = new Vector2(0f, 1f);
+            imageRect.pivot = new Vector2(0f, 1f);
+            imageRect.anchoredPosition = new Vector2(rect.x, rect.y);
+            imageRect.sizeDelta = new Vector2(rect.width, rect.height);
+            return image;
         }
 
         private void UpdateVrStudyPanelPose()
@@ -8335,6 +8346,9 @@ namespace MemPalaceLLM
                 vrAnchorText.text = "Detailed cue text appears only while the selected object stays in view.";
                 vrCueText.text = string.Empty;
                 vrStoryText.text = string.Empty;
+                vrPreviewHeaderText.text = string.Empty;
+                vrPreviewInfoText.text = string.Empty;
+                SetVrPanelPreview(vrPreviewImage, null);
                 vrActionText.text = vrHeadTrackingActive
                     ? "Trigger or A: inspect marker    A / Grip: capture selected memory"
                     : "No XR headset detected. Use desktop mouse and keyboard for now.";
@@ -8342,15 +8356,52 @@ namespace MemPalaceLLM
             }
 
             vrTitleText.text = selectedStudyItem.word;
-            vrMeaningText.text = GetDisplayMeaningText(selectedStudyItem);
+            vrMeaningText.text = selectedStudyItem.meaning + (string.IsNullOrWhiteSpace(selectedStudyItem.meaningJa) ? string.Empty : $" ({selectedStudyItem.meaningJa})");
             vrAnchorText.text = "Anchor: " + selectedStudyItem.anchorLabel;
             vrCueText.text = "Scene: " + (selectedStudyItem.visualCue ?? string.Empty);
             vrStoryText.text = "Story: " + (selectedStudyItem.mnemonic ?? string.Empty);
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
+            if (hasSnapshot && memorySnapshots.TryGetValue(selectedStudyItem.word, out var snapshotTexture) && snapshotTexture != null)
+            {
+                vrPreviewHeaderText.text = "Stored Snapshot";
+                vrPreviewInfoText.text = "This memory has already been captured. You can replace it with A / Grip.";
+                SetVrPanelPreview(vrPreviewImage, snapshotTexture);
+            }
+            else if (mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null)
+            {
+                vrPreviewHeaderText.text = "Generated Image Cue";
+                vrPreviewInfoText.text = "Look at this image, then press A / Grip to store it into the snapshot panel.";
+                SetVrPanelPreview(vrPreviewImage, cueTexture);
+            }
+            else
+            {
+                vrPreviewHeaderText.text = "Generated Image Cue";
+                vrPreviewInfoText.text = "No generated image is available for this item yet.";
+                SetVrPanelPreview(vrPreviewImage, null);
+            }
+
             vrActionText.text = hasSnapshot
                 ? "Snapshot stored. Press A / Grip to replace it with the current cue."
                 : "Press A / Grip to capture this memory for the image-choice tests.";
+        }
+
+        private static void SetVrPanelPreview(RawImage image, Texture texture)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            if (texture == null)
+            {
+                image.texture = Texture2D.whiteTexture;
+                image.color = new Color(0.14f, 0.16f, 0.20f, 0.98f);
+                return;
+            }
+
+            image.texture = texture;
+            image.color = Color.white;
         }
 
         private static bool TryGetXrNodePose(XRNode node, out Vector3 localPosition, out Quaternion localRotation)
