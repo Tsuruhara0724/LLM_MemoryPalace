@@ -21,12 +21,12 @@ namespace MemPalaceLLM
         private const float ContentTop = 86f;
         private const float BottomMargin = 18f;
         private const int MidTestTriggerCount = 3;
-        private const int RandomAdvancedWordCount = 8;
+        private const int RandomAdvancedWordCount = 4;
         private const string AdvancedPoolSetId = "advanced_pool";
         private const float BuilderAxisDragScale = 0.012f;
         private const float BuilderRotateDragScale = 0.45f;
         private const float BuilderScaleDragScale = 0.01f;
-        private const float VrDefaultHeadHeight = 1.62f;
+        private const float VrDefaultHeadHeight = 1.20f;
         private const float VrPointerDistance = 8f;
         private const float VrActionCooldownSeconds = 0.35f;
         private const float StudyDetailMaxDistance = 2.85f;
@@ -99,14 +99,14 @@ namespace MemPalaceLLM
 
         private static readonly FurnitureTemplate[] FurnitureTemplates =
         {
-            new("Desk", "desk", "Cube", "#7A5A3B", new Vector3(1.5f, 0.22f, 0.85f), 0.72f, 0.78f),
-            new("Chair", "chair", "Cube", "#5C6A7A", new Vector3(0.58f, 0.8f, 0.58f), 0.45f, 0.65f),
-            new("Shelf", "shelf", "Cube", "#8B6A3A", new Vector3(1.1f, 2.2f, 0.38f), 1.1f, 1.25f),
-            new("Table", "table", "Cube", "#8B6A3A", new Vector3(1.55f, 0.22f, 1.05f), 0.7f, 0.72f),
-            new("Sofa", "sofa", "Cube", "#6A5C72", new Vector3(2.0f, 0.9f, 0.85f), 0.55f, 0.85f),
-            new("Bed", "bed", "Cube", "#D8D6D0", new Vector3(2.4f, 0.45f, 1.65f), 0.45f, 0.62f),
-            new("Plant", "plant", "Cylinder", "#6F8F5D", new Vector3(0.55f, 1.2f, 0.55f), 0.68f, 0.88f),
-            new("Lamp", "lamp", "Sphere", "#FFD98A", new Vector3(0.42f, 0.42f, 0.42f), 1.25f, 0.0f)
+            new("Desk", "desk", "Cube", "#7A5A3B", new Vector3(0.84f, 0.15f, 0.48f), 0.48f, 0.64f),
+            new("Chair", "chair", "Cube", "#5C6A7A", new Vector3(0.31f, 0.54f, 0.31f), 0.30f, 0.48f),
+            new("Shelf", "shelf", "Cube", "#8B6A3A", new Vector3(0.60f, 1.48f, 0.22f), 0.74f, 0.92f),
+            new("Table", "table", "Cube", "#8B6A3A", new Vector3(0.88f, 0.15f, 0.60f), 0.46f, 0.58f),
+            new("Sofa", "sofa", "Cube", "#6A5C72", new Vector3(1.08f, 0.60f, 0.50f), 0.38f, 0.62f),
+            new("Bed", "bed", "Cube", "#D8D6D0", new Vector3(1.30f, 0.30f, 0.90f), 0.28f, 0.54f),
+            new("Plant", "plant", "Cylinder", "#6F8F5D", new Vector3(0.30f, 0.82f, 0.30f), 0.46f, 0.66f),
+            new("Lamp", "lamp", "Sphere", "#FFD98A", new Vector3(0.23f, 0.23f, 0.23f), 0.86f, 0.0f)
         };
 
         private DemoDataLibrary library;
@@ -131,6 +131,9 @@ namespace MemPalaceLLM
         private Text vrPreviewHeaderText;
         private RawImage vrPreviewImage;
         private Text vrPreviewInfoText;
+        private VrPanelButtonInteractable vrGenerateButton;
+        private VrPanelButtonInteractable vrCaptureButton;
+        private VrPanelButtonInteractable vrAdvanceButton;
         private Font labelFont;
 
         private readonly List<Rect> guiBlockRects = new();
@@ -1286,8 +1289,8 @@ namespace MemPalaceLLM
         {
             var shape = GuidedRoomShapeOptions[Mathf.Clamp(guidedRoomShapeIndex, 0, GuidedRoomShapeOptions.Length - 1)];
             var isLShape = string.Equals(shape, "L-Shape", StringComparison.OrdinalIgnoreCase);
-            var width = Mathf.Clamp((shape == "Square" ? 8.4f : isLShape ? 10.8f : 11.2f) + guidedRoomWidthAdjustment, 6.2f, 13.5f);
-            var depth = Mathf.Clamp((shape == "Square" ? 8.4f : isLShape ? 9.4f : 7.2f) + guidedRoomDepthAdjustment, 5.8f, 12.5f);
+            var width = Mathf.Clamp((shape == "Square" ? 5.6f : isLShape ? 7.0f : 7.4f) + guidedRoomWidthAdjustment, 4.4f, 9.2f);
+            var depth = Mathf.Clamp((shape == "Square" ? 5.6f : isLShape ? 6.1f : 5.1f) + guidedRoomDepthAdjustment, 4.2f, 8.8f);
             var halfWidth = width * 0.5f;
             var halfDepth = depth * 0.5f;
             var minX = -halfWidth;
@@ -1306,66 +1309,66 @@ namespace MemPalaceLLM
                 summary = BuildGuidedRoomSummary(shape),
                 overviewCamera = new CameraPoseDefinition
                 {
-                    position = new Vector3(width * 0.48f, 7.4f, -depth * 0.72f),
+                    position = new Vector3(width * 0.52f, 5.3f, -depth * 0.82f),
                     eulerAngles = new Vector3(58f, -34f, 0f)
                 },
                 studyCamera = new CameraPoseDefinition
                 {
-                    position = new Vector3(-halfWidth + 1.2f, 1.55f, -halfDepth + 1.1f),
+                    position = new Vector3(-halfWidth + 0.95f, 1.55f, -halfDepth + 0.95f),
                     eulerAngles = new Vector3(0f, 38f, 0f)
                 }
             };
 
-            var wallHeight = 1.35f;
+            var wallHeight = 1.05f;
             var wallY = wallHeight * 0.5f;
             var doorCenterX = 0f;
-            var doorGap = 1.5f;
+            var doorGap = 1.1f;
 
             if (isLShape)
             {
                 GetGuidedLShapeParameters(width, depth, out var sideArmWidth, out var backArmDepth, out var cutX, out var cutZ);
                 doorCenterX = minX + sideArmWidth * 0.5f;
 
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_side_arm", "L Floor Side Arm", "Cube", "#E7D9C1", new Vector3((minX + cutX) * 0.5f, 0f, 0f), new Vector3(sideArmWidth, 0.08f, depth), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_back_arm", "L Floor Back Arm", "Cube", "#E1C8AA", new Vector3((cutX + maxX) * 0.5f, 0f, (cutZ + maxZ) * 0.5f), new Vector3(maxX - cutX, 0.08f, backArmDepth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_side_arm", "L Floor Side Arm", "Cube", "#E7D9C1", new Vector3((minX + cutX) * 0.5f, 0f, 0f), new Vector3(sideArmWidth, 0.06f, depth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_back_arm", "L Floor Back Arm", "Cube", "#E1C8AA", new Vector3((cutX + maxX) * 0.5f, 0f, (cutZ + maxZ) * 0.5f), new Vector3(maxX - cutX, 0.06f, backArmDepth), Vector3.zero));
 
-                AddHorizontalGuidedPrimitive(room, "floor_border_front", "Floor Border", "#B98A58", minX, cutX, minZ, 0.055f, 0.08f, 0.08f);
-                AddHorizontalGuidedPrimitive(room, "floor_border_back", "Floor Border", "#B98A58", minX, maxX, maxZ, 0.055f, 0.08f, 0.08f);
-                AddVerticalGuidedPrimitive(room, "floor_border_left", "Floor Border", "#B98A58", minX, minZ, maxZ, 0.055f, 0.08f, 0.08f);
-                AddVerticalGuidedPrimitive(room, "floor_border_right_upper", "Floor Border", "#B98A58", maxX, cutZ, maxZ, 0.055f, 0.08f, 0.08f);
-                AddHorizontalGuidedPrimitive(room, "floor_border_inner_horizontal", "L Inner Floor Border", "#B98A58", cutX, maxX, cutZ, 0.055f, 0.08f, 0.08f);
-                AddVerticalGuidedPrimitive(room, "floor_border_inner_vertical", "L Inner Floor Border", "#B98A58", cutX, minZ, cutZ, 0.055f, 0.08f, 0.08f);
+                AddHorizontalGuidedPrimitive(room, "floor_border_front", "Floor Border", "#B98A58", minX, cutX, minZ, 0.042f, 0.06f, 0.06f);
+                AddHorizontalGuidedPrimitive(room, "floor_border_back", "Floor Border", "#B98A58", minX, maxX, maxZ, 0.042f, 0.06f, 0.06f);
+                AddVerticalGuidedPrimitive(room, "floor_border_left", "Floor Border", "#B98A58", minX, minZ, maxZ, 0.042f, 0.06f, 0.06f);
+                AddVerticalGuidedPrimitive(room, "floor_border_right_upper", "Floor Border", "#B98A58", maxX, cutZ, maxZ, 0.042f, 0.06f, 0.06f);
+                AddHorizontalGuidedPrimitive(room, "floor_border_inner_horizontal", "L Inner Floor Border", "#B98A58", cutX, maxX, cutZ, 0.042f, 0.06f, 0.06f);
+                AddVerticalGuidedPrimitive(room, "floor_border_inner_vertical", "L Inner Floor Border", "#B98A58", cutX, minZ, cutZ, 0.042f, 0.06f, 0.06f);
 
-                AddHorizontalGuidedPrimitive(room, "wall_back", "Back Wall", "#F3F0E8", minX, maxX, maxZ + 0.06f, wallY, wallHeight, 0.18f);
-                AddVerticalGuidedPrimitive(room, "wall_left", "Left Wall", "#F7F4EC", minX - 0.06f, minZ, maxZ, wallY, wallHeight, 0.18f);
-                AddVerticalGuidedPrimitive(room, "wall_right_upper", "Right Wall", "#F7F4EC", maxX + 0.06f, cutZ, maxZ, wallY, wallHeight, 0.18f);
-                AddHorizontalGuidedPrimitive(room, "wall_inner_horizontal", "L Shape Inner Wall", "#F7F4EC", cutX, maxX, cutZ - 0.06f, wallY, wallHeight, 0.18f);
-                AddVerticalGuidedPrimitive(room, "wall_inner_vertical", "L Shape Inner Wall", "#F7F4EC", cutX + 0.06f, minZ, cutZ, wallY, wallHeight, 0.18f);
+                AddHorizontalGuidedPrimitive(room, "wall_back", "Back Wall", "#F3F0E8", minX, maxX, maxZ + 0.04f, wallY, wallHeight, 0.12f);
+                AddVerticalGuidedPrimitive(room, "wall_left", "Left Wall", "#F7F4EC", minX - 0.04f, minZ, maxZ, wallY, wallHeight, 0.12f);
+                AddVerticalGuidedPrimitive(room, "wall_right_upper", "Right Wall", "#F7F4EC", maxX + 0.04f, cutZ, maxZ, wallY, wallHeight, 0.12f);
+                AddHorizontalGuidedPrimitive(room, "wall_inner_horizontal", "L Shape Inner Wall", "#F7F4EC", cutX, maxX, cutZ - 0.04f, wallY, wallHeight, 0.12f);
+                AddVerticalGuidedPrimitive(room, "wall_inner_vertical", "L Shape Inner Wall", "#F7F4EC", cutX + 0.04f, minZ, cutZ, wallY, wallHeight, 0.12f);
 
-                AddFrontWallWithDoor(room, minX, cutX, minZ - 0.06f, doorCenterX, doorGap, wallY, wallHeight);
+                AddFrontWallWithDoor(room, minX, cutX, minZ - 0.04f, doorCenterX, doorGap, wallY, wallHeight);
             }
             else
             {
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor", "Warm Wood Floor", "Cube", "#E7D9C1", Vector3.zero, new Vector3(width, 0.08f, depth), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_front", "Floor Border", "Cube", "#B98A58", new Vector3(0f, 0.055f, -halfDepth), new Vector3(width, 0.08f, 0.08f), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_back", "Floor Border", "Cube", "#B98A58", new Vector3(0f, 0.055f, halfDepth), new Vector3(width, 0.08f, 0.08f), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_left", "Floor Border", "Cube", "#B98A58", new Vector3(-halfWidth, 0.055f, 0f), new Vector3(0.08f, 0.08f, depth), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_right", "Floor Border", "Cube", "#B98A58", new Vector3(halfWidth, 0.055f, 0f), new Vector3(0.08f, 0.08f, depth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor", "Warm Wood Floor", "Cube", "#E7D9C1", Vector3.zero, new Vector3(width, 0.06f, depth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_front", "Floor Border", "Cube", "#B98A58", new Vector3(0f, 0.042f, -halfDepth), new Vector3(width, 0.06f, 0.06f), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_back", "Floor Border", "Cube", "#B98A58", new Vector3(0f, 0.042f, halfDepth), new Vector3(width, 0.06f, 0.06f), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_left", "Floor Border", "Cube", "#B98A58", new Vector3(-halfWidth, 0.042f, 0f), new Vector3(0.06f, 0.06f, depth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("floor_border_right", "Floor Border", "Cube", "#B98A58", new Vector3(halfWidth, 0.042f, 0f), new Vector3(0.06f, 0.06f, depth), Vector3.zero));
 
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("wall_back", "Back Wall", "Cube", "#F3F0E8", new Vector3(0f, wallY, halfDepth + 0.06f), new Vector3(width, wallHeight, 0.18f), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("wall_left", "Left Wall", "Cube", "#F7F4EC", new Vector3(-halfWidth - 0.06f, wallY, 0f), new Vector3(0.18f, wallHeight, depth), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("wall_right", "Right Wall", "Cube", "#F7F4EC", new Vector3(halfWidth + 0.06f, wallY, 0f), new Vector3(0.18f, wallHeight, depth), Vector3.zero));
-                AddFrontWallWithDoor(room, minX, maxX, minZ - 0.06f, doorCenterX, doorGap, wallY, wallHeight);
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("wall_back", "Back Wall", "Cube", "#F3F0E8", new Vector3(0f, wallY, halfDepth + 0.04f), new Vector3(width, wallHeight, 0.12f), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("wall_left", "Left Wall", "Cube", "#F7F4EC", new Vector3(-halfWidth - 0.04f, wallY, 0f), new Vector3(0.12f, wallHeight, depth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("wall_right", "Right Wall", "Cube", "#F7F4EC", new Vector3(halfWidth + 0.04f, wallY, 0f), new Vector3(0.12f, wallHeight, depth), Vector3.zero));
+                AddFrontWallWithDoor(room, minX, maxX, minZ - 0.04f, doorCenterX, doorGap, wallY, wallHeight);
             }
 
             if (guidedHasBathroom)
             {
-                var bathWidth = Mathf.Min(2.55f, isLShape ? width * 0.36f : width * 0.32f);
-                var bathDepth = Mathf.Min(2.35f, depth * 0.34f);
+                var bathWidth = Mathf.Min(1.85f, isLShape ? width * 0.34f : width * 0.30f);
+                var bathDepth = Mathf.Min(1.65f, depth * 0.30f);
                 var bathCenter = GetGuidedBathroomCenter(width, depth, bathWidth, bathDepth);
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("bath_tile_floor", "Bathroom Tile", "Cube", "#C7D7DF", bathCenter, new Vector3(bathWidth, 0.06f, bathDepth), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("bath_divider_back", "Bathroom Divider", "Cube", "#E8ECEF", new Vector3(bathCenter.x, wallY, bathCenter.z + bathDepth * 0.5f), new Vector3(bathWidth, wallHeight, 0.14f), Vector3.zero));
-                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("bath_divider_left", "Bathroom Divider", "Cube", "#E8ECEF", new Vector3(bathCenter.x - bathWidth * 0.5f, wallY, bathCenter.z), new Vector3(0.14f, wallHeight, bathDepth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("bath_tile_floor", "Bathroom Tile", "Cube", "#C7D7DF", bathCenter, new Vector3(bathWidth, 0.05f, bathDepth), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("bath_divider_back", "Bathroom Divider", "Cube", "#E8ECEF", new Vector3(bathCenter.x, wallY, bathCenter.z + bathDepth * 0.5f), new Vector3(bathWidth, wallHeight, 0.10f), Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive("bath_divider_left", "Bathroom Divider", "Cube", "#E8ECEF", new Vector3(bathCenter.x - bathWidth * 0.5f, wallY, bathCenter.z), new Vector3(0.10f, wallHeight, bathDepth), Vector3.zero));
             }
 
             AddDollhouseFloorZones(room, width, depth, isLShape);
@@ -1374,7 +1377,7 @@ namespace MemPalaceLLM
             AddDollhouseWindowsAndProps(room, width, depth, isLShape);
 
             var doorTemplate = BuildCustomFurnitureTemplate("Door");
-            room.anchors.Add(CreateGuidedAnchor(room, doorTemplate, new Vector3(doorCenterX, doorTemplate.DefaultY, -halfDepth + 0.08f), Vector3.zero));
+            room.anchors.Add(CreateGuidedAnchor(room, doorTemplate, new Vector3(doorCenterX, doorTemplate.DefaultY, -halfDepth + 0.06f), Vector3.zero));
             return room;
         }
 
@@ -1522,7 +1525,7 @@ namespace MemPalaceLLM
             var start = Mathf.Min(xMin, xMax);
             var end = Mathf.Max(xMin, xMax);
             var length = end - start;
-            if (length <= 0.08f)
+            if (length <= 0.06f)
             {
                 return;
             }
@@ -1552,7 +1555,7 @@ namespace MemPalaceLLM
             var start = Mathf.Min(zMin, zMax);
             var end = Mathf.Max(zMin, zMax);
             var length = end - start;
-            if (length <= 0.08f)
+            if (length <= 0.06f)
             {
                 return;
             }
@@ -1575,8 +1578,8 @@ namespace MemPalaceLLM
             out float cutX,
             out float cutZ)
         {
-            sideArmWidth = Mathf.Clamp(roomWidth * 0.46f, 3.0f, roomWidth - 2.7f);
-            backArmDepth = Mathf.Clamp(roomDepth * 0.58f, 3.0f, roomDepth - 2.1f);
+            sideArmWidth = Mathf.Clamp(roomWidth * 0.48f, 2.1f, roomWidth - 2.0f);
+            backArmDepth = Mathf.Clamp(roomDepth * 0.60f, 2.2f, roomDepth - 1.8f);
             cutX = -roomWidth * 0.5f + sideArmWidth;
             cutZ = roomDepth * 0.5f - backArmDepth;
         }
@@ -1598,14 +1601,14 @@ namespace MemPalaceLLM
                 doorX = -roomWidth * 0.5f + sideArmWidth * 0.5f;
             }
 
-            return new Vector3(doorX, doorTemplate.DefaultY, -roomDepth * 0.5f + 0.08f);
+            return new Vector3(doorX, doorTemplate.DefaultY, -roomDepth * 0.5f + 0.06f);
         }
 
         private Vector3 GetGuidedBathroomCenter(float roomWidth, float roomDepth, float bathWidth, float bathDepth)
         {
             var halfWidth = roomWidth * 0.5f;
             var halfDepth = roomDepth * 0.5f;
-            var margin = 0.22f;
+            var margin = 0.14f;
             var zone = Mathf.Clamp(guidedBathroomZoneIndex, 0, GuidedBathroomZones.Length - 1);
             var left = zone == 0 || zone == 2;
             var front = zone == 0 || zone == 1;
@@ -2030,7 +2033,7 @@ namespace MemPalaceLLM
             {
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{item.word}  -  {item.anchorLabel}", smallTitleStyle);
-                GUILayout.Label(item.meaning + (string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : $" ({item.meaningJa})"), mutedStyle);
+                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
                 DrawBilingualSection("Overlay Cue Scene / Image Scene", item.visualCue, item.visualCueJa, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
                 DrawBilingualSection("Cue Story / Memory Link", item.mnemonic, item.mnemonicJa, smallTitleStyle, labelStyle);
@@ -2088,7 +2091,7 @@ namespace MemPalaceLLM
                 var item = currentItems[i];
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{i + 1}. {item.word}", titleStyle);
-                GUILayout.Label(item.meaning + (string.IsNullOrWhiteSpace(item.meaningJa) ? string.Empty : $" ({item.meaningJa})"), mutedStyle);
+                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
 
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("< Anchor", GUILayout.Width(100f), GUILayout.Height(28f)))
@@ -2228,7 +2231,7 @@ namespace MemPalaceLLM
 
                 GUILayout.Label("Selected Mnemonic", smallTitleStyle);
                 GUILayout.Label(selectedStudyItem.word, titleStyle);
-                GUILayout.Label(selectedStudyItem.meaning + (string.IsNullOrWhiteSpace(selectedStudyItem.meaningJa) ? string.Empty : $" ({selectedStudyItem.meaningJa})"), mutedStyle);
+                GUILayout.Label(GetDisplayMeaningText(selectedStudyItem), mutedStyle);
                 GUILayout.Label($"Anchor: {selectedStudyItem.anchorLabel}", mutedStyle);
                 GUILayout.Space(10);
                 DrawBilingualSection("Overlay Cue Scene / Image Scene", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa, smallTitleStyle, guideStyle);
@@ -2356,7 +2359,7 @@ namespace MemPalaceLLM
                         GUILayout.Label("Correct Word / 正解語彙", smallTitleStyle);
                         GUILayout.Label(answeredItem.word, labelStyle);
                         GUILayout.Label(
-                            answeredItem.meaning + (string.IsNullOrWhiteSpace(answeredItem.meaningJa) ? string.Empty : $" ({answeredItem.meaningJa})"),
+                            GetDisplayMeaningText(answeredItem),
                             mutedStyle);
                     }
                     GUILayout.EndVertical();
@@ -3326,6 +3329,24 @@ namespace MemPalaceLLM
             return string.IsNullOrWhiteSpace(item.meaningJa) ? "the target meaning" : item.meaningJa.Trim();
         }
 
+        private string GetDisplayMeaningText(MnemonicItemData item)
+        {
+            if (item == null)
+            {
+                return "the target meaning";
+            }
+
+            var japanese = item.meaningJa?.Trim();
+            var english = item.meaning?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(japanese))
+            {
+                return string.IsNullOrWhiteSpace(english) ? japanese : $"{japanese} ({english})";
+            }
+
+            return string.IsNullOrWhiteSpace(english) ? "the target meaning" : english;
+        }
+
         private bool ApplyMeaningFirstMnemonicGuardrails(MnemonicItemData item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.word))
@@ -4196,6 +4217,9 @@ namespace MemPalaceLLM
             vrPreviewHeaderText = null;
             vrPreviewImage = null;
             vrPreviewInfoText = null;
+            vrGenerateButton = null;
+            vrCaptureButton = null;
+            vrAdvanceButton = null;
             vrHeadTrackingActive = false;
         }
 
@@ -5291,65 +5315,65 @@ namespace MemPalaceLLM
 
             if (ContainsAny(lower, "toilet", "wc", "\u9a6c\u6876", "\u99ac\u6876", "\u4fbf\u5668", "\u30c8\u30a4\u30ec"))
             {
-                return new FurnitureTemplate(label, "toilet", "Cylinder", "#E9ECEF", new Vector3(0.85f, 0.75f, 0.95f), 0.42f, 0.78f);
+                return new FurnitureTemplate(label, "toilet", "Cylinder", "#E9ECEF", new Vector3(0.52f, 0.50f, 0.56f), 0.29f, 0.58f);
             }
 
             if (ContainsAny(lower, "bath", "bathtub", "tub", "\u6d74\u69fd", "\u98a8\u5442"))
             {
-                return new FurnitureTemplate(label, "bathtub", "Cube", "#DDE7EF", new Vector3(1.7f, 0.55f, 0.95f), 0.35f, 0.72f);
+                return new FurnitureTemplate(label, "bathtub", "Cube", "#DDE7EF", new Vector3(0.94f, 0.38f, 0.54f), 0.24f, 0.54f);
             }
 
             if (ContainsAny(lower, "sink", "\u6d17\u9762", "\u6d41\u3057"))
             {
-                return new FurnitureTemplate(label, "sink", "Cube", "#C9D6E2", new Vector3(1.0f, 0.7f, 0.75f), 0.58f, 0.82f);
+                return new FurnitureTemplate(label, "sink", "Cube", "#C9D6E2", new Vector3(0.56f, 0.46f, 0.40f), 0.38f, 0.60f);
             }
 
             if (ContainsAny(lower, "fridge", "refrigerator", "\u51b7\u8535", "\u51b0\u7bb1"))
             {
-                return new FurnitureTemplate(label, "fridge", "Cube", "#D4D7DD", new Vector3(0.95f, 2.0f, 0.8f), 1.0f, 1.12f);
+                return new FurnitureTemplate(label, "fridge", "Cube", "#D4D7DD", new Vector3(0.56f, 1.34f, 0.44f), 0.67f, 0.84f);
             }
 
             if (ContainsAny(lower, "bookcase", "bookshelf", "book shelf"))
             {
-                return new FurnitureTemplate(label, "bookshelf", "Cube", "#8B6A3A", new Vector3(1.05f, 2.15f, 0.42f), 1.08f, 1.25f);
+                return new FurnitureTemplate(label, "bookshelf", "Cube", "#8B6A3A", new Vector3(0.60f, 1.46f, 0.23f), 0.73f, 0.92f);
             }
 
             if (ContainsAny(lower, "stove", "cooktop", "range", "hob"))
             {
-                return new FurnitureTemplate(label, "stove", "Cube", "#4D525A", new Vector3(1.15f, 0.82f, 0.85f), 0.48f, 0.92f);
+                return new FurnitureTemplate(label, "stove", "Cube", "#4D525A", new Vector3(0.64f, 0.56f, 0.46f), 0.33f, 0.66f);
             }
 
             if (ContainsAny(lower, "air conditioner", "aircon", "air conditioning", "ac unit", "a/c"))
             {
-                return new FurnitureTemplate(label, "air_conditioner", "Cube", "#E6ECEF", new Vector3(1.35f, 0.42f, 0.22f), 2.25f, 0.55f);
+                return new FurnitureTemplate(label, "air_conditioner", "Cube", "#E6ECEF", new Vector3(0.74f, 0.28f, 0.10f), 1.62f, 0.40f);
             }
 
             if (ContainsAny(lower, "television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"))
             {
-                return new FurnitureTemplate(label, "television", "Cube", "#252A32", new Vector3(1.45f, 0.9f, 0.22f), 0.75f, 1.02f);
+                return new FurnitureTemplate(label, "television", "Cube", "#252A32", new Vector3(0.82f, 0.60f, 0.10f), 0.50f, 0.72f);
             }
 
             if (ContainsAny(lower, "computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"))
             {
-                return new FurnitureTemplate(label, "computer", "Cube", "#303845", new Vector3(1.15f, 0.85f, 0.65f), 0.55f, 0.95f);
+                return new FurnitureTemplate(label, "computer", "Cube", "#303845", new Vector3(0.64f, 0.56f, 0.34f), 0.36f, 0.66f);
             }
 
             if (ContainsAny(lower, "door", "\u30c9\u30a2", "\u95e8", "\u9580"))
             {
-                return new FurnitureTemplate(label, "door", "Cube", "#7B5032", new Vector3(1.15f, 2.35f, 0.12f), 1.2f, 0.2f);
+                return new FurnitureTemplate(label, "door", "Cube", "#7B5032", new Vector3(0.62f, 1.56f, 0.035f), 0.78f, 0.16f);
             }
 
             if (ContainsAny(lower, "window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"))
             {
-                return new FurnitureTemplate(label, "window", "Cube", "#779CCB", new Vector3(1.7f, 1.15f, 0.1f), 1.7f, 0.55f);
+                return new FurnitureTemplate(label, "window", "Cube", "#779CCB", new Vector3(0.68f, 0.52f, 0.024f), 1.12f, 0.30f);
             }
 
             if (ContainsAny(lower, "wardrobe", "closet", "cabinet", "\u8863\u67dc", "\u30af\u30ed\u30fc\u30bc\u30c3\u30c8"))
             {
-                return new FurnitureTemplate(label, "cabinet", "Cube", "#7E6B55", new Vector3(1.2f, 2.0f, 0.55f), 1.0f, 1.15f);
+                return new FurnitureTemplate(label, "cabinet", "Cube", "#7E6B55", new Vector3(0.68f, 1.34f, 0.30f), 0.67f, 0.84f);
             }
 
-            return new FurnitureTemplate(label, SanitizeIdPrefix(label), "Cube", "#8B7A65", new Vector3(1.0f, 0.85f, 0.8f), 0.55f, 0.82f);
+            return new FurnitureTemplate(label, SanitizeIdPrefix(label), "Cube", "#8B7A65", new Vector3(0.56f, 0.56f, 0.44f), 0.36f, 0.60f);
         }
 
         private List<VisualObjectSpec> CloneVisualObjectSpecs(IEnumerable<VisualObjectSpec> source)
@@ -5395,10 +5419,10 @@ namespace MemPalaceLLM
                 forward = Vector3.forward;
             }
 
-            var position = runtimeCamera.transform.position + forward.normalized * 2.4f;
-            position.x = Mathf.Clamp(position.x, -5.2f, 5.2f);
+            var position = runtimeCamera.transform.position + forward.normalized * 1.85f;
+            position.x = Mathf.Clamp(position.x, -4.0f, 4.0f);
             position.y = defaultY;
-            position.z = Mathf.Clamp(position.z, -5.2f, 5.2f);
+            position.z = Mathf.Clamp(position.z, -4.0f, 4.0f);
             return position;
         }
 
@@ -5474,13 +5498,13 @@ namespace MemPalaceLLM
 
         private void AddFloorPatchPrimitive()
         {
-            AddRoomShellPrimitive("Floor Patch", "Cube", "#E7D9C1", new Vector3(0f, 0f, 0f), new Vector3(2.2f, 0.08f, 2.2f));
+            AddRoomShellPrimitive("Floor Patch", "Cube", "#E7D9C1", new Vector3(0f, 0f, 0f), new Vector3(1.4f, 0.06f, 1.4f));
             BeginFloorPatchPlacement(selectedRoomPrimitiveIndex, true);
         }
 
         private void AddWallSegmentPrimitive()
         {
-            AddRoomShellPrimitive("Wall Segment", "Cube", "#F7F4EC", new Vector3(0f, 0.82f, 0f), new Vector3(2.2f, 1.65f, 0.12f));
+            AddRoomShellPrimitive("Wall Segment", "Cube", "#F7F4EC", new Vector3(0f, 0.60f, 0f), new Vector3(1.4f, 1.20f, 0.09f));
             BeginWallSegmentPlacement(selectedRoomPrimitiveIndex, true);
         }
 
@@ -6976,6 +7000,7 @@ namespace MemPalaceLLM
             root.transform.position = anchor.position;
             root.transform.rotation = Quaternion.Euler(anchor.rotationEuler);
             root.transform.localScale = GetFurnitureRenderScale(anchor);
+            root.transform.localScale = GetFurnitureRenderScale(anchor);
 
             var label = ((anchor.label ?? string.Empty) + " " + (anchor.id ?? string.Empty)).ToLowerInvariant();
             var color = selected
@@ -7196,15 +7221,21 @@ namespace MemPalaceLLM
             }
             else if (ContainsAny(label, "door", "\u30c9\u30a2", "\u95e8", "\u9580"))
             {
-                AddFurniturePart(root.transform, "Panel", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Knob", PrimitiveType.Sphere, new Vector3(0.38f, 0f, -0.55f), new Vector3(0.12f, 0.12f, 0.12f), new Color(0.86f, 0.70f, 0.38f), editable, editableIndex);
+                AddFurniturePart(root.transform, "Panel", PrimitiveType.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.92f, 1.0f, 0.58f), color, editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameTop", PrimitiveType.Cube, new Vector3(0f, 0.48f, 0f), new Vector3(1.0f, 0.06f, 0.76f), Color.Lerp(color, Color.black, 0.14f), editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameLeft", PrimitiveType.Cube, new Vector3(-0.46f, 0f, 0f), new Vector3(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f), editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameRight", PrimitiveType.Cube, new Vector3(0.46f, 0f, 0f), new Vector3(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f), editable, editableIndex);
+                AddFurniturePart(root.transform, "Knob", PrimitiveType.Sphere, new Vector3(0.34f, -0.02f, -0.34f), new Vector3(0.10f, 0.10f, 0.10f), new Color(0.86f, 0.70f, 0.38f), editable, editableIndex);
             }
             else if (ContainsAny(label, "window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"))
             {
-                AddFurniturePart(root.transform, "Glass", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameH", PrimitiveType.Cube, new Vector3(0f, 0f, -0.06f), new Vector3(1.0f, 0.08f, 0.08f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameV", PrimitiveType.Cube, new Vector3(0f, 0f, -0.07f), new Vector3(0.08f, 1.0f, 0.08f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "Sill", PrimitiveType.Cube, new Vector3(0f, -0.56f, -0.06f), new Vector3(1.08f, 0.08f, 0.22f), new Color(0.72f, 0.68f, 0.58f), editable, editableIndex);
+                AddFurniturePart(root.transform, "Glass", PrimitiveType.Cube, Vector3.zero, new Vector3(0.84f, 0.78f, 0.28f), new Color(0.60f, 0.76f, 0.92f, 0.72f), editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameTop", PrimitiveType.Cube, new Vector3(0f, 0.39f, 0f), new Vector3(0.94f, 0.055f, 0.46f), Color.white, editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameBottom", PrimitiveType.Cube, new Vector3(0f, -0.39f, 0f), new Vector3(0.94f, 0.055f, 0.46f), Color.white, editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameLeft", PrimitiveType.Cube, new Vector3(-0.44f, 0f, 0f), new Vector3(0.055f, 0.84f, 0.46f), Color.white, editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameRight", PrimitiveType.Cube, new Vector3(0.44f, 0f, 0f), new Vector3(0.055f, 0.84f, 0.46f), Color.white, editable, editableIndex);
+                AddFurniturePart(root.transform, "FrameMid", PrimitiveType.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.045f, 0.78f, 0.42f), Color.white, editable, editableIndex);
+                AddFurniturePart(root.transform, "Sill", PrimitiveType.Cube, new Vector3(0f, -0.46f, 0f), new Vector3(0.96f, 0.07f, 0.64f), new Color(0.72f, 0.68f, 0.58f), editable, editableIndex);
             }
             else
             {
@@ -7300,75 +7331,16 @@ namespace MemPalaceLLM
                 return Vector3.one;
             }
 
-            var label = ((anchor.label ?? string.Empty) + " " + (anchor.id ?? string.Empty)).ToLowerInvariant();
             var scale = anchor.scale;
-
-            if (ContainsAny(label, "door", "\u30c9\u30a2", "\u95e8", "\u9580"))
+            if (scale == default)
             {
-                return new Vector3(Mathf.Max(scale.x, 0.95f), Mathf.Max(scale.y, 2.0f), Mathf.Max(scale.z, 0.08f));
+                return new Vector3(0.5f, 0.5f, 0.5f);
             }
 
-            if (ContainsAny(label, "window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.35f), Mathf.Max(scale.y, 0.95f), Mathf.Max(scale.z, 0.08f));
-            }
-
-            if (ContainsAny(label, "toilet", "wc", "\u9a6c\u6876", "\u99ac\u6876", "\u4fbf\u5668", "\u30c8\u30a4\u30ec"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 0.8f), Mathf.Max(scale.y, 0.75f), Mathf.Max(scale.z, 0.9f));
-            }
-
-            if (ContainsAny(label, "sink", "\u6d17\u9762", "\u6d41\u3057"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.0f), Mathf.Max(scale.y, 0.85f), Mathf.Max(scale.z, 0.7f));
-            }
-
-            if (ContainsAny(label, "television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.25f), Mathf.Max(scale.y, 0.85f), Mathf.Max(scale.z, 0.22f));
-            }
-
-            if (ContainsAny(label, "computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.05f), Mathf.Max(scale.y, 0.75f), Mathf.Max(scale.z, 0.60f));
-            }
-
-            if (ContainsAny(label, "air conditioner", "aircon", "air conditioning", "ac unit", "a/c"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.15f), Mathf.Max(scale.y, 0.35f), Mathf.Max(scale.z, 0.18f));
-            }
-
-            if (ContainsAny(label, "stove", "cooktop", "range", "hob"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 0.95f), Mathf.Max(scale.y, 0.72f), Mathf.Max(scale.z, 0.72f));
-            }
-
-            if (ContainsAny(label, "bath", "bathtub", "tub", "\u6d74\u69fd", "\u98a8\u5442"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.65f), Mathf.Max(scale.y, 0.55f), Mathf.Max(scale.z, 0.9f));
-            }
-
-            if (ContainsAny(label, "bed", "\u30d9\u30c3\u30c9", "\u5e8a"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.9f), Mathf.Max(scale.y, 0.55f), Mathf.Max(scale.z, 1.35f));
-            }
-
-            if (ContainsAny(label, "sofa", "couch", "\u30bd\u30d5\u30a1"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.55f), Mathf.Max(scale.y, 0.75f), Mathf.Max(scale.z, 0.8f));
-            }
-
-            if (ContainsAny(label, "table", "desk", "counter", "\u673a", "\u30c6\u30fc\u30d6\u30eb", "\u30ab\u30a6\u30f3\u30bf\u30fc"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 1.25f), Mathf.Max(scale.y, 0.75f), Mathf.Max(scale.z, 0.75f));
-            }
-
-            if (ContainsAny(label, "chair", "\u6905\u5b50", "\u30a4\u30b9"))
-            {
-                return new Vector3(Mathf.Max(scale.x, 0.65f), Mathf.Max(scale.y, 0.85f), Mathf.Max(scale.z, 0.65f));
-            }
-
-            return new Vector3(Mathf.Max(scale.x, 0.55f), Mathf.Max(scale.y, 0.55f), Mathf.Max(scale.z, 0.55f));
+            return new Vector3(
+                Mathf.Clamp(scale.x, 0.03f, 4f),
+                Mathf.Clamp(scale.y, 0.03f, 4f),
+                Mathf.Clamp(scale.z, 0.02f, 4f));
         }
 
         private void CreatePlacementGhost(AnchorDefinition anchor, Transform parent)
@@ -8076,9 +8048,18 @@ namespace MemPalaceLLM
             }
 
             var ray = BuildVrPointerRay(out var hasControllerRay);
-            var pointedInteractable = FindStudyInteractable(ray, VrPointerDistance, out var hitPoint);
+            var pointedInteractable = FindStudyInteractable(ray, VrPointerDistance, out var itemHitPoint);
+            var pointedButton = FindVrPanelButton(ray, VrPointerDistance, out var buttonHitPoint);
 
-            UpdateVrPointerVisual(ray.origin, hitPoint, pointedInteractable != null);
+            var itemDistance = pointedInteractable != null ? Vector3.Distance(ray.origin, itemHitPoint) : float.PositiveInfinity;
+            var buttonDistance = pointedButton != null ? Vector3.Distance(ray.origin, buttonHitPoint) : float.PositiveInfinity;
+            var buttonHasPriority = pointedButton != null && buttonDistance <= itemDistance;
+            var finalHitPoint = buttonHasPriority
+                ? buttonHitPoint
+                : (pointedInteractable != null ? itemHitPoint : ray.origin + ray.direction * VrPointerDistance);
+
+            UpdateVrPointerVisual(ray.origin, finalHitPoint, pointedInteractable != null || pointedButton != null);
+            UpdateVrPanelButtonHighlight(pointedButton);
 
             var rightHand = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
             var leftHand = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
@@ -8103,6 +8084,13 @@ namespace MemPalaceLLM
                 return;
             }
 
+            if (selectPressed && buttonHasPriority && pointedButton != null)
+            {
+                HandleVrPanelButtonPress(pointedButton);
+                nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
+                return;
+            }
+
             var pointingAtDifferentItem = pointedInteractable != null &&
                                           (selectedStudyItem == null || !string.Equals(pointedInteractable.Data.word, selectedStudyItem.word, StringComparison.Ordinal));
 
@@ -8118,6 +8106,75 @@ namespace MemPalaceLLM
                 StartCoroutine(CaptureMemorySnapshotRoutine(selectedStudyItem));
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
             }
+        }
+
+        private void HandleVrPanelButtonPress(VrPanelButtonInteractable button)
+        {
+            if (button == null || !button.Enabled)
+            {
+                return;
+            }
+
+            switch (button.Action)
+            {
+                case VrPanelButtonAction.GenerateImageCue:
+                    if (selectedStudyItem == null)
+                    {
+                        return;
+                    }
+                    if (!generatingImageCueWords.Contains(selectedStudyItem.word))
+                    {
+                        StartCoroutine(GenerateMnemonicImageCueRoutine(selectedStudyItem));
+                    }
+                    break;
+
+                case VrPanelButtonAction.CaptureSnapshot:
+                    if (selectedStudyItem == null)
+                    {
+                        return;
+                    }
+                    if (!isCapturingSnapshot)
+                    {
+                        StartCoroutine(CaptureMemorySnapshotRoutine(selectedStudyItem));
+                    }
+                    break;
+
+                case VrPanelButtonAction.AdvancePhase:
+                    if (!midTestCompleted && memorizedWords.Count >= MidTestTriggerCount)
+                    {
+                        BeginSnapshotTest(false);
+                    }
+                    else if (midTestCompleted && !finalTestCompleted && memorizedWords.Count == currentItems.Count && currentItems.Count >= MidTestTriggerCount)
+                    {
+                        BeginSnapshotTest(true);
+                    }
+                    break;
+            }
+        }
+
+        private void UpdateVrPanelButtonHighlight(VrPanelButtonInteractable hoveredButton)
+        {
+            UpdateVrPanelButtonVisual(vrGenerateButton, hoveredButton == vrGenerateButton);
+            UpdateVrPanelButtonVisual(vrCaptureButton, hoveredButton == vrCaptureButton);
+            UpdateVrPanelButtonVisual(vrAdvanceButton, hoveredButton == vrAdvanceButton);
+        }
+
+        private static void UpdateVrPanelButtonVisual(VrPanelButtonInteractable button, bool hovered)
+        {
+            if (button == null || button.Background == null)
+            {
+                return;
+            }
+
+            if (!button.Enabled)
+            {
+                button.Background.color = new Color(0.11f, 0.14f, 0.18f, 0.85f);
+                return;
+            }
+
+            button.Background.color = hovered
+                ? new Color(0.30f, 0.38f, 0.48f, 0.98f)
+                : new Color(0.18f, 0.22f, 0.28f, 0.96f);
         }
 
         private Ray BuildVrPointerRay(out bool hasControllerRay)
@@ -8152,11 +8209,15 @@ namespace MemPalaceLLM
             }
 
             var cameraPose = runtimeCamera.transform;
+            var normalizedHeadLocalPosition = NormalizeHeadLocalPosition(headLocalPosition);
             vrRigRoot = new GameObject("VRStudyRig").transform;
-            vrRigRoot.position = new Vector3(cameraPose.position.x, 0f, cameraPose.position.z);
+            vrRigRoot.position = new Vector3(
+                cameraPose.position.x,
+                cameraPose.position.y - normalizedHeadLocalPosition.y + 0.16f,
+                cameraPose.position.z);
             vrRigRoot.rotation = Quaternion.Euler(0f, cameraPose.rotation.eulerAngles.y, 0f);
             runtimeCamera.transform.SetParent(vrRigRoot, false);
-            runtimeCamera.transform.localPosition = NormalizeHeadLocalPosition(headLocalPosition);
+            runtimeCamera.transform.localPosition = normalizedHeadLocalPosition;
             runtimeCamera.transform.localRotation = headLocalRotation;
             vrHeadTrackingActive = true;
             statusMessage = "XR headset detected. Controller ray and head tracking are active.";
@@ -8267,8 +8328,11 @@ namespace MemPalaceLLM
             vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -382f, 708f, 74f), new Color(0.94f, 0.96f, 1f));
             vrPreviewHeaderText = CreateVrPanelText(panel.transform, "PreviewHeader", 20, new Rect(26f, -462f, 708f, 28f), Color.white);
             vrPreviewImage = CreateVrPanelImage(panel.transform, "PreviewImage", new Rect(26f, -494f, 290f, 170f), new Color(0.14f, 0.16f, 0.20f, 0.98f));
-            vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 170f), new Color(0.84f, 0.88f, 0.94f));
-            vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -690f, 708f, 42f), new Color(0.95f, 0.86f, 0.48f));
+            vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 132f), new Color(0.84f, 0.88f, 0.94f));
+            vrGenerateButton = CreateVrPanelButton(panel.transform, "GenerateButton", "Generate Image Cue", new Rect(336f, -634f, 398f, 42f), VrPanelButtonAction.GenerateImageCue);
+            vrCaptureButton = CreateVrPanelButton(panel.transform, "CaptureButton", "Capture Memory Snapshot", new Rect(26f, -634f, 290f, 42f), VrPanelButtonAction.CaptureSnapshot);
+            vrAdvanceButton = null;
+            vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -684f, 708f, 24f), new Color(0.95f, 0.86f, 0.48f));
 
             UpdateVrStudyPanelPose();
         }
@@ -8313,6 +8377,49 @@ namespace MemPalaceLLM
             return image;
         }
 
+        private VrPanelButtonInteractable CreateVrPanelButton(Transform parent, string name, string label, Rect rect, VrPanelButtonAction action)
+        {
+            var buttonObject = new GameObject(name);
+            buttonObject.transform.SetParent(parent, false);
+
+            var buttonImage = buttonObject.AddComponent<Image>();
+            buttonImage.color = new Color(0.18f, 0.22f, 0.28f, 0.96f);
+
+            var buttonRect = buttonObject.GetComponent<RectTransform>();
+            buttonRect.anchorMin = new Vector2(0f, 1f);
+            buttonRect.anchorMax = new Vector2(0f, 1f);
+            buttonRect.pivot = new Vector2(0f, 1f);
+            buttonRect.anchoredPosition = new Vector2(rect.x, rect.y);
+            buttonRect.sizeDelta = new Vector2(rect.width, rect.height);
+
+            var labelObject = new GameObject("Label");
+            labelObject.transform.SetParent(buttonObject.transform, false);
+            var labelText = labelObject.AddComponent<Text>();
+            labelText.font = GetLabelFont();
+            labelText.fontSize = 17;
+            labelText.color = Color.white;
+            labelText.alignment = TextAnchor.MiddleCenter;
+            labelText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            labelText.verticalOverflow = VerticalWrapMode.Truncate;
+            labelText.text = label;
+
+            var labelRect = labelObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = new Vector2(10f, 6f);
+            labelRect.offsetMax = new Vector2(-10f, -6f);
+
+            var collider = buttonObject.AddComponent<BoxCollider>();
+            collider.center = new Vector3(rect.width * 0.5f, -rect.height * 0.5f, 0f);
+            collider.size = new Vector3(rect.width, rect.height, 18f);
+
+            var interactable = buttonObject.AddComponent<VrPanelButtonInteractable>();
+            interactable.Action = action;
+            interactable.Background = buttonImage;
+            interactable.Label = labelText;
+            return interactable;
+        }
+
         private void UpdateVrStudyPanelPose()
         {
             if (vrWorldUiRoot == null || runtimeCamera == null)
@@ -8349,26 +8456,30 @@ namespace MemPalaceLLM
                 vrPreviewHeaderText.text = string.Empty;
                 vrPreviewInfoText.text = string.Empty;
                 SetVrPanelPreview(vrPreviewImage, null);
+                SetVrButtonState(vrGenerateButton, false, "Generate Image Cue");
+                SetVrButtonState(vrCaptureButton, false, "Capture Memory Snapshot");
                 vrActionText.text = vrHeadTrackingActive
-                    ? "Trigger or A: inspect marker    A / Grip: capture selected memory"
+                    ? "Trigger or A: inspect marker"
                     : "No XR headset detected. Use desktop mouse and keyboard for now.";
                 return;
             }
 
             vrTitleText.text = selectedStudyItem.word;
-            vrMeaningText.text = selectedStudyItem.meaning + (string.IsNullOrWhiteSpace(selectedStudyItem.meaningJa) ? string.Empty : $" ({selectedStudyItem.meaningJa})");
+            vrMeaningText.text = GetDisplayMeaningText(selectedStudyItem);
             vrAnchorText.text = "Anchor: " + selectedStudyItem.anchorLabel;
-            vrCueText.text = "Scene: " + (selectedStudyItem.visualCue ?? string.Empty);
-            vrStoryText.text = "Story: " + (selectedStudyItem.mnemonic ?? string.Empty);
+            vrCueText.text = BuildVrBilingualSectionText("Scene", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa);
+            vrStoryText.text = BuildVrBilingualSectionText("Story", selectedStudyItem.mnemonic, selectedStudyItem.mnemonicJa);
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
+            var hasGeneratedCue = mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null;
+            var isGeneratingCue = generatingImageCueWords.Contains(selectedStudyItem.word);
             if (hasSnapshot && memorySnapshots.TryGetValue(selectedStudyItem.word, out var snapshotTexture) && snapshotTexture != null)
             {
                 vrPreviewHeaderText.text = "Stored Snapshot";
                 vrPreviewInfoText.text = "This memory has already been captured. You can replace it with A / Grip.";
                 SetVrPanelPreview(vrPreviewImage, snapshotTexture);
             }
-            else if (mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null)
+            else if (hasGeneratedCue)
             {
                 vrPreviewHeaderText.text = "Generated Image Cue";
                 vrPreviewInfoText.text = "Look at this image, then press A / Grip to store it into the snapshot panel.";
@@ -8377,13 +8488,95 @@ namespace MemPalaceLLM
             else
             {
                 vrPreviewHeaderText.text = "Generated Image Cue";
-                vrPreviewInfoText.text = "No generated image is available for this item yet.";
+                vrPreviewInfoText.text = isGeneratingCue
+                    ? "Generating image for this item..."
+                    : "No generated image is available for this item yet.";
                 SetVrPanelPreview(vrPreviewImage, null);
             }
 
+            SetVrButtonState(
+                vrGenerateButton,
+                !isGeneratingCue,
+                isGeneratingCue
+                    ? "Generating Image Cue..."
+                    : hasGeneratedCue
+                        ? "Regenerate Image Cue"
+                        : "Generate Image Cue");
+
+            SetVrButtonState(
+                vrCaptureButton,
+                !isCapturingSnapshot,
+                hasSnapshot ? "Replace Stored Snapshot" : "Capture Memory Snapshot");
+
             vrActionText.text = hasSnapshot
-                ? "Snapshot stored. Press A / Grip to replace it with the current cue."
-                : "Press A / Grip to capture this memory for the image-choice tests.";
+                ? "Use the button or press A / Grip to replace the stored snapshot."
+                : "Use the buttons or press A / Grip to capture this memory.";
+        }
+
+        private void UpdateVrAdvanceButton()
+        {
+            if (vrAdvanceButton == null)
+            {
+                return;
+            }
+
+            if (!midTestCompleted)
+            {
+                var ready = memorizedWords.Count >= MidTestTriggerCount;
+                SetVrButtonState(vrAdvanceButton, ready, ready ? "Start Mid Test" : GetStudyProgressHint());
+                return;
+            }
+
+            if (!finalTestCompleted)
+            {
+                var ready = memorizedWords.Count == currentItems.Count && currentItems.Count >= MidTestTriggerCount;
+                SetVrButtonState(vrAdvanceButton, ready, ready ? "Start Final Test" : GetStudyProgressHint());
+                return;
+            }
+
+            SetVrButtonState(vrAdvanceButton, false, "All image tests complete");
+        }
+
+        private static void SetVrButtonState(VrPanelButtonInteractable button, bool enabled, string label)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.gameObject.SetActive(true);
+            button.Enabled = enabled;
+
+            if (button.Label != null)
+            {
+                button.Label.text = label;
+                button.Label.color = enabled ? Color.white : new Color(0.72f, 0.76f, 0.82f, 0.92f);
+            }
+
+            if (button.Background != null)
+            {
+                button.Background.color = enabled
+                    ? new Color(0.18f, 0.22f, 0.28f, 0.96f)
+                    : new Color(0.11f, 0.14f, 0.18f, 0.85f);
+            }
+        }
+
+        private static string BuildVrBilingualSectionText(string heading, string englishText, string japaneseText)
+        {
+            var english = string.IsNullOrWhiteSpace(englishText) ? string.Empty : englishText.Trim();
+            var japanese = string.IsNullOrWhiteSpace(japaneseText) ? string.Empty : japaneseText.Trim();
+
+            if (!string.IsNullOrWhiteSpace(japanese))
+            {
+                return $"{heading}: {japanese}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(english))
+            {
+                return $"{heading}: {english}";
+            }
+
+            return $"{heading}:";
         }
 
         private static void SetVrPanelPreview(RawImage image, Texture texture)
@@ -8503,6 +8696,34 @@ namespace MemPalaceLLM
                 {
                     hitPoint = hits[i].point;
                     return interactable;
+                }
+            }
+
+            return null;
+        }
+
+        private static VrPanelButtonInteractable FindVrPanelButton(Ray ray, float maxDistance, out Vector3 hitPoint)
+        {
+            hitPoint = ray.origin + ray.direction * maxDistance;
+            var hits = Physics.RaycastAll(ray, maxDistance);
+            if (hits == null || hits.Length == 0)
+            {
+                return null;
+            }
+
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            for (var i = 0; i < hits.Length; i++)
+            {
+                var button = hits[i].collider.GetComponent<VrPanelButtonInteractable>();
+                if (button == null)
+                {
+                    button = hits[i].collider.GetComponentInParent<VrPanelButtonInteractable>();
+                }
+
+                if (button != null && button.Enabled)
+                {
+                    hitPoint = hits[i].point;
+                    return button;
                 }
             }
 
@@ -9627,14 +9848,14 @@ namespace MemPalaceLLM
         {
             GUILayout.Label(heading, headingStyle);
 
-            if (!string.IsNullOrWhiteSpace(englishText))
-            {
-                GUILayout.Label("EN: " + englishText, bodyStyle);
-            }
-
             if (!string.IsNullOrWhiteSpace(japaneseText))
             {
                 GUILayout.Label("JA: " + japaneseText, bodyStyle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(englishText))
+            {
+                GUILayout.Label("EN: " + englishText, bodyStyle);
             }
         }
 
@@ -9745,6 +9966,21 @@ namespace MemPalaceLLM
     public sealed class StudyInteractable : MonoBehaviour
     {
         public MnemonicItemData Data;
+    }
+
+    public enum VrPanelButtonAction
+    {
+        GenerateImageCue,
+        CaptureSnapshot,
+        AdvancePhase
+    }
+
+    public sealed class VrPanelButtonInteractable : MonoBehaviour
+    {
+        public VrPanelButtonAction Action;
+        public Image Background;
+        public Text Label;
+        public bool Enabled = true;
     }
 
     public sealed class HoverSpinAnimation : MonoBehaviour
