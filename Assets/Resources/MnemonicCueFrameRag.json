@@ -1,0 +1,190 @@
+{
+  "cases": [
+    {
+      "id": "poster_notice_safe",
+      "title": "Poster meaning as neutral physical poster",
+      "priority": 110,
+      "meaning_keywords": ["poster", "notice", "placard"],
+      "word_keywords": ["cartel"],
+      "anchor_keywords": ["door", "wardrobe", "wall", "shelf"],
+      "good_patterns": [
+        "neutral poster fastened to the door frame with colored tape",
+        "plain poster hanging from a small clip on the wardrobe door",
+        "notice-board style poster pinned beside the door handle"
+      ],
+      "bad_patterns": [
+        "drug trafficker, crime cartel, gang, mafia, wanted poster, mugshot",
+        "face poster suggesting a criminal or violent story",
+        "any sexual, gambling, drug, weapon, horror, or gore association"
+      ],
+      "image_prompt_hints": [
+        "make the poster itself the cue without readable text",
+        "use tape, clip, frame, or blank display backing as safe details"
+      ],
+      "visual_objects": ["neutral poster", "colored tape", "clip"]
+    },
+    {
+      "id": "weather_proxy_mobile",
+      "title": "Weather or sky concept as crafted indoor mobile",
+      "priority": 90,
+      "meaning_keywords": ["cloud", "rain", "snow", "sky", "storm", "wind", "weather"],
+      "word_keywords": ["nube", "lluvia", "nieve", "cielo", "tormenta", "viento"],
+      "anchor_keywords": ["chair", "lamp", "window", "desk", "door"],
+      "good_patterns": [
+        "cotton cloud mobile clipped to the chair backrest with paper raindrops",
+        "paper raindrops hanging from the lamp shade",
+        "small felt sun ornament attached to the window frame"
+      ],
+      "bad_patterns": [
+        "real sky or outdoor weather photo",
+        "vague floating cloud",
+        "mood lighting or colored glow as the main clue"
+      ],
+      "image_prompt_hints": [
+        "name the crafted object and its anchor contact point",
+        "avoid concept-only prompts such as cloud over chair"
+      ],
+      "visual_objects": ["cotton cloud mobile", "paper raindrops", "felt sun ornament"]
+    },
+    {
+      "id": "water_landscape_contained_proxy",
+      "title": "Water or landscape concept as contained tabletop proxy",
+      "priority": 90,
+      "meaning_keywords": ["waterfall", "river", "stream", "ocean", "sea", "beach", "mountain", "forest", "landscape"],
+      "word_keywords": ["cascada", "rio", "mar", "playa", "montana", "bosque"],
+      "anchor_keywords": ["air conditioner", "desk", "table", "wardrobe", "door"],
+      "good_patterns": [
+        "miniature waterfall model pouring into a blue bucket below the air conditioner",
+        "small river diorama in a tray on the desk surface",
+        "sand tray with shells beside the door"
+      ],
+      "bad_patterns": [
+        "full outdoor waterfall landscape",
+        "forest or beach photo without the anchor",
+        "water appearing as a whole-room redesign"
+      ],
+      "image_prompt_hints": [
+        "use a container such as tray, bowl, bucket, or jar",
+        "keep the indoor anchor visible and close to the proxy"
+      ],
+      "visual_objects": ["miniature waterfall model", "bucket", "tray", "sand", "shells"]
+    },
+    {
+      "id": "large_structure_small_prop",
+      "title": "Large structures as small constructed props",
+      "priority": 95,
+      "meaning_keywords": ["staircase", "stairs", "building", "bridge", "tower", "factory", "airport", "street", "city"],
+      "word_keywords": ["escalera", "edificio", "puente", "torre", "fabrica", "aeropuerto", "calle", "ciudad"],
+      "anchor_keywords": ["chair", "desk", "table", "door", "wardrobe", "shelf"],
+      "good_patterns": [
+        "stacked wooden blocks arranged like stair steps on the chair seat",
+        "small building model on the desk surface",
+        "toy factory model beside the door frame"
+      ],
+      "bad_patterns": [
+        "real staircase or stairwell",
+        "full-size building exterior",
+        "palm-sized or hand-sized scale words that may add hands",
+        "ambiguous phrase 'block steps' that can read as a block walking"
+      ],
+      "image_prompt_hints": [
+        "use prop nouns such as stacked blocks, model, toy, or diorama",
+        "make the anchor contact point explicit",
+        "avoid body-part scale references"
+      ],
+      "visual_objects": ["stacked wooden blocks", "building model", "toy factory model"]
+    },
+    {
+      "id": "public_place_diorama",
+      "title": "Outdoor or public place as indoor diorama",
+      "priority": 86,
+      "meaning_keywords": ["neighborhood", "market", "park", "plaza", "village", "street", "city"],
+      "word_keywords": ["barrio", "mercado", "parque", "plaza", "pueblo", "calle", "ciudad"],
+      "anchor_keywords": ["door", "chair", "desk", "table", "wardrobe"],
+      "good_patterns": [
+        "miniature houses and two neighbor figures on a doormat in front of the door",
+        "tiny market stall diorama on the desk surface",
+        "small park model in a tray beside the chair leg"
+      ],
+      "bad_patterns": [
+        "real outdoor city view",
+        "dog running through an unseen neighborhood",
+        "whole street scene without the assigned anchor"
+      ],
+      "image_prompt_hints": [
+        "use miniature props and a visible anchor contact surface",
+        "avoid full outdoor views"
+      ],
+      "visual_objects": ["miniature houses", "neighbor figures", "market stall", "park model", "tray"]
+    },
+    {
+      "id": "container_object_state",
+      "title": "Container object with visible contents or state",
+      "priority": 72,
+      "meaning_keywords": ["jar", "bottle", "box", "bag", "basket", "container"],
+      "word_keywords": ["frasco", "botella", "caja", "bolsa", "cesta"],
+      "anchor_keywords": ["door", "desk", "table", "shelf", "wardrobe"],
+      "good_patterns": [
+        "glass jar filled with colorful candies on the floor by the door",
+        "bottle tipped beside the desk with visible liquid inside",
+        "open box on the shelf with folded cloth inside"
+      ],
+      "bad_patterns": [
+        "contents spilled outside when the cue says filled inside",
+        "empty container when contents are the meaning cue",
+        "container alone with no visible state"
+      ],
+      "image_prompt_hints": [
+        "state whether contents are inside, spilling, empty, sealed, cracked, or open",
+        "keep the container and contents both visible"
+      ],
+      "visual_objects": ["glass jar", "candies", "bottle", "box"]
+    },
+    {
+      "id": "abstract_physical_state",
+      "title": "Abstract meaning as physical state or contrast",
+      "priority": 70,
+      "meaning_keywords": ["balance", "difference", "absence", "strength", "weakness", "change", "choice", "refusal"],
+      "word_keywords": [],
+      "anchor_keywords": ["chair", "desk", "door", "shelf", "table"],
+      "good_patterns": [
+        "two unequal weights on a small scale on the desk surface",
+        "cracked cup beside an intact cup on the shelf",
+        "locked box refusing to open on the chair seat"
+      ],
+      "bad_patterns": [
+        "abstract glow or mood as the main cue",
+        "written labels or arrows",
+        "explanatory symbolism not visible in the scene"
+      ],
+      "image_prompt_hints": [
+        "turn the idea into a visible object state, damage state, contrast, or simple interaction",
+        "avoid purely decorative atmosphere"
+      ],
+      "visual_objects": ["scale", "weights", "cracked cup", "locked box"]
+    },
+    {
+      "id": "person_noun_small_figure",
+      "title": "Person noun as small figure doing defining behavior",
+      "priority": 68,
+      "meaning_keywords": ["teacher", "doctor", "neighbor", "worker", "artist", "friend"],
+      "word_keywords": ["maestro", "medico", "vecino", "trabajador", "artista", "amigo"],
+      "anchor_keywords": ["chair", "desk", "door", "table", "shelf"],
+      "good_patterns": [
+        "small teacher figure pointing to a tiny chalkboard on the desk",
+        "doctor figurine holding a stethoscope beside the chair",
+        "neighbor figure waving from a miniature doorway by the door"
+      ],
+      "bad_patterns": [
+        "large full-room human scene",
+        "unclear person without defining behavior",
+        "culture-specific joke or obscure reference"
+      ],
+      "image_prompt_hints": [
+        "use a small figure plus a clear defining action",
+        "keep the action next to the assigned anchor"
+      ],
+      "visual_objects": ["small figure", "chalkboard", "stethoscope", "miniature doorway"]
+    }
+  ]
+}
