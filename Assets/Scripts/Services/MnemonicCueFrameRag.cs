@@ -99,10 +99,19 @@ namespace MemPalaceLLM
                 "Fix: Write a natural learner-facing memory hint that names the visible cue and the target meaning.\n" +
                 "P5 Weak foreground:\n" +
                 "Bad: a small object rests beside the anchor.\n" +
-                "Fix: Make the object interact with the anchor in a visible physical way.\n" +
+                "Fix: Use a novel but physically possible cue-anchor relation, such as wedged under, hanging from, clipped to, spilling from, wrapped around, cushioning, contained by, or balanced in a visible support.\n" +
                 "P6 Unsafe association:\n" +
                 "Bad: a poster of a drug trafficker to cue cartel/poster.\n" +
-                "Fix: Use a neutral poster, tape, clip, frame, or notice-board display; never use drugs, crime, gambling, sexual content, weapons, horror, or gore.\n\n";
+                "Fix: Use a neutral poster, tape, clip, frame, or notice-board display; never use drugs, crime, gambling, sexual content, weapons, horror, or gore.\n" +
+                "P7 Hidden or swallowed cue:\n" +
+                "Bad: a wallet tucked inside a chair pocket, so the cue disappears into the furniture.\n" +
+                "Fix: Keep small cue objects fully exposed, visually separate from the anchor, and impossible to miss.\n" +
+                "P8 Target-object display:\n" +
+                "Bad: an airport model sits on a cabinet shelf, or a hallway model is displayed on an air conditioner.\n" +
+                "Fix: Create a target-meaning event using ordinary objects in action, such as a security tray for airport or objects forming a narrow passage for hallway.\n" +
+                "P9 Dead cue story:\n" +
+                "Bad: \"The visible cue retrieves airport; repeat aeropuerto while mentally replaying the same scene.\"\n" +
+                "Fix: Explain two hooks: why the visible event points to the meaning, then a sound/cognate/syllable bridge for the Spanish word form.\n\n";
         }
 
         private static void AppendGuidanceForWord(StringBuilder builder, WordEntry word, int wordNumber, string anchorId, string anchorLabel)

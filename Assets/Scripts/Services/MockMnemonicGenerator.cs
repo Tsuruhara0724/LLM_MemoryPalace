@@ -31,8 +31,10 @@ namespace MemPalaceLLM
             {
                 var word = words[i];
                 var anchor = RoomSpecCatalog.Anchors[i % RoomSpecCatalog.AnchorCount];
+                var meaning = string.IsNullOrWhiteSpace(word.meaning) ? "the target meaning" : word.meaning.Trim();
                 var cue = $"At the {anchor.label}, an exaggerated scene dramatizes '{word.meaning}' with bright motion and oversized props.";
-                var mnemonic = $"Link '{word.word}' to the {anchor.label} by repeating its sound while imagining that vivid scene.";
+                var association = $"oversized prop for {word.meaning} physically interacting with the {anchor.label}";
+                var mnemonic = $"The visible event points to {meaning}; use the action rhythm to carry the syllables of '{word.word}'.";
 
                 results.Add(new MnemonicItemData
                 {
@@ -43,8 +45,19 @@ namespace MemPalaceLLM
                     anchorLabel = anchor.label,
                     visualCue = cue,
                     visualCueJa = $"{anchor.label} で、「{(string.IsNullOrWhiteSpace(word.meaningJa) ? word.meaning : word.meaningJa)}」を表す印象的な場面を想像する。",
+                    associationPrompt = association,
+                    associationPromptJa = association,
                     mnemonic = mnemonic,
                     mnemonicJa = $"「{word.word}」の音や意味を {anchor.label} と結びつけて覚える。",
+                    imagePrompt = association,
+                    imagePromptJa = association,
+                    imagePromptCandidates = new List<string>
+                    {
+                        association + ", object-on-anchor close-up",
+                        association + ", action-focused close-up",
+                        association + ", unusual but physically possible relation",
+                        association + ", simplest literal foreground cue"
+                    },
                     objectShape = Shapes[i % Shapes.Length],
                     colorHex = Colors[i % Colors.Length]
                 });
@@ -85,8 +98,15 @@ namespace MemPalaceLLM
                     anchorLabel = anchor.label,
                     visualCue = sample.visualCue,
                     visualCueJa = sample.visualCueJa,
+                    associationPrompt = string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt,
+                    associationPromptJa = string.IsNullOrWhiteSpace(sample.associationPromptJa)
+                        ? (string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt)
+                        : sample.associationPromptJa,
                     mnemonic = sample.mnemonic,
                     mnemonicJa = sample.mnemonicJa,
+                    imagePrompt = sample.imagePrompt,
+                    imagePromptJa = sample.imagePromptJa,
+                    imagePromptCandidates = sample.imagePromptCandidates == null ? new List<string>() : new List<string>(sample.imagePromptCandidates),
                     objectShape = string.IsNullOrWhiteSpace(sample.objectShape) ? Shapes[i % Shapes.Length] : sample.objectShape,
                     colorHex = string.IsNullOrWhiteSpace(sample.colorHex) ? Colors[i % Colors.Length] : sample.colorHex
                 });
