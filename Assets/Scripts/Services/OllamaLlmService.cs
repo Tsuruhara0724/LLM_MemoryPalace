@@ -846,6 +846,18 @@ namespace MemPalaceLLM
                 "If a word-form hook uses a concrete object, include that object visibly in visual_cue_en.\n" +
                 "If the hook is only a direct sound similarity, mention it only in mnemonic_en.\n" +
                 "The final scene must still be meaning-first.\n\n" +
+                "4. Candidate ranking / rejection:\n" +
+                "For each word, silently draft 3 different candidate mnemonics before choosing the final one.\n" +
+                "For nature, weather, sky, water, landscape, outdoor, travel, place, or large-environment meanings, draft 3 different indoor proxy candidates.\n" +
+                "Score the candidates silently on: clear meaning retrieval, anchor involvement, indoor physical visibility, no real outdoor scene, visual_objects completeness, specific image_prompt_en, and natural word-form hook.\n" +
+                "Reject candidates where the cue is only the natural concept itself, only floats near the anchor, ignores the anchor, lacks a physical proxy, or forces a weak word-form pun.\n" +
+                "Output only the highest-scoring candidate in the final JSON.\n\n" +
+                "Nature / outdoor cue frames:\n" +
+                "For nature, weather, sky, water, landscape, outdoor place, travel, public-space, or large-environment nouns, do not show the real outdoor scene directly.\n" +
+                "Choose one indoor physical proxy: crafted model, cotton/paper/felt object, hanging mobile, contained effect in a bowl/jar/tray/bucket, miniature diorama, or framed glimpse through the anchor.\n" +
+                "The proxy must be visibly clipped to, resting on, hanging from, contained by, placed beside, or attached to the assigned anchor.\n" +
+                "Good examples: cotton cloud mobile clipped to a chair backrest; paper raindrops hanging from a lamp; tiny waterfall model pouring into a bucket below an air conditioner; miniature houses and neighbors on a doormat.\n" +
+                "Avoid vague phrases like \"cloud shape,\" \"floating cloud,\" \"waterfall flows,\" \"a beach appears,\" or \"outdoor scene\" without a physical indoor proxy.\n\n" +
                 "Scene design rules:\n" +
                 "- Include the assigned anchor label in visual_cue_en.\n" +
                 "- The foreground cue should be more memorable than the anchor.\n" +
@@ -855,6 +867,7 @@ namespace MemPalaceLLM
                 "- For nouns, show the object itself or a closely related object doing a defining action.\n" +
                 "- For abstract nouns, turn the idea into a tangible physical state, contrast, container state, damage state, or simple interaction.\n" +
                 "- For person nouns, show a small person doing the defining behavior.\n" +
+                "- For nature/outdoor nouns, show the indoor proxy object, not the full natural phenomenon or real outdoor place.\n" +
                 "- Keep it simple: one anchor, one foreground cue, one memorable action.\n" +
                 "- The scene should feel like an object or small action placed on, beside, under, or attached to the anchor, not a whole-room redesign.\n\n" +
                 "Cue Story rules:\n" +
@@ -871,7 +884,7 @@ namespace MemPalaceLLM
                 "Avoid:\n" +
                 "- written words, labels, captions, alphabet letters, logos, arrows, icons, signs, or UI symbols;\n" +
                 "- tiny dots, vague glow, colored light, mood lighting, smoke, haze, rhythm, or atmosphere as the main clue;\n" +
-                "- whole-room scenes, empty rooms, interior design views, outdoor city views, disasters, explosions, battle, horror, gore, or large smoke clouds;\n" +
+                "- whole-room scenes, empty rooms, interior design views, unanchored outdoor scenes, full natural landscapes, full city views, disasters, explosions, battle, horror, gore, or large smoke clouds;\n" +
                 "- template phrases such as \"represents the meaning,\" \"symbolizes,\" \"embodies,\" \"shows the word,\" or \"using the anchor as memory location.\"\n\n" +
                 "Batch variety:\n" +
                 "- Within the batch, try to use different cue nouns and different main actions.\n" +
@@ -884,9 +897,11 @@ namespace MemPalaceLLM
                 "- mnemonic_en should be 14 to 30 words.\n" +
                 "- mnemonic_en should explain the retrieval path: meaning first, then optional Spanish word-form support.\n" +
                 "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
-                "- image_prompt_en should be 6 to 14 words and name only the foreground cue/action, with no room overview.\n" +
+                "- image_prompt_en should be 6 to 14 words and name only the foreground proxy cue/action, with no room overview.\n" +
                 "- image_prompt_ja should be the same foreground cue/action in natural Japanese.\n" +
+                "- For nature/outdoor meanings, image_prompt_en must name the proxy material/object, not just the concept word. Good: \"cotton cloud mobile clipped to chair backrest, paper raindrops\". Bad: \"cloud floating over chair\".\n" +
                 "- visual_objects must list every concrete foreground object used for meaning retrieval.\n" +
+                "- For nature/outdoor meanings, visual_objects must list the proxy object and visible parts, not only the abstract natural phenomenon.\n" +
                 "- If mnemonic_en uses a visible object as a word-form hook, that object must also be included in visual_objects.\n" +
                 "- Do not include the anchor itself in visual_objects unless the anchor is also part of the foreground cue.\n" +
                 "- Do not include abstract ideas, emotions, meanings, or invisible sound hints in visual_objects.\n\n" +
@@ -897,7 +912,9 @@ namespace MemPalaceLLM
                 "4. If mnemonic_en mentions a concrete sound-hint object, does it appear in visual_cue_en and visual_objects?\n" +
                 "5. If the word-form hook feels artificial, remove it and keep a meaning-first mnemonic.\n" +
                 "6. Is the scene realistic enough to fit on or near an ordinary room anchor?\n" +
-                "7. Is Japanese natural and fluent?\n\n" +
+                "7. If the meaning is nature/outdoor/large-scale, did you choose the best indoor proxy after rejecting weaker candidates?\n" +
+                "8. Is image_prompt_en a concrete proxy-object prompt rather than a concept-only prompt?\n" +
+                "9. Is Japanese natural and fluent?\n\n" +
                 "\nOutput only valid JSON in this shape:\n" +
                 "{\n" +
                 "  \"items\": [\n" +
@@ -949,9 +966,13 @@ namespace MemPalaceLLM
                 "\nReturn exactly " + words.Count + " items in one JSON object whose top-level key is items.\n" +
                 "Use each listed anchor_id and anchor_label exactly. The visual scene must retrieve the meaning first.\n" +
                 "visual_cue_en must start with \"At the {anchor_label},\" and describe the visible scene only.\n" +
+                "For each word, silently draft 3 candidate mnemonics and output only the best one.\n" +
+                "For nature/weather/sky/water/outdoor/place/travel/large-environment meanings, candidates must use indoor physical proxies: crafted model, cotton/paper/felt object, hanging mobile, contained effect, miniature diorama, or framed glimpse at the assigned anchor.\n" +
+                "Reject candidates that show a real outdoor scene, use only the concept word, ignore the anchor, lack a physical proxy, or force a weak word-form pun.\n" +
                 "mnemonic_en must explain the same visible scene: meaning first, then optional natural Spanish word-form support.\n" +
                 "If a word-form hook needs a visible object, that object must appear in visual_cue_en and visual_objects.\n" +
                 "If no clean word-form hook exists, keep the mnemonic meaning-first.\n" +
+                "image_prompt_en must name the proxy object/action, not only a concept word such as cloud, waterfall, beach, or neighborhood.\n" +
                 "visual_objects must list concrete foreground objects only, not anchors or abstract ideas.\n" +
                 "Output only this JSON shape:\n" +
                 "{\n" +

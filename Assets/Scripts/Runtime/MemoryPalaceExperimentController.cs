@@ -211,6 +211,8 @@ namespace MemPalaceLLM
         private string ollamaModel = "qwen3:8b";
         private string imageGenerationEndpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img";
         private string imageGenerationCheckpoint = string.Empty;
+        private string imageCueValidationModel = "gemma3:12b";
+        private int imageCueValidationAttempts = 3;
         private bool enableVrStudyMode = true;
         private bool showAbstractMnemonicProps = false;
         private bool showLegacyRoomGenerator = false;
@@ -692,11 +694,13 @@ namespace MemPalaceLLM
             {
                 providerMode = LlmProviderMode.OllamaLocal;
                 ollamaBaseUrl = DrawLabeledTextField("Ollama Endpoint", ollamaBaseUrl);
-                ollamaModel = DrawLabeledTextField("Model", ollamaModel);
+                ollamaModel = DrawLabeledTextField("Mnemonic Text Model", ollamaModel);
                 imageGenerationEndpoint = DrawLabeledTextField("Image Endpoint", imageGenerationEndpoint);
                 imageGenerationCheckpoint = DrawLabeledTextField("Image Checkpoint", imageGenerationCheckpoint);
+                imageCueValidationModel = DrawLabeledTextField("Image Cue Validation Model", imageCueValidationModel);
+                imageCueValidationAttempts = DrawSlider("Image cue validation attempts", imageCueValidationAttempts, 1, 5);
                 showAbstractMnemonicProps = GUILayout.Toggle(showAbstractMnemonicProps, "Show experimental 3D proxy props in the room");
-                GUILayout.Label("Mnemonic text uses local Ollama. Cue images use a local Stable Diffusion WebUI endpoint; set a checkpoint here if you want a more object-focused image model.", mutedStyle);
+                GUILayout.Label("Mnemonic text uses the text model. Cue images use Stable Diffusion, then Ollama Vision checks that both the anchor and cue object are visible before saving.", mutedStyle);
             }
             else
             {
@@ -2846,23 +2850,176 @@ namespace MemPalaceLLM
             }
 
             generatingImageCueWords.Add(item.word);
-            imageGenerationStatus = $"Generating image cue for {item.word}...";
-
-            var requestBody = new StableDiffusionTxt2ImgRequest
+            if (string.IsNullOrWhiteSpace(ollamaBaseUrl) || string.IsNullOrWhiteSpace(imageCueValidationModel))
             {
-                prompt = BuildMnemonicImagePrompt(item),
-                negative_prompt = BuildMnemonicImageNegativePrompt(),
-                width = 512,
-                height = 512,
-                steps = 28,
-                cfg_scale = 8.5f,
-                sampler_name = "DPM++ 2M"
+                generatingImageCueWords.Remove(item.word);
+                imageGenerationStatus = "Image cue validation requires an Ollama endpoint and an image-capable validation model.";
+                yield break;
+            }
+
+            Texture2D acceptedTexture = null;
+            ImageCueValidationResult acceptedValidation = null;
+            var retryGuidance = string.Empty;
+            var maxAttempts = Mathf.Clamp(imageCueValidationAttempts, 1, 5);
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                imageGenerationStatus = $"Generating image cue for {item.word} (candidate {attempt}/{maxAttempts})...";
+                var prompt = BuildMnemonicImagePrompt(item);
+                prompt += " Mandatory two-subject frame: the assigned anchor and the mnemonic cue object must both be clearly visible, close together, and dominate the image; do not show only one of them.";
+                if (!string.IsNullOrWhiteSpace(retryGuidance))
+                {
+                    prompt += " Retry correction: " + retryGuidance;
+                }
+
+                var requestBody = new StableDiffusionTxt2ImgRequest
+                {
+                    prompt = prompt,
+                    negative_prompt = BuildMnemonicImageNegativePrompt(),
+                    width = 512,
+                    height = 512,
+                    steps = 28,
+                    cfg_scale = 8.5f,
+                    sampler_name = "DPM++ 2M"
+                };
+                requestBody.override_settings = BuildImageOverrideSettings();
+                requestBody.override_settings_restore_afterwards = requestBody.override_settings != null;
+                var json = JsonUtility.ToJson(requestBody);
+
+                using (var request = new UnityWebRequest(imageGenerationEndpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
+                {
+                    var bodyRaw = Encoding.UTF8.GetBytes(json);
+                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                    request.downloadHandler = new DownloadHandlerBuffer();
+                    request.timeout = 180;
+                    request.SetRequestHeader("Content-Type", "application/json");
+
+                    yield return request.SendWebRequest();
+
+                    if (request.result != UnityWebRequest.Result.Success)
+                    {
+                        generatingImageCueWords.Remove(item.word);
+                        imageGenerationStatus = BuildStableDiffusionErrorStatus(request);
+                        yield break;
+                    }
+
+                    StableDiffusionTxt2ImgResponse response = null;
+                    try
+                    {
+                        response = JsonUtility.FromJson<StableDiffusionTxt2ImgResponse>(request.downloadHandler.text);
+                    }
+                    catch (Exception ex)
+                    {
+                        generatingImageCueWords.Remove(item.word);
+                        imageGenerationStatus = "Failed to parse image response: " + ex.Message;
+                        yield break;
+                    }
+
+                    if (response == null || response.images == null || response.images.Length == 0 || string.IsNullOrWhiteSpace(response.images[0]))
+                    {
+                        generatingImageCueWords.Remove(item.word);
+                        imageGenerationStatus = "Image response did not contain any images.";
+                        yield break;
+                    }
+
+                    if (!TryLoadBase64Image(response.images[0], out var texture, out var error))
+                    {
+                        generatingImageCueWords.Remove(item.word);
+                        imageGenerationStatus = error;
+                        yield break;
+                    }
+
+                    imageGenerationStatus = $"Checking anchor and cue object for {item.word} (candidate {attempt}/{maxAttempts})...";
+                    ImageCueValidationResult validation = null;
+                    string validationError = null;
+                    yield return ValidateImageCueSubjectsRoutine(
+                        item,
+                        response.images[0],
+                        prompt,
+                        result => validation = result,
+                        errorMessage => validationError = errorMessage);
+
+                    if (!string.IsNullOrWhiteSpace(validationError))
+                    {
+                        Destroy(texture);
+                        generatingImageCueWords.Remove(item.word);
+                        imageGenerationStatus = "Image cue validation failed: " + validationError;
+                        yield break;
+                    }
+
+                    if (validation != null && validation.pass)
+                    {
+                        acceptedTexture = texture;
+                        acceptedValidation = validation;
+                        break;
+                    }
+
+                    var failure = BuildImageCueValidationFailureSummary(validation);
+                    Destroy(texture);
+                    LogInteraction("reject_image_cue", item.word, item.anchorId, failure);
+
+                    if (attempt < maxAttempts)
+                    {
+                        retryGuidance = BuildImageCueRetryGuidance(validation);
+                        imageGenerationStatus = $"Rejected image cue for {item.word}; retrying. {failure}";
+                        continue;
+                    }
+
+                    generatingImageCueWords.Remove(item.word);
+                    imageGenerationStatus = $"No image cue passed anchor+cue validation for {item.word}: {failure}";
+                    yield break;
+                }
+            }
+
+            generatingImageCueWords.Remove(item.word);
+
+            if (acceptedTexture == null)
+            {
+                imageGenerationStatus = $"No image cue passed anchor+cue validation for {item.word}.";
+                yield break;
+            }
+
+            if (mnemonicImageCues.TryGetValue(item.word, out var previousTexture) && previousTexture != null)
+            {
+                Destroy(previousTexture);
+            }
+
+            mnemonicImageCues[item.word] = acceptedTexture;
+            item.imageCuePath = SaveMnemonicImageCue(item, acceptedTexture);
+            imageGenerationStatus = $"Generated validated image cue for {item.word}: {BuildImageCueValidationPassSummary(acceptedValidation)}";
+            LogInteraction("generate_image_cue", item.word, item.anchorId, "Generated validated local txt2img cue: " + item.imageCuePath);
+        }
+
+        private IEnumerator ValidateImageCueSubjectsRoutine(
+            MnemonicItemData item,
+            string rawBase64Image,
+            string generationPrompt,
+            Action<ImageCueValidationResult> onSuccess,
+            Action<string> onError)
+        {
+            var imagePayload = ExtractBase64ImagePayload(rawBase64Image);
+            if (string.IsNullOrWhiteSpace(imagePayload))
+            {
+                onError?.Invoke("Generated image payload was empty.");
+                yield break;
+            }
+
+            var requestBody = new OllamaVisionGenerateRequest
+            {
+                model = imageCueValidationModel.Trim(),
+                prompt = BuildImageCueValidationPrompt(item, generationPrompt),
+                stream = false,
+                format = "json",
+                images = new[] { imagePayload },
+                options = new OllamaVisionOptions
+                {
+                    temperature = 0f,
+                    num_predict = 360
+                }
             };
-            requestBody.override_settings = BuildImageOverrideSettings();
-            requestBody.override_settings_restore_afterwards = requestBody.override_settings != null;
             var json = JsonUtility.ToJson(requestBody);
 
-            using (var request = new UnityWebRequest(imageGenerationEndpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
+            using (var request = new UnityWebRequest(ollamaBaseUrl.Trim(), UnityWebRequest.kHttpVerbPOST))
             {
                 var bodyRaw = Encoding.UTF8.GetBytes(json);
                 request.uploadHandler = new UploadHandlerRaw(bodyRaw);
@@ -2872,59 +3029,240 @@ namespace MemPalaceLLM
 
                 yield return request.SendWebRequest();
 
-                generatingImageCueWords.Remove(item.word);
-
                 if (request.result != UnityWebRequest.Result.Success)
                 {
-                    imageGenerationStatus = BuildStableDiffusionErrorStatus(request);
+                    onError?.Invoke($"{request.error}\n{BuildShortPreview(request.downloadHandler?.text)}");
                     yield break;
                 }
 
-                StableDiffusionTxt2ImgResponse response = null;
+                OllamaVisionGenerateResponse response = null;
                 try
                 {
-                    response = JsonUtility.FromJson<StableDiffusionTxt2ImgResponse>(request.downloadHandler.text);
+                    response = JsonUtility.FromJson<OllamaVisionGenerateResponse>(request.downloadHandler.text);
                 }
                 catch (Exception ex)
                 {
-                    imageGenerationStatus = "Failed to parse image response: " + ex.Message;
+                    onError?.Invoke("Failed to parse vision response envelope: " + ex.Message);
                     yield break;
                 }
 
-                if (response == null || response.images == null || response.images.Length == 0 || string.IsNullOrWhiteSpace(response.images[0]))
+                if (response == null)
                 {
-                    imageGenerationStatus = "Image response did not contain any images.";
+                    onError?.Invoke("Vision response envelope was empty.");
                     yield break;
                 }
 
-                if (!TryLoadBase64Image(response.images[0], out var texture, out var error))
+                if (!string.IsNullOrWhiteSpace(response.error))
                 {
-                    imageGenerationStatus = error;
+                    onError?.Invoke("Vision model returned an error: " + response.error);
                     yield break;
                 }
 
-                if (mnemonicImageCues.TryGetValue(item.word, out var previousTexture) && previousTexture != null)
+                if (!TryParseImageCueValidationResult(response.response, out var validation, out var parseError))
                 {
-                    Destroy(previousTexture);
+                    onError?.Invoke(parseError + "\nRaw vision response: " + BuildShortPreview(response.response));
+                    yield break;
                 }
 
-                mnemonicImageCues[item.word] = texture;
-                item.imageCuePath = SaveMnemonicImageCue(item, texture);
-                imageGenerationStatus = $"Generated image cue for {item.word}.";
-                LogInteraction("generate_image_cue", item.word, item.anchorId, "Generated local txt2img cue: " + item.imageCuePath);
+                onSuccess?.Invoke(validation);
             }
+        }
+
+        private string BuildImageCueValidationPrompt(MnemonicItemData item, string generationPrompt)
+        {
+            var anchor = GetAnchorDisplayName(item);
+            var cueObjects = BuildImageForegroundObjectList(item, anchor);
+            if (string.IsNullOrWhiteSpace(cueObjects))
+            {
+                cueObjects = "the foreground cue object described in the expected scene";
+            }
+
+            return
+                "You are checking whether a generated mnemonic image is usable.\n" +
+                "Only evaluate visible image content. Be strict.\n\n" +
+                "Assigned anchor that must be visible: " + anchor + "\n" +
+                "Cue object(s) that must be visible: " + cueObjects + "\n" +
+                "Expected scene text: " + (item?.visualCue ?? string.Empty) + "\n" +
+                "Image generation prompt: " + generationPrompt + "\n\n" +
+                "Pass only if all are true:\n" +
+                "1. The assigned anchor is clearly visible and recognizable.\n" +
+                "2. The cue object(s) for the vocabulary meaning are clearly visible as separate objects.\n" +
+                "3. The image is tightly focused on the anchor plus cue object(s), with little unrelated background.\n" +
+                "4. The cue object is not replaced by a recolored or restyled anchor.\n\n" +
+                "Reject if only the anchor is visible, only the cue object is visible, the anchor is cropped out, the cue is missing, or unrelated objects dominate.\n" +
+                "Examples: a red chair is not a red hat; a tray with a tiny object is not a chair anchor; a jar alone is not an air conditioner anchor.\n\n" +
+                "Return only valid JSON in this exact shape:\n" +
+                "{\"pass\":false,\"anchor_visible\":false,\"cue_visible\":false,\"focus_ok\":false,\"caption\":\"short factual caption\",\"reason\":\"short reason\",\"missing_or_wrong\":[]}";
+        }
+
+        private static bool TryParseImageCueValidationResult(string raw, out ImageCueValidationResult validation, out string error)
+        {
+            validation = null;
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                error = "Vision response was empty.";
+                return false;
+            }
+
+            var json = ExtractFirstJsonObject(raw);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                error = "Vision response did not contain a JSON object.";
+                return false;
+            }
+
+            try
+            {
+                validation = JsonUtility.FromJson<ImageCueValidationResult>(json);
+            }
+            catch (Exception ex)
+            {
+                error = "Failed to parse vision validation JSON: " + ex.Message;
+                return false;
+            }
+
+            if (validation == null)
+            {
+                error = "Vision validation JSON parsed to an empty result.";
+                return false;
+            }
+
+            validation.pass = validation.pass && validation.anchor_visible && validation.cue_visible && validation.focus_ok;
+            return true;
+        }
+
+        private static string ExtractFirstJsonObject(string raw)
+        {
+            var text = string.IsNullOrWhiteSpace(raw) ? string.Empty : raw.Trim();
+            var start = text.IndexOf('{');
+            if (start < 0)
+            {
+                return string.Empty;
+            }
+
+            var depth = 0;
+            var inString = false;
+            var escaped = false;
+            for (int i = start; i < text.Length; i++)
+            {
+                var ch = text[i];
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+
+                if (ch == '\\' && inString)
+                {
+                    escaped = true;
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (inString)
+                {
+                    continue;
+                }
+
+                if (ch == '{')
+                {
+                    depth++;
+                }
+                else if (ch == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return text.Substring(start, i - start + 1);
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string ExtractBase64ImagePayload(string rawImage)
+        {
+            var base64 = string.IsNullOrWhiteSpace(rawImage) ? string.Empty : rawImage.Trim();
+            var commaIndex = base64.IndexOf(',');
+            if (base64.StartsWith("data:image", StringComparison.OrdinalIgnoreCase) && commaIndex >= 0)
+            {
+                base64 = base64.Substring(commaIndex + 1);
+            }
+
+            return base64;
+        }
+
+        private static string BuildImageCueValidationFailureSummary(ImageCueValidationResult validation)
+        {
+            if (validation == null)
+            {
+                return "vision model did not return a validation result.";
+            }
+
+            var reason = string.IsNullOrWhiteSpace(validation.reason) ? "anchor and cue object were not both clearly visible." : validation.reason.Trim();
+            var issues = FormatValidationIssues(validation.missing_or_wrong);
+            return string.IsNullOrWhiteSpace(issues) ? reason : reason + " Issues: " + issues;
+        }
+
+        private static string BuildImageCueRetryGuidance(ImageCueValidationResult validation)
+        {
+            return "Fix this failed image: " + BuildImageCueValidationFailureSummary(validation) + " Make the assigned anchor and cue object both large, separate, and clearly visible together.";
+        }
+
+        private static string BuildImageCueValidationPassSummary(ImageCueValidationResult validation)
+        {
+            if (validation == null || string.IsNullOrWhiteSpace(validation.caption))
+            {
+                return "anchor and cue object are both visible.";
+            }
+
+            return validation.caption.Trim();
+        }
+
+        private static string FormatValidationIssues(string[] issues)
+        {
+            if (issues == null || issues.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder();
+            for (int i = 0; i < issues.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(issues[i]))
+                {
+                    continue;
+                }
+
+                if (builder.Length > 0)
+                {
+                    builder.Append("; ");
+                }
+
+                builder.Append(issues[i].Trim());
+            }
+
+            return builder.ToString();
+        }
+
+        private static string BuildShortPreview(string raw)
+        {
+            raw = string.IsNullOrWhiteSpace(raw) ? string.Empty : raw.Replace('\n', ' ').Replace('\r', ' ').Trim();
+            return raw.Length > 220 ? raw.Substring(0, 220) + "..." : raw;
         }
 
         private bool TryLoadBase64Image(string rawImage, out Texture2D texture, out string error)
         {
             texture = null;
             error = string.Empty;
-            var base64 = rawImage.Trim();
-            var commaIndex = base64.IndexOf(',');
-            if (base64.StartsWith("data:image", StringComparison.OrdinalIgnoreCase) && commaIndex >= 0)
-            {
-                base64 = base64.Substring(commaIndex + 1);
-            }
+            var base64 = ExtractBase64ImagePayload(rawImage);
 
             try
             {
@@ -3125,7 +3463,8 @@ namespace MemPalaceLLM
             }
 
             if (IsAlreadyAnchorGroundedImagePrompt(promptOverride, anchor)
-                && promptOverride.IndexOf("large foreground cue objects", StringComparison.OrdinalIgnoreCase) >= 0)
+                && (promptOverride.IndexOf("large foreground cue objects", StringComparison.OrdinalIgnoreCase) >= 0
+                    || promptOverride.IndexOf("anchor and cue object together", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 return promptOverride;
             }
@@ -3145,8 +3484,43 @@ namespace MemPalaceLLM
             var subjects = string.IsNullOrWhiteSpace(foregroundObjects)
                 ? anchor
                 : $"{anchor}, {foregroundObjects}";
+            var proxySafety = BuildNatureOutdoorProxyImageSafetyClause(item, anchor, backgroundScene, foregroundFocus);
 
-            return $"TIGHT CLOSE-UP MNEMONIC SUBJECTS: {subjects}. ((macro close-up)), ((object-focused composition)), ((subjects fill 80 percent of the frame)), ((shallow depth of field)). Main action: {foregroundFocus}. Crop tightly around the {anchor} and the cue objects; show only a small fragment of surrounding room as blurred background. The image must clearly show the assigned anchor and the cue objects together, not a whole room. Scene context for accuracy: {backgroundScene}. No readable text, no captions, no logos, no watermark.";
+            return $"TIGHT TWO-SUBJECT MNEMONIC CLOSE-UP: {subjects}. ((anchor and cue object together fill 85 percent of the frame)), ((both subjects in frame)), ((both subjects sharp and visible)), ((small surrounding room fragment only)). Main action: {foregroundFocus}. The assigned anchor and the cue objects must appear together, close to each other, and neither may be cropped out. The anchor should occupy about 30-45 percent of the image, and the cue object should occupy about 35-55 percent. Do not show only the anchor, only the cue object, or a whole room. {proxySafety}Scene context for accuracy: {backgroundScene}. No readable text, no captions, no logos, no watermark.";
+        }
+
+        private static string BuildNatureOutdoorProxyImageSafetyClause(MnemonicItemData item, string anchor, string backgroundScene, string foregroundFocus)
+        {
+            var text = ((item?.word ?? string.Empty) + " "
+                + (item?.meaning ?? string.Empty) + " "
+                + (item?.meaningJa ?? string.Empty) + " "
+                + (item?.visualCue ?? string.Empty) + " "
+                + (item?.mnemonic ?? string.Empty) + " "
+                + (item?.imagePrompt ?? string.Empty) + " "
+                + (backgroundScene ?? string.Empty) + " "
+                + (foregroundFocus ?? string.Empty)).ToLowerInvariant();
+
+            if (ContainsAny(text, "cloud", "nube", "rain", "snow", "sky", "storm", "wind"))
+            {
+                return $"Nature proxy requirement: show a crafted indoor weather proxy at the {anchor}, such as a cotton cloud mobile clipped to the anchor with paper raindrops; do not show a real sky or a vague floating cloud. ";
+            }
+
+            if (ContainsAny(text, "sun", "moon", "star"))
+            {
+                return $"Nature proxy requirement: show a crafted indoor sky-object proxy at the {anchor}, such as a felt sun, moon ornament, or hanging star mobile; do not show a real sky. ";
+            }
+
+            if (ContainsAny(text, "waterfall", "cascada", "river", "stream", "ocean", "sea", "beach"))
+            {
+                return $"Nature proxy requirement: show a contained indoor water/landscape proxy at the {anchor}, such as a miniature waterfall model pouring into a bowl or bucket; do not show a real outdoor landscape. ";
+            }
+
+            if (ContainsAny(text, "neighborhood", "barrio", "city", "street", "village", "market", "park", "plaza"))
+            {
+                return $"Outdoor-place proxy requirement: show a tiny diorama or prop cluster at the {anchor}, such as miniature houses and neighbors on a mat; do not show a real street or city view. ";
+            }
+
+            return string.Empty;
         }
 
         private string BuildImageForegroundObjectList(MnemonicItemData item, string anchor)
@@ -3172,6 +3546,9 @@ namespace MemPalaceLLM
             AddKnownForegroundObjects(item.imagePrompt, labels);
             AddKnownForegroundObjects(item.visualCue, labels);
             AddKnownForegroundObjects(item.mnemonic, labels);
+            AddKnownForegroundObjects(item.word, labels);
+            AddKnownForegroundObjects(item.meaning, labels);
+            AddKnownForegroundObjects(item.meaningJa, labels);
 
             return labels.Count == 0 ? string.Empty : string.Join(", ", labels);
         }
@@ -3210,6 +3587,21 @@ namespace MemPalaceLLM
             AddKnownForegroundObject(lower, labels, "passport");
             AddKnownForegroundObject(lower, labels, "stamp");
             AddKnownForegroundObject(lower, labels, "airplane");
+            AddKnownForegroundObject(lower, labels, "building model");
+            AddKnownForegroundObject(lower, labels, "model building");
+            AddKnownForegroundObject(lower, labels, "poster");
+            AddKnownForegroundObject(lower, labels, "ribbon");
+            AddKnownForegroundObjectWholeToken(lower, labels, "hat");
+            AddKnownForegroundObject(lower, labels, "campfire");
+            AddKnownForegroundObject(lower, labels, "flames");
+            if (lower.IndexOf("glass jar", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                AddKnownForegroundObject(lower, labels, "glass jar");
+            }
+            else
+            {
+                AddKnownForegroundObject(lower, labels, "jar");
+            }
             AddKnownForegroundObject(lower, labels, "bird");
             if (lower.IndexOf("metal cage", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -3222,6 +3614,47 @@ namespace MemPalaceLLM
             AddKnownForegroundObject(lower, labels, "boarding pass");
             AddKnownForegroundObject(lower, labels, "ticket");
             AddKnownForegroundObject(lower, labels, "luggage tag");
+            if (ContainsAny(lower, "cloud", "nube", "rain", "sky", "storm"))
+            {
+                AddRequiredForegroundObject(labels, "cotton cloud mobile");
+                AddRequiredForegroundObject(labels, "paper raindrops");
+            }
+            if (ContainsAny(lower, "sun"))
+            {
+                AddRequiredForegroundObject(labels, "felt sun");
+            }
+            if (ContainsAny(lower, "moon"))
+            {
+                AddRequiredForegroundObject(labels, "moon ornament");
+            }
+            if (ContainsAny(lower, "star"))
+            {
+                AddRequiredForegroundObject(labels, "hanging star mobile");
+            }
+            if (ContainsAny(lower, "mist", "fog"))
+            {
+                AddRequiredForegroundObject(labels, "mist jar");
+            }
+            if (ContainsAny(lower, "waterfall", "cascada", "river", "stream"))
+            {
+                AddRequiredForegroundObject(labels, "miniature waterfall model");
+                AddRequiredForegroundObject(labels, "bucket");
+            }
+            AddKnownForegroundObject(lower, labels, "bowl");
+            if (ContainsAny(lower, "neighborhood", "barrio", "city", "street", "village"))
+            {
+                AddRequiredForegroundObject(labels, "miniature houses");
+                AddRequiredForegroundObject(labels, "neighbors");
+                AddRequiredForegroundObject(labels, "doormat");
+            }
+        }
+
+        private static void AddRequiredForegroundObject(List<string> labels, string label)
+        {
+            if (labels != null && !string.IsNullOrWhiteSpace(label) && !ContainsCaseInsensitive(labels, label))
+            {
+                labels.Add(label);
+            }
         }
 
         private static void AddKnownForegroundObject(string lowerText, List<string> labels, string label)
@@ -3230,6 +3663,44 @@ namespace MemPalaceLLM
             {
                 labels.Add(label);
             }
+        }
+
+        private static void AddKnownForegroundObjectWholeToken(string lowerText, List<string> labels, string label)
+        {
+            if (ContainsWholeToken(lowerText, label) && !ContainsCaseInsensitive(labels, label))
+            {
+                labels.Add(label);
+            }
+        }
+
+        private static bool ContainsWholeToken(string value, string term)
+        {
+            if (string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(term))
+            {
+                return false;
+            }
+
+            var startIndex = 0;
+            while (startIndex < value.Length)
+            {
+                var index = value.IndexOf(term, startIndex, StringComparison.OrdinalIgnoreCase);
+                if (index < 0)
+                {
+                    return false;
+                }
+
+                var beforeOk = index == 0 || !char.IsLetterOrDigit(value[index - 1]);
+                var afterIndex = index + term.Length;
+                var afterOk = afterIndex >= value.Length || !char.IsLetterOrDigit(value[afterIndex]);
+                if (beforeOk && afterOk)
+                {
+                    return true;
+                }
+
+                startIndex = index + 1;
+            }
+
+            return false;
         }
 
         private static bool ContainsCaseInsensitive(List<string> values, string value)
@@ -3257,15 +3728,26 @@ namespace MemPalaceLLM
                 return string.Empty;
             }
 
-            return text
-                .Replace("airport codes", "airport stamp marks")
-                .Replace("stamped with airport codes", "covered with airport stamp marks")
-                .Replace("passport stamped with codes", "passport covered with stamp marks");
+            var result = text;
+            result = ReplaceCaseInsensitive(result, "airport codes", "airport stamp marks");
+            result = ReplaceCaseInsensitive(result, "stamped with airport codes", "covered with airport stamp marks");
+            result = ReplaceCaseInsensitive(result, "passport stamped with codes", "passport covered with stamp marks");
+            result = ReplaceCaseInsensitive(result, "fluffy white cloud shape", "cotton cloud mobile with paper raindrops");
+            result = ReplaceCaseInsensitive(result, "cloud shape", "cotton cloud mobile");
+            result = ReplaceCaseInsensitive(result, "floating cloud", "cotton cloud mobile clipped to the anchor");
+            result = ReplaceCaseInsensitive(result, "cloud floats", "cotton cloud mobile hangs");
+            result = ReplaceCaseInsensitive(result, "floats above the backrest", "is clipped to the backrest");
+            result = ReplaceCaseInsensitive(result, "floats above the chair", "is clipped to the chair");
+            result = ReplaceCaseInsensitive(result, "a waterfall flows", "a miniature waterfall model pours");
+            result = ReplaceCaseInsensitive(result, "waterfall flows", "miniature waterfall model pours");
+            result = ReplaceCaseInsensitive(result, "dog runs through the neighborhood", "miniature houses and two neighbors sit on a doormat");
+            result = ReplaceCaseInsensitive(result, "runs through the neighborhood", "moves between miniature houses on a doormat");
+            return result;
         }
 
         private string BuildMnemonicImageNegativePrompt()
         {
-            return "text, letters, words, captions, readable writing, logo, watermark, signature, blurry, low quality, distorted, extra limbs, empty room, bare room, furniture only, chair only, table only, chairs and table only, dining set, interior design photo, generic room photo, window only, shelf only, landscape view, room overview, full room, whole room, establishing shot, wide shot, long shot, distant subject, tiny subject, small subject, architectural rendering, background emphasis, smoke, fog, haze, light beam, abstract atmosphere, cluttered background";
+            return "text, letters, words, captions, readable writing, logo, watermark, signature, blurry, low quality, distorted, extra limbs, empty room, bare room, furniture only, chair only, table only, chairs and table only, dining set, interior design photo, generic room photo, window only, shelf only, landscape view, room overview, full room, whole room, establishing shot, wide shot, long shot, distant subject, tiny subject, small subject, architectural rendering, background emphasis, real sky, cloudscape, outdoor weather photo, forest waterfall, cliff waterfall, real beach, city street view, outdoor city view, smoke, fog, haze, light beam, abstract atmosphere, cluttered background";
         }
 
         private string BuildImageBackgroundScene(MnemonicItemData item)
@@ -3425,7 +3907,8 @@ namespace MemPalaceLLM
 
             var normalized = prompt.Trim().ToLowerInvariant();
             var anchorLower = anchor.ToLowerInvariant();
-            return (normalized.StartsWith("((single mnemonic subject))", StringComparison.Ordinal)
+            return (normalized.StartsWith("tight two-subject mnemonic close-up", StringComparison.Ordinal)
+                    || normalized.StartsWith("((single mnemonic subject))", StringComparison.Ordinal)
                     || (normalized.Contains("scene to imagine only as background context")
                         && normalized.Contains("clear foreground focus"))
                     || normalized.StartsWith($"simple indoor mnemonic illustration staged at the {anchorLower}", StringComparison.Ordinal)
@@ -3637,6 +4120,7 @@ namespace MemPalaceLLM
                 if (prefix.StartsWith("Simple indoor mnemonic illustration", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Simple indoor anchor-cue mnemonic illustration", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Mnemonic illustration", StringComparison.OrdinalIgnoreCase)
+                    || prefix.StartsWith("Tight two-subject mnemonic close-up", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Close-up indoor anchor-cue mnemonic", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Close-up indoor mnemonic", StringComparison.OrdinalIgnoreCase))
                 {
@@ -8693,8 +9177,8 @@ namespace MemPalaceLLM
 
         private static string BuildVrBilingualSectionText(string heading, string englishText, string japaneseText)
         {
-            var english = string.IsNullOrWhiteSpace(englishText) ? string.Empty : englishText.Trim();
-            var japanese = string.IsNullOrWhiteSpace(japaneseText) ? string.Empty : japaneseText.Trim();
+            var english = CleanUserFacingMnemonicText(englishText);
+            var japanese = CleanUserFacingMnemonicText(japaneseText);
 
             if (!string.IsNullOrWhiteSpace(japanese))
             {
@@ -9928,6 +10412,117 @@ namespace MemPalaceLLM
             return false;
         }
 
+        private static string CleanUserFacingMnemonicText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            var cleaned = StripUserFacingJapaneseAnchorLead(text.Trim());
+            cleaned = StripUserFacingEnglishAnchorLead(cleaned);
+            return cleaned.Trim();
+        }
+
+        private static string StripUserFacingJapaneseAnchorLead(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            var markers = new[]
+            {
+                "を舞台に",
+                "を舞台として",
+                "を中心に",
+                "を記憶場所として",
+                "を記憶場所にして"
+            };
+
+            for (int i = 0; i < markers.Length; i++)
+            {
+                var markerIndex = text.IndexOf(markers[i], StringComparison.Ordinal);
+                if (markerIndex < 0 || markerIndex > 40)
+                {
+                    continue;
+                }
+
+                var commaIndex = text.IndexOf('、', markerIndex + markers[i].Length);
+                if (commaIndex >= 0)
+                {
+                    return text.Substring(commaIndex + 1).Trim();
+                }
+
+                var asciiCommaIndex = text.IndexOf(',', markerIndex + markers[i].Length);
+                if (asciiCommaIndex >= 0)
+                {
+                    return text.Substring(asciiCommaIndex + 1).Trim();
+                }
+            }
+
+            return text;
+        }
+
+        private static string StripUserFacingEnglishAnchorLead(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            var trimmed = text.Trim();
+            var lower = trimmed.ToLowerInvariant();
+            var prefixes = new[]
+            {
+                "at the ",
+                "at ",
+                "centered on the ",
+                "centered on ",
+                "using the ",
+                "using "
+            };
+
+            for (int i = 0; i < prefixes.Length; i++)
+            {
+                var prefix = prefixes[i];
+                if (!lower.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var commaIndex = trimmed.IndexOf(',');
+                if (commaIndex < 0 || commaIndex > 80)
+                {
+                    continue;
+                }
+
+                var prefixSegment = lower.Substring(0, commaIndex);
+                if (prefix.StartsWith("using", StringComparison.Ordinal)
+                    && !prefixSegment.Contains("memory location"))
+                {
+                    continue;
+                }
+
+                return CapitalizeFirst(trimmed.Substring(commaIndex + 1));
+            }
+
+            return trimmed;
+        }
+
+        private static string CapitalizeFirst(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            var trimmed = text.Trim();
+            return trimmed.Length == 1
+                ? trimmed.ToUpperInvariant()
+                : char.ToUpperInvariant(trimmed[0]) + trimmed.Substring(1);
+        }
+
         private static string SanitizeIdPrefix(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -9977,15 +10572,17 @@ namespace MemPalaceLLM
         private void DrawBilingualSection(string heading, string englishText, string japaneseText, GUIStyle headingStyle, GUIStyle bodyStyle)
         {
             GUILayout.Label(heading, headingStyle);
+            var displayJapanese = CleanUserFacingMnemonicText(japaneseText);
+            var displayEnglish = CleanUserFacingMnemonicText(englishText);
 
-            if (!string.IsNullOrWhiteSpace(japaneseText))
+            if (!string.IsNullOrWhiteSpace(displayJapanese))
             {
-                GUILayout.Label("JA: " + japaneseText, bodyStyle);
+                GUILayout.Label("JA: " + displayJapanese, bodyStyle);
             }
 
-            if (!string.IsNullOrWhiteSpace(englishText))
+            if (!string.IsNullOrWhiteSpace(displayEnglish))
             {
-                GUILayout.Label("EN: " + englishText, bodyStyle);
+                GUILayout.Label("EN: " + displayEnglish, bodyStyle);
             }
         }
 
@@ -10072,6 +10669,43 @@ namespace MemPalaceLLM
         {
             public string error;
             public string detail;
+        }
+
+        [Serializable]
+        private sealed class OllamaVisionOptions
+        {
+            public float temperature;
+            public int num_predict;
+        }
+
+        [Serializable]
+        private sealed class OllamaVisionGenerateRequest
+        {
+            public string model;
+            public string prompt;
+            public bool stream;
+            public string format;
+            public string[] images;
+            public OllamaVisionOptions options;
+        }
+
+        [Serializable]
+        private sealed class OllamaVisionGenerateResponse
+        {
+            public string response;
+            public string error;
+        }
+
+        [Serializable]
+        private sealed class ImageCueValidationResult
+        {
+            public bool pass;
+            public bool anchor_visible;
+            public bool cue_visible;
+            public bool focus_ok;
+            public string caption;
+            public string reason;
+            public string[] missing_or_wrong;
         }
     }
 
