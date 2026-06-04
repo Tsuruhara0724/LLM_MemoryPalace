@@ -515,16 +515,165 @@ namespace MemPalaceLLM
             {
                 model = model,
                 prompt = BuildPrompt(words, globalOffset, totalWords),
-                system = "You are an expert memory-palace mnemonic designer and a strict JSON API. Design simple, concrete, imageable memory hooks at assigned locations, then return exactly one valid JSON object and nothing else. Use double quotes for every key and string. Escape any inner quotes. No markdown. No commentary.",
+                system = "You write JSON for a Unity memory-palace app. The prompt contains complete word and anchor data. Return exactly one valid JSON object whose top-level key is items. Use double quotes for every key and string. Escape any inner quotes. No markdown or commentary.",
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
                 {
                     temperature = 0.5f,
-                    num_predict = Mathf.Clamp(words.Count * 280 + 320, 850, 1400)
+                    num_predict = Mathf.Clamp(words.Count * 420 + 480, 1100, 2200)
                 }
             };
 
+            string rawResponse = null;
+            string requestError = null;
+            yield return SendOllamaGenerateRequest(
+                endpoint,
+                requestBody,
+                responseText => rawResponse = responseText,
+                error => requestError = error);
+
+            if (!string.IsNullOrWhiteSpace(requestError))
+            {
+                onError?.Invoke(requestError);
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(rawResponse))
+            {
+                onError?.Invoke("Ollama response did not contain mnemonic JSON.");
+                yield break;
+            }
+
+            var responseForError = rawResponse;
+            if (!TryParseMnemonicEnvelope(rawResponse, out var parsedEnvelope, out var parseError))
+            {
+                if (ShouldRetryMnemonicResponse(rawResponse))
+                {
+                    string retryResponse = null;
+                    string retryError = null;
+                    var retryRequestBody = new OllamaGenerateRequest
+                    {
+                        model = model,
+                        prompt = BuildCompactMnemonicRetryPrompt(words, globalOffset, totalWords),
+                        system = "You write JSON for a Unity memory-palace app. The prompt contains complete word and anchor data. Return only one JSON object whose top-level key is items.",
+                        format = "json",
+                        stream = false,
+                        options = new OllamaRequestOptions
+                        {
+                            temperature = 0.2f,
+                            num_predict = Mathf.Clamp(words.Count * 420 + 480, 1100, 2200)
+                        }
+                    };
+
+                    yield return SendOllamaGenerateRequest(
+                        endpoint,
+                        retryRequestBody,
+                        responseText => retryResponse = responseText,
+                        error => retryError = error);
+
+                    if (!string.IsNullOrWhiteSpace(retryResponse)
+                        && TryParseMnemonicEnvelope(retryResponse, out parsedEnvelope, out parseError))
+                    {
+                        responseForError = retryResponse;
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrWhiteSpace(retryError))
+                        {
+                            parseError += $"\nRetry request failed: {retryError}";
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(retryResponse))
+                        {
+                            responseForError = retryResponse;
+                            parseError += "\nRetry response preview:\n" + BuildPreview(retryResponse);
+                        }
+                    }
+                }
+
+                if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
+                {
+                    string repairedPayload = null;
+                    string repairFailure = null;
+
+                    yield return RepairMnemonicJson(
+                        endpoint,
+                        model,
+                        responseForError,
+                        repairedJson => repairedPayload = repairedJson,
+                        repairError => repairFailure = repairError);
+
+                    if (!string.IsNullOrWhiteSpace(repairedPayload))
+                    {
+                        TryParseMnemonicEnvelope(repairedPayload, out parsedEnvelope, out parseError);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(repairFailure))
+                    {
+                        parseError += $"\nRepair attempt failed: {repairFailure}";
+                    }
+
+                    if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
+                    {
+                        onError?.Invoke(
+                            "Failed to parse Ollama mnemonic JSON.\n" +
+                            parseError + "\n\n" +
+                            "Raw response preview:\n" + BuildPreview(responseForError));
+                        yield break;
+                    }
+                }
+            }
+
+            if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
+            {
+                onError?.Invoke("Ollama returned empty mnemonic data.");
+                yield break;
+            }
+
+            var items = new List<MnemonicItemData>();
+            var alignedGeneratedItems = AlignGeneratedItemsToWords(words, parsedEnvelope.items);
+
+            for (int i = 0; i < alignedGeneratedItems.Count && i < words.Count; i++)
+            {
+                var sourceWord = words[i];
+                var generated = alignedGeneratedItems[i];
+                if (generated == null)
+                {
+                    continue;
+                }
+
+                var globalIndex = globalOffset + i;
+                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+
+                items.Add(new MnemonicItemData
+                {
+                    word = sourceWord.word,
+                    meaning = sourceWord.meaning,
+                    meaningJa = sourceWord.meaningJa,
+                    anchorId = anchor.id,
+                    anchorLabel = anchor.label,
+                    visualCue = generated.visual_cue_en,
+                    visualCueJa = string.IsNullOrWhiteSpace(generated.visual_cue_ja) ? generated.visual_cue_en : generated.visual_cue_ja,
+                    mnemonic = generated.mnemonic_en,
+                    mnemonicJa = string.IsNullOrWhiteSpace(generated.mnemonic_ja) ? generated.mnemonic_en : generated.mnemonic_ja,
+                    imagePrompt = generated.image_prompt_en,
+                    imagePromptJa = string.IsNullOrWhiteSpace(generated.image_prompt_ja) ? generated.image_prompt_en : generated.image_prompt_ja,
+                    objectShape = PickShape(globalIndex),
+                    colorHex = PickColor(globalIndex),
+                    visualObjects = NormalizeVisualObjects(generated.visual_objects, globalIndex)
+                });
+            }
+
+            onSuccess?.Invoke(items);
+        }
+
+        private IEnumerator SendOllamaGenerateRequest(
+            string endpoint,
+            OllamaGenerateRequest requestBody,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
             var json = JsonUtility.ToJson(requestBody);
 
             using (var request = new UnityWebRequest(endpoint, UnityWebRequest.kHttpVerbPOST))
@@ -568,83 +717,11 @@ namespace MemPalaceLLM
 
                 if (string.IsNullOrWhiteSpace(response.response))
                 {
-                    onError?.Invoke("Ollama response did not contain mnemonic JSON.");
+                    onError?.Invoke("Ollama response did not contain JSON.");
                     yield break;
                 }
 
-                if (!TryParseMnemonicEnvelope(response.response, out var parsedEnvelope, out var parseError))
-                {
-                    string repairedPayload = null;
-                    string repairFailure = null;
-
-                    yield return RepairMnemonicJson(
-                        endpoint,
-                        model,
-                        response.response,
-                        repairedJson => repairedPayload = repairedJson,
-                        repairError => repairFailure = repairError);
-
-                    if (!string.IsNullOrWhiteSpace(repairedPayload))
-                    {
-                        TryParseMnemonicEnvelope(repairedPayload, out parsedEnvelope, out parseError);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(repairFailure))
-                    {
-                        parseError += $"\nRepair attempt failed: {repairFailure}";
-                    }
-
-                    if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
-                    {
-                        onError?.Invoke(
-                            "Failed to parse Ollama mnemonic JSON.\n" +
-                            parseError + "\n\n" +
-                            "Raw response preview:\n" + BuildPreview(response.response));
-                        yield break;
-                    }
-                }
-
-                if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
-                {
-                    onError?.Invoke("Ollama returned empty mnemonic data.");
-                    yield break;
-                }
-
-                var items = new List<MnemonicItemData>();
-                var alignedGeneratedItems = AlignGeneratedItemsToWords(words, parsedEnvelope.items);
-
-                for (int i = 0; i < alignedGeneratedItems.Count && i < words.Count; i++)
-                {
-                    var sourceWord = words[i];
-                    var generated = alignedGeneratedItems[i];
-                    if (generated == null)
-                    {
-                        continue;
-                    }
-
-                    var globalIndex = globalOffset + i;
-                    var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
-
-                    items.Add(new MnemonicItemData
-                    {
-                        word = sourceWord.word,
-                        meaning = sourceWord.meaning,
-                        meaningJa = sourceWord.meaningJa,
-                        anchorId = anchor.id,
-                        anchorLabel = anchor.label,
-                        visualCue = generated.visual_cue_en,
-                        visualCueJa = string.IsNullOrWhiteSpace(generated.visual_cue_ja) ? generated.visual_cue_en : generated.visual_cue_ja,
-                        mnemonic = generated.mnemonic_en,
-                        mnemonicJa = string.IsNullOrWhiteSpace(generated.mnemonic_ja) ? generated.mnemonic_en : generated.mnemonic_ja,
-                        imagePrompt = generated.image_prompt_en,
-                        imagePromptJa = string.IsNullOrWhiteSpace(generated.image_prompt_ja) ? generated.image_prompt_en : generated.image_prompt_ja,
-                        objectShape = PickShape(globalIndex),
-                        colorHex = PickColor(globalIndex),
-                        visualObjects = NormalizeVisualObjects(generated.visual_objects, globalIndex)
-                    });
-                }
-
-                onSuccess?.Invoke(items);
+                onSuccess?.Invoke(response.response);
             }
         }
 
@@ -738,68 +815,90 @@ namespace MemPalaceLLM
             }
 
             var anchorLines = new StringBuilder();
-            var strategyLines = new StringBuilder();
-            var strategies = new[]
-            {
-                "tangible meaning metaphor",
-                "visible physical state",
-                "small cause-and-effect action",
-                "sharp semantic contrast",
-                "everyday object behavior",
-                "tiny character action"
-            };
             for (int i = 0; i < words.Count; i++)
             {
                 var globalIndex = globalOffset + i;
                 var wordNumber = globalIndex + 1;
                 var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
                 anchorLines.Append("- word ").Append(wordNumber).Append(" -> ").Append(anchor.id).Append(": ").Append(anchor.label).AppendLine();
-                strategyLines.Append("- word ")
-                    .Append(wordNumber)
-                    .Append(": ")
-                    .Append(strategies[globalIndex % strategies.Length])
-                    .AppendLine();
             }
 
             return
-                "Mnemonic Designer v2 for a fixed memory palace.\n" +
+                "You are generating VR memory palace mnemonics for foreign-language vocabulary learning.\n" +
                 "Return exactly " + words.Count + " item(s), only for the WORDS listed below.\n\n" +
-                "Core idea:\n" +
-                "- The word does not search for a matching room object.\n" +
-                "- The assigned anchor is only the stable location where the learner places the memory.\n" +
-                "- The mnemonic cue is an imagined overlay object, action, character, or tiny scene added at that anchor.\n" +
-                "- The story explains why that foreground overlay cue retrieves the word meaning.\n\n" +
-                "Output fields:\n" +
-                "- visual_cue_en = Scene to Imagine. One concrete snapshot at the assigned anchor, with the overlay cue as the main visible event.\n" +
-                "- visual_cue_ja = same scene in natural Japanese.\n" +
-                "- mnemonic_en = Cue Story. One short reason why the overlay cue retrieves the word meaning.\n" +
-                "- mnemonic_ja = same memory link in natural Japanese.\n" +
-                "- image_prompt_en = a short foreground-focus phrase only, not a whole-room prompt. The app will build the final image prompt.\n" +
-                "- image_prompt_ja = same foreground-focus phrase in Japanese.\n" +
-                "- visual_objects = exactly [] for this demo.\n\n" +
-                "Design rules:\n" +
-                "- Use the exact anchor_id and anchor label from PRE-ASSIGNED ANCHORS. Never move the scene to a better-matching anchor.\n" +
-                "- Include the assigned anchor label in visual_cue_en, but make the overlay cue more memorable than the anchor.\n" +
-                "- Make the overlay cue physical, visible, and specific: a concrete noun plus a clear action or state.\n" +
-                "- The cue should be understandable in one mental picture. Avoid clever explanations that are not visible.\n" +
-                "- The cue must recover the meaning, not just the spelling or sound. Sound hints may support, but not replace, meaning.\n" +
-                "- If the word is abstract, turn the idea into a tangible metaphor, physical state, contrast, or small cause-effect action.\n" +
-                "- If the word names a kind of person, show a small person doing the defining behavior.\n" +
-                "- Keep it simple and exact: one anchor, one foreground cue, one memorable action.\n" +
-                "- Within this batch, every word must use a different cue noun and a different main action.\n" +
-                "- Before final JSON, check for duplicates. If two items feel similar, rewrite one with a different object and action.\n" +
-                "- Do not rely on written words, labels, captions, alphabet letters, logos, arrows, icons, signs, or UI symbols.\n" +
-                "- Do not rely on a tiny dot, colored light, vague glow, mood lighting, smoke, haze, rhythm, or atmosphere as the main clue.\n" +
-                "- Avoid whole-room scenes, empty rooms, interior design views, outdoor city views, disasters, explosions, battle, horror, gore, or large smoke clouds.\n" +
-                "- Avoid template phrasing such as 'represents the meaning', 'symbolizes', 'embodies', 'shows the word', or 'using the anchor as memory location'.\n" +
-                "- visual_cue_en should be 12 to 24 words and should start naturally with 'At the {AnchorLabel}, ...'.\n" +
-                "- mnemonic_en should be 10 to 24 words and should name the exact retrieval hook in plain language.\n" +
-                "- image_prompt_en should be 6 to 14 words naming only the foreground cue/action, with no room overview.\n" +
-                "- Keep the Japanese fluent and natural, not word-for-word awkward translation.\n\n" +
-                "Creative lens by word:\n" + strategyLines +
-                "\nWORDS:\n" + wordLines +
+                "Use this complete word and anchor data:\n\n" +
+                "WORDS:\n" + wordLines +
                 "\nPRE-ASSIGNED ANCHORS:\n" + anchorLines +
-                "\nReturn exactly one JSON object with this shape:\n" +
+                "\nYour output is exactly one JSON object with an items array matching the shape below.\n\n" +
+                "Main objective:\n" +
+                "Each item must help the learner retrieve the meaning first, and then support recall of the Spanish word form. The cue must be realistic, concrete, easy to imagine, and suitable for placement on an ordinary room object.\n\n" +
+                "Use the exact anchor_id and anchor label from PRE-ASSIGNED ANCHORS. Never change the assigned anchor.\n\n" +
+                "For each word, silently plan the mnemonic in this order:\n\n" +
+                "1. Meaning cue:\n" +
+                "Choose one concrete visible cue that directly retrieves the meaning.\n\n" +
+                "2. Optional word-form hook:\n" +
+                "Check whether the Spanish word has a clean and simple recall hook.\n" +
+                "Use this priority:\n" +
+                "a) direct sound similarity or cognate-like similarity with the meaning word;\n" +
+                "b) a visible secondary object or action already compatible with the meaning scene;\n" +
+                "c) no word-form hook, if any hook would be forced or confusing.\n\n" +
+                "3. Unified scene:\n" +
+                "If a word-form hook uses a concrete object, include that object visibly in visual_cue_en.\n" +
+                "If the hook is only a direct sound similarity, mention it only in mnemonic_en.\n" +
+                "The final scene must still be meaning-first.\n\n" +
+                "Scene design rules:\n" +
+                "- Include the assigned anchor label in visual_cue_en.\n" +
+                "- The foreground cue should be more memorable than the anchor.\n" +
+                "- Make the cue physical, visible, and specific: a concrete noun plus a clear action or state.\n" +
+                "- The cue should be understandable in one mental picture.\n" +
+                "- Use realistic mini-scenes rather than fantasy, disasters, battles, horror, explosions, or surreal transformations.\n" +
+                "- For nouns, show the object itself or a closely related object doing a defining action.\n" +
+                "- For abstract nouns, turn the idea into a tangible physical state, contrast, container state, damage state, or simple interaction.\n" +
+                "- For person nouns, show a small person doing the defining behavior.\n" +
+                "- Keep it simple: one anchor, one foreground cue, one memorable action.\n" +
+                "- The scene should feel like an object or small action placed on, beside, under, or attached to the anchor, not a whole-room redesign.\n\n" +
+                "Cue Story rules:\n" +
+                "- visual_cue_en and mnemonic_en must describe the same mnemonic, not two separate ideas.\n" +
+                "- mnemonic_en must describe one unified retrieval path based on the same visible scene.\n" +
+                "- First state how the visible cue retrieves the meaning.\n" +
+                "- Then, only if natural, state how a visible detail, sound similarity, or simple cognate-like association helps recall the Spanish word form.\n" +
+                "- Do not invent a new sound-hint object in mnemonic_en unless it already appears in visual_cue_en and visual_objects.\n" +
+                "- A sound hook may be mentioned without adding a new object only when it is a direct sound similarity between the Spanish word and the meaning word.\n" +
+                "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n" +
+                "- Do not explain the word using the word itself, or the meaning using the meaning itself.\n" +
+                "- If no clean word-form hook exists, keep the mnemonic meaning-first and do not force a weak pun.\n" +
+                "- The learner should be able to infer the meaning from the scene first, then use the mnemonic to recall the Spanish word form.\n\n" +
+                "Avoid:\n" +
+                "- written words, labels, captions, alphabet letters, logos, arrows, icons, signs, or UI symbols;\n" +
+                "- tiny dots, vague glow, colored light, mood lighting, smoke, haze, rhythm, or atmosphere as the main clue;\n" +
+                "- whole-room scenes, empty rooms, interior design views, outdoor city views, disasters, explosions, battle, horror, gore, or large smoke clouds;\n" +
+                "- template phrases such as \"represents the meaning,\" \"symbolizes,\" \"embodies,\" \"shows the word,\" or \"using the anchor as memory location.\"\n\n" +
+                "Batch variety:\n" +
+                "- Within the batch, try to use different cue nouns and different main actions.\n" +
+                "- However, meaning accuracy and recall quality are more important than forced variety.\n" +
+                "- Before final JSON, check for duplicated or overly similar cues. If two items feel similar, rewrite one with a different object and action.\n\n" +
+                "Field-specific rules:\n" +
+                "- visual_cue_en should be 12 to 24 words and must start naturally with \"At the {AnchorLabel}, ...\"\n" +
+                "- visual_cue_en should describe only the visible scene, not explain the symbolism.\n" +
+                "- visual_cue_ja should be fluent and natural Japanese, not a word-for-word translation.\n" +
+                "- mnemonic_en should be 14 to 30 words.\n" +
+                "- mnemonic_en should explain the retrieval path: meaning first, then optional Spanish word-form support.\n" +
+                "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
+                "- image_prompt_en should be 6 to 14 words and name only the foreground cue/action, with no room overview.\n" +
+                "- image_prompt_ja should be the same foreground cue/action in natural Japanese.\n" +
+                "- visual_objects must list every concrete foreground object used for meaning retrieval.\n" +
+                "- If mnemonic_en uses a visible object as a word-form hook, that object must also be included in visual_objects.\n" +
+                "- Do not include the anchor itself in visual_objects unless the anchor is also part of the foreground cue.\n" +
+                "- Do not include abstract ideas, emotions, meanings, or invisible sound hints in visual_objects.\n\n" +
+                "Before outputting JSON, silently check each item:\n\n" +
+                "1. Can the visual scene retrieve the meaning without reading the Spanish word?\n" +
+                "2. Does mnemonic_en avoid simply restating the answer?\n" +
+                "3. Does mnemonic_en explain the same scene as visual_cue_en?\n" +
+                "4. If mnemonic_en mentions a concrete sound-hint object, does it appear in visual_cue_en and visual_objects?\n" +
+                "5. If the word-form hook feels artificial, remove it and keep a meaning-first mnemonic.\n" +
+                "6. Is the scene realistic enough to fit on or near an ordinary room anchor?\n" +
+                "7. Is Japanese natural and fluent?\n\n" +
+                "\nOutput only valid JSON in this shape:\n" +
                 "{\n" +
                 "  \"items\": [\n" +
                 "    {\n" +
@@ -807,15 +906,78 @@ namespace MemPalaceLLM
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
                 "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground overlay cue action.\",\n" +
                 "      \"visual_cue_ja\": \"same scene in Japanese\",\n" +
-                "      \"mnemonic_en\": \"short cue story that retrieves the meaning\",\n" +
+                "      \"mnemonic_en\": \"short cue story that retrieves the meaning and optionally supports the Spanish word form\",\n" +
                 "      \"mnemonic_ja\": \"same memory link in Japanese\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action only\",\n" +
                 "      \"image_prompt_ja\": \"foreground cue/action only in Japanese\",\n" +
-                "      \"visual_objects\": []\n" +
+                "      \"visual_objects\": [\n" +
+                "        {\n" +
+                "          \"label\": \"concrete foreground object\",\n" +
+                "          \"primitiveShape\": \"Cube\",\n" +
+                "          \"colorHex\": \"#7EC8E3\",\n" +
+                "          \"localPosition\": { \"x\": 0, \"y\": 0, \"z\": 0 },\n" +
+                "          \"scale\": { \"x\": 0.45, \"y\": 0.45, \"z\": 0.45 },\n" +
+                "          \"effect\": \"meaning cue\"\n" +
+                "        }\n" +
+                "      ]\n" +
                 "    }\n" +
                 "  ]\n" +
-                "}\n" +
-                "Be concrete, distinctive, imageable, and strictly JSON-compliant.";
+                "}";
+        }
+
+        private static string BuildCompactMnemonicRetryPrompt(List<WordEntry> words, int globalOffset, int totalWords)
+        {
+            var assignmentLines = new StringBuilder();
+            for (int i = 0; i < words.Count; i++)
+            {
+                var globalIndex = globalOffset + i;
+                var wordNumber = globalIndex + 1;
+                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                var meaningJa = string.IsNullOrWhiteSpace(words[i].meaningJa) ? "" : "; meaningJa=" + words[i].meaningJa;
+                assignmentLines.Append(wordNumber)
+                    .Append(". word=").Append(words[i].word)
+                    .Append("; meaning=").Append(words[i].meaning)
+                    .Append(meaningJa)
+                    .Append("; anchor_id=").Append(anchor.id)
+                    .Append("; anchor_label=").Append(anchor.label)
+                    .AppendLine();
+            }
+
+            return
+                "Generate VR memory palace mnemonics from the complete DATA below.\n" +
+                "DATA:\n" + assignmentLines +
+                "\nReturn exactly " + words.Count + " items in one JSON object whose top-level key is items.\n" +
+                "Use each listed anchor_id and anchor_label exactly. The visual scene must retrieve the meaning first.\n" +
+                "visual_cue_en must start with \"At the {anchor_label},\" and describe the visible scene only.\n" +
+                "mnemonic_en must explain the same visible scene: meaning first, then optional natural Spanish word-form support.\n" +
+                "If a word-form hook needs a visible object, that object must appear in visual_cue_en and visual_objects.\n" +
+                "If no clean word-form hook exists, keep the mnemonic meaning-first.\n" +
+                "visual_objects must list concrete foreground objects only, not anchors or abstract ideas.\n" +
+                "Output only this JSON shape:\n" +
+                "{\n" +
+                "  \"items\": [\n" +
+                "    {\n" +
+                "      \"word\": \"the word\",\n" +
+                "      \"anchor\": \"the assigned anchor_id\",\n" +
+                "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground cue action.\",\n" +
+                "      \"visual_cue_ja\": \"same scene in Japanese\",\n" +
+                "      \"mnemonic_en\": \"meaning-first retrieval path with optional Spanish word-form support\",\n" +
+                "      \"mnemonic_ja\": \"same retrieval path in Japanese\",\n" +
+                "      \"image_prompt_en\": \"foreground cue/action only\",\n" +
+                "      \"image_prompt_ja\": \"foreground cue/action only in Japanese\",\n" +
+                "      \"visual_objects\": [\n" +
+                "        {\n" +
+                "          \"label\": \"concrete foreground object\",\n" +
+                "          \"primitiveShape\": \"Cube\",\n" +
+                "          \"colorHex\": \"#7EC8E3\",\n" +
+                "          \"localPosition\": { \"x\": 0, \"y\": 0, \"z\": 0 },\n" +
+                "          \"scale\": { \"x\": 0.45, \"y\": 0.45, \"z\": 0.45 },\n" +
+                "          \"effect\": \"meaning cue\"\n" +
+                "        }\n" +
+                "      ]\n" +
+                "    }\n" +
+                "  ]\n" +
+                "}";
         }
 
         private static string BuildRoomPrompt(string layoutType, string roomDescription)
@@ -1066,6 +1228,18 @@ namespace MemPalaceLLM
             }
 
             return false;
+        }
+
+        private static bool ShouldRetryMnemonicResponse(string rawText)
+        {
+            if (string.IsNullOrWhiteSpace(rawText))
+            {
+                return false;
+            }
+
+            var candidate = NormalizeJsonCandidate(rawText);
+            return candidate.IndexOf("\"items\"", StringComparison.OrdinalIgnoreCase) < 0
+                   || candidate.IndexOf("\"error\"", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool TryDeserializeMnemonicEnvelope(string candidate, out GeneratedMnemonicEnvelope envelope, out string error)

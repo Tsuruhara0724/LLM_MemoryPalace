@@ -2539,12 +2539,22 @@ namespace MemPalaceLLM
 
             if (!string.IsNullOrWhiteSpace(error))
             {
+                var isMnemonicJsonError = error.IndexOf("Failed to parse Ollama mnemonic JSON", StringComparison.Ordinal) >= 0
+                                          || error.IndexOf("Parsed JSON did not contain any mnemonic items", StringComparison.Ordinal) >= 0
+                                          || error.IndexOf("did not contain mnemonic JSON", StringComparison.Ordinal) >= 0;
                 generationError = error;
-                currentItems = new List<MnemonicItemData>();
-                statusMessage = error.StartsWith("Failed to parse Ollama", StringComparison.Ordinal)
-                    ? "Ollama responded, but the mnemonic JSON was malformed. Try generating again."
-                    : "Ollama request failed. Check that Ollama is running and the model name is available.";
                 usedLiveLlmForCurrentSession = false;
+
+                if (isMnemonicJsonError)
+                {
+                    currentItems = new List<MnemonicItemData>();
+                    statusMessage = "Ollama responded, but the mnemonic JSON did not match the required items schema. Try generating again.";
+                }
+                else
+                {
+                    currentItems = new List<MnemonicItemData>();
+                    statusMessage = "Ollama request failed. Check that Ollama is running and the model name is available.";
+                }
             }
             else
             {
@@ -2844,8 +2854,8 @@ namespace MemPalaceLLM
                 negative_prompt = BuildMnemonicImageNegativePrompt(),
                 width = 512,
                 height = 512,
-                steps = 20,
-                cfg_scale = 7f,
+                steps = 28,
+                cfg_scale = 8.5f,
                 sampler_name = "DPM++ 2M"
             };
             requestBody.override_settings = BuildImageOverrideSettings();
@@ -3102,6 +3112,7 @@ namespace MemPalaceLLM
             var anchor = GetAnchorDisplayName(item);
             var backgroundScene = BuildImageBackgroundScene(item);
             var foregroundFocus = BuildImageForegroundFocus(item, promptOverride);
+            var foregroundObjects = BuildImageForegroundObjectList(item, anchor);
 
             if (string.IsNullOrWhiteSpace(backgroundScene))
             {
@@ -3113,29 +3124,148 @@ namespace MemPalaceLLM
                 backgroundScene = $"a vivid mnemonic metaphor for {GetMeaningText(item)}";
             }
 
-            if (IsAlreadyAnchorGroundedImagePrompt(promptOverride, anchor))
+            if (IsAlreadyAnchorGroundedImagePrompt(promptOverride, anchor)
+                && promptOverride.IndexOf("large foreground cue objects", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return promptOverride;
             }
 
-            backgroundScene = ExtractPromptSceneDetail(backgroundScene);
+            backgroundScene = NormalizeGeneratedImageCueText(ExtractPromptSceneDetail(backgroundScene));
             if (string.IsNullOrWhiteSpace(backgroundScene))
             {
                 backgroundScene = $"one concrete mnemonic scene for {item.word}, meaning {GetMeaningText(item)}";
             }
 
-            foregroundFocus = ExtractPromptSceneDetail(foregroundFocus);
+            foregroundFocus = NormalizeGeneratedImageCueText(ExtractPromptSceneDetail(foregroundFocus));
             if (string.IsNullOrWhiteSpace(foregroundFocus))
             {
                 foregroundFocus = backgroundScene;
             }
 
-            return $"((single mnemonic subject)), ((close-up view)), ((foreground mnemonic detail dominates the frame)), ((no room overview)), simple indoor anchor-cue mnemonic illustration staged at the {anchor}. Use this Scene to Imagine only as background context: {backgroundScene}. Make this Cue Story the clear foreground focus of the image: {foregroundFocus}. Keep the {anchor} visible only as supporting spatial context in the background. The foreground object, gesture, or small action should occupy most of the frame and be more visually important than the room. Minimal background clutter. Avoid empty-room, window-only, furniture-only, smoke, haze, light-beam, architectural rendering, and interior-design compositions. Soft natural room lighting, centered composition, no disaster scene, no explosion, no fire, no smoke cloud, no industrial building, no text, no letters, no captions, no logos, no watermark.";
+            var subjects = string.IsNullOrWhiteSpace(foregroundObjects)
+                ? anchor
+                : $"{anchor}, {foregroundObjects}";
+
+            return $"TIGHT CLOSE-UP MNEMONIC SUBJECTS: {subjects}. ((macro close-up)), ((object-focused composition)), ((subjects fill 80 percent of the frame)), ((shallow depth of field)). Main action: {foregroundFocus}. Crop tightly around the {anchor} and the cue objects; show only a small fragment of surrounding room as blurred background. The image must clearly show the assigned anchor and the cue objects together, not a whole room. Scene context for accuracy: {backgroundScene}. No readable text, no captions, no logos, no watermark.";
+        }
+
+        private string BuildImageForegroundObjectList(MnemonicItemData item, string anchor)
+        {
+            if (item == null)
+            {
+                return string.Empty;
+            }
+
+            var labels = new List<string>();
+            if (item.visualObjects != null)
+            {
+                for (int i = 0; i < item.visualObjects.Count; i++)
+                {
+                    var label = NormalizeImageObjectLabel(item.visualObjects[i]?.label, anchor);
+                    if (!string.IsNullOrWhiteSpace(label) && !ContainsCaseInsensitive(labels, label))
+                    {
+                        labels.Add(label);
+                    }
+                }
+            }
+
+            AddKnownForegroundObjects(item.imagePrompt, labels);
+            AddKnownForegroundObjects(item.visualCue, labels);
+            AddKnownForegroundObjects(item.mnemonic, labels);
+
+            return labels.Count == 0 ? string.Empty : string.Join(", ", labels);
+        }
+
+        private static string NormalizeImageObjectLabel(string label, string anchor)
+        {
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                return string.Empty;
+            }
+
+            var cleaned = label.Trim();
+            if (ContainsAny(cleaned.ToLowerInvariant(), "anchor"))
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(anchor)
+                && string.Equals(cleaned, anchor.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return cleaned;
+        }
+
+        private static void AddKnownForegroundObjects(string text, List<string> labels)
+        {
+            if (string.IsNullOrWhiteSpace(text) || labels == null)
+            {
+                return;
+            }
+
+            var lower = text.ToLowerInvariant();
+            AddKnownForegroundObject(lower, labels, "suitcase");
+            AddKnownForegroundObject(lower, labels, "passport");
+            AddKnownForegroundObject(lower, labels, "stamp");
+            AddKnownForegroundObject(lower, labels, "airplane");
+            AddKnownForegroundObject(lower, labels, "bird");
+            if (lower.IndexOf("metal cage", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                AddKnownForegroundObject(lower, labels, "metal cage");
+            }
+            else
+            {
+                AddKnownForegroundObject(lower, labels, "cage");
+            }
+            AddKnownForegroundObject(lower, labels, "boarding pass");
+            AddKnownForegroundObject(lower, labels, "ticket");
+            AddKnownForegroundObject(lower, labels, "luggage tag");
+        }
+
+        private static void AddKnownForegroundObject(string lowerText, List<string> labels, string label)
+        {
+            if (lowerText.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0 && !ContainsCaseInsensitive(labels, label))
+            {
+                labels.Add(label);
+            }
+        }
+
+        private static bool ContainsCaseInsensitive(List<string> values, string value)
+        {
+            if (values == null || string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (string.Equals(values[i], value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string NormalizeGeneratedImageCueText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            return text
+                .Replace("airport codes", "airport stamp marks")
+                .Replace("stamped with airport codes", "covered with airport stamp marks")
+                .Replace("passport stamped with codes", "passport covered with stamp marks");
         }
 
         private string BuildMnemonicImageNegativePrompt()
         {
-            return "text, letters, words, captions, logo, watermark, signature, blurry, low quality, distorted, extra limbs, empty room, bare room, furniture only, window only, shelf only, landscape view, room overview, full room, whole room, establishing shot, wide shot, long shot, distant subject, tiny subject, architectural rendering, interior design photo, background emphasis, smoke, fog, haze, light beam, abstract atmosphere, cluttered background";
+            return "text, letters, words, captions, readable writing, logo, watermark, signature, blurry, low quality, distorted, extra limbs, empty room, bare room, furniture only, chair only, table only, chairs and table only, dining set, interior design photo, generic room photo, window only, shelf only, landscape view, room overview, full room, whole room, establishing shot, wide shot, long shot, distant subject, tiny subject, small subject, architectural rendering, background emphasis, smoke, fog, haze, light beam, abstract atmosphere, cluttered background";
         }
 
         private string BuildImageBackgroundScene(MnemonicItemData item)
