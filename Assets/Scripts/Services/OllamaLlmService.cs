@@ -591,7 +591,7 @@ namespace MemPalaceLLM
                 normalizedEndpoint,
                 normalizedModel,
                 BuildSingleCueStoryPrompt(word, visualCue, resolvedAnchorId, resolvedAnchorLabel),
-                "You write JSON for Call 2 of a Unity memory-palace app. Use only the provided visual scene and association prompt. Return only mnemonic_en and mnemonic_ja with word and anchor. Explain both the meaning hook and the Spanish word-form hook. No new concrete objects. Never say repeat, visible cue retrieves, or mentally replaying the same scene. No markdown or commentary.",
+                "You write JSON for Call 2 of a Unity memory-palace app. Return only mnemonic_en and mnemonic_ja with word and anchor. Write a tiny learner-friendly memory scene that connects the Spanish word form to the meaning. No new concrete objects. No markdown or commentary.",
                 0.38f,
                 800,
                 "replacement cue story",
@@ -661,7 +661,7 @@ namespace MemPalaceLLM
                 endpoint,
                 model,
                 BuildCueStoryPrompt(words, alignedVisualCueItems, globalOffset, totalWords),
-                "You write JSON for Call 2 of a Unity memory-palace app. Use only the provided visual scenes and association prompts. Return only mnemonic_en and mnemonic_ja with word and anchor. Explain both the meaning hook and the Spanish word-form hook. No new concrete objects. Never say repeat, visible cue retrieves, or mentally replaying the same scene. No markdown or commentary.",
+                "You write JSON for Call 2 of a Unity memory-palace app. Return only mnemonic_en and mnemonic_ja with word and anchor. Write a tiny learner-friendly memory scene that connects each Spanish word form to its meaning. No new concrete objects. No markdown or commentary.",
                 0.38f,
                 Mathf.Clamp(words.Count * 260 + 360, 800, 1500),
                 "cue story",
@@ -1252,43 +1252,52 @@ namespace MemPalaceLLM
                 "INPUT SCENES:\n" + sceneLines +
                 "\n" + academicSafetyRules +
                 "Goal for Call 2:\n" +
+                "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
                 "- Write mnemonic_en and mnemonic_ja based only on the provided visual scene and association_prompt_en.\n" +
-                "- Do not change, improve, reinterpret, or replace the visual cue.\n" +
+                "- Do not change, improve, reinterpret, or replace the visual scene.\n" +
                 "- Do not introduce any new concrete foreground object, person, place, prop, animal, sign, label, or visual detail.\n" +
-                "- The mnemonic must do two different jobs: explain the meaning hook, then explain the Spanish word-form hook.\n" +
                 "- Do not merely restate visual_cue_en or association_prompt_en in shorter words.\n\n" +
-                "Word-form hook rules:\n" +
-                "- Include a word-form hook for every item, but keep it clean, simple, neutral, and free of new concrete objects.\n" +
-                "- Preferred hooks: direct sound bridge, simple cognate bridge, or a syllable-action bridge tied to an existing visible action.\n" +
-                "- A sound bridge may use syllables, onset similarity, or a recognizable chunk. Example: aeropuerto can use aero- as air and puerto as port.\n" +
-                "- A syllable-action bridge maps the Spanish syllable rhythm to the existing visible action; it must not say to repeat the word.\n" +
+                "Cue Story rules:\n" +
+                "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
+                "- The story should connect the Spanish word form to the meaning through a simple familiar word, sound, action, or scene.\n" +
+                "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
+                "- The Spanish word should appear once in mnemonic_en.\n" +
+                "- The story should feel like something a learner can actually imagine, not a system explanation.\n" +
+                "- Do not use meta phrases such as \"visible cue,\" \"points to,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
+                "- Do not merely say \"repeat the word.\"\n" +
+                "- If a natural sound hook exists, build the micro-story around it.\n" +
+                "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
                 "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
-                "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n\n" +
+                "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
+                "Few-shot example to imitate:\n" +
+                "word: playa\n" +
+                "meaning: beach\n" +
+                "mnemonic_en: \"The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play.\"\n" +
+                "Why it works: the meaning is clear, playa sounds like play, and the story is simple, visual, and easy to imagine.\n\n" +
                 "Hard constraints:\n" +
                 "- Every concrete object mentioned in mnemonic_en must already appear in visual_cue_en, association_prompt_en, or visual_objects.\n" +
                 "- Every concrete object mentioned in mnemonic_ja must already appear in visual_cue_ja, association_prompt_ja, or visual_objects.\n" +
                 "- Do not mention hidden etymology, spelling tricks, private explanations, labels, written words, signs, or objects the learner cannot see.\n" +
-                "- Do not use template phrases such as \"visible cue retrieves,\" \"repeat the word,\" \"repeat [Spanish word],\" \"mentally replaying the same scene,\" \"represents the meaning,\" \"symbolizes,\" \"embodies,\" \"shows the word,\" or \"using the anchor as memory location.\"\n" +
-                "- Do not use generic lines like \"seeing this reminds you of the meaning\" unless you name the actual visible event and why it points to that meaning.\n" +
                 "- Keep the cue story neutral and participant-safe for academic research.\n\n" +
                 "Field rules:\n" +
-                "- mnemonic_en should be 14 to 30 words.\n" +
-                "- mnemonic_en should first state the meaning hook, then the word-form hook in the same sentence or two short sentences.\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n" +
                 "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
                 "- Output only word, anchor, mnemonic_en, and mnemonic_ja. Do not output visual_cue_en, visual_cue_ja, image_prompt_en, image_prompt_ja, or visual_objects.\n\n" +
                 "Before outputting JSON, silently check each item:\n" +
-                "1. Does mnemonic_en explain the provided visual scene, not a new scene?\n" +
+                "1. Does mnemonic_en feel like a learner-friendly micro-story, not a system explanation?\n" +
                 "2. Did you avoid introducing new concrete objects?\n" +
-                "3. Does mnemonic_en include a real sound/cognate/syllable-action bridge instead of telling the learner to repeat the Spanish word?\n" +
-                "4. Is the mnemonic free of sexual, gambling, drug, crime, weapon, horror, gore, and other unsafe associations?\n" +
-                "5. Is Japanese natural and fluent?\n\n" +
+                "3. Does mnemonic_en include the Spanish word exactly once?\n" +
+                "4. Does mnemonic_en use a natural sound hook when one exists, or use the Spanish word as the name of the existing cue when no natural hook exists?\n" +
+                "5. Is the mnemonic free of sexual, gambling, drug, crime, weapon, horror, gore, and other unsafe associations?\n" +
+                "6. Is Japanese natural and fluent?\n\n" +
                 "Output only valid JSON in this shape:\n" +
                 "{\n" +
                 "  \"items\": [\n" +
                 "    {\n" +
                 "      \"word\": \"the word\",\n" +
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
-                "      \"mnemonic_en\": \"meaning-first cue story based only on the provided scene\",\n" +
+                "      \"mnemonic_en\": \"tiny learner-friendly memory scene with the Spanish word once\",\n" +
                 "      \"mnemonic_ja\": \"same retrieval path in Japanese\"\n" +
                 "    }\n" +
                 "  ]\n" +
@@ -1403,27 +1412,36 @@ namespace MemPalaceLLM
                 "visual_objects=" + FormatVisualObjectLabels(visualCue?.visual_objects) + "\n\n" +
                 academicSafetyRules +
                 "Goal for Call 2:\n" +
+                "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
                 "- Write mnemonic_en and mnemonic_ja based only on this visual scene and association_prompt_en.\n" +
-                "- Do not change, improve, reinterpret, or replace the visual cue.\n" +
+                "- Do not change, improve, reinterpret, or replace the visual scene.\n" +
                 "- Do not introduce any new concrete foreground object, person, place, prop, animal, sign, label, or visual detail.\n" +
-                "- The mnemonic must do two different jobs: explain the meaning hook, then explain the Spanish word-form hook.\n" +
                 "- Do not merely restate visual_cue_en or association_prompt_en in shorter words.\n\n" +
-                "Word-form hook rules:\n" +
-                "- Include a word-form hook, but keep it clean, simple, neutral, and free of new concrete objects.\n" +
-                "- Use direct sound bridge, simple cognate bridge, or a syllable-action bridge tied to an existing visible action.\n" +
-                "- A sound bridge may use syllables, onset similarity, or a recognizable chunk. Example: pasillo can use pas- as passing through a narrow passage.\n" +
-                "- A syllable-action bridge maps the Spanish syllable rhythm to the existing visible action; it must not say to repeat the word.\n" +
+                "Cue Story rules:\n" +
+                "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
+                "- The story should connect the Spanish word form to the meaning through a simple familiar word, sound, action, or scene.\n" +
+                "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
+                "- The Spanish word should appear once in mnemonic_en.\n" +
+                "- The story should feel like something a learner can actually imagine, not a system explanation.\n" +
+                "- Do not use meta phrases such as \"visible cue,\" \"points to,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
+                "- Do not merely say \"repeat the word.\"\n" +
+                "- If a natural sound hook exists, build the micro-story around it.\n" +
+                "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
                 "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
-                "- Do not write tautologies or explain the word using itself.\n\n" +
+                "- Do not write tautologies or explain the word using itself.\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
+                "Few-shot example to imitate:\n" +
+                "word: playa\n" +
+                "meaning: beach\n" +
+                "mnemonic_en: \"The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play.\"\n" +
+                "Why it works: the meaning is clear, playa sounds like play, and the story is simple, visual, and easy to imagine.\n\n" +
                 "Hard constraints:\n" +
                 "- Every concrete object mentioned in mnemonic_en must already appear in visual_cue_en, association_prompt_en, or visual_objects.\n" +
                 "- Every concrete object mentioned in mnemonic_ja must already appear in visual_cue_ja, association_prompt_ja, or visual_objects.\n" +
                 "- Do not mention hidden etymology, spelling tricks, labels, written words, signs, or objects the learner cannot see.\n" +
-                "- Do not use template phrases such as \"visible cue retrieves,\" \"repeat the word,\" \"repeat [Spanish word],\" \"mentally replaying the same scene,\" \"represents the meaning,\" \"symbolizes,\" \"embodies,\" or \"shows the word.\"\n" +
-                "- Do not use generic lines like \"seeing this reminds you of the meaning\" unless you name the actual visible event and why it points to that meaning.\n" +
                 "- Keep the cue story neutral and participant-safe for academic research.\n\n" +
                 "Field rules:\n" +
-                "- mnemonic_en should be 14 to 30 words.\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n" +
                 "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
                 "- Output only word, anchor, mnemonic_en, and mnemonic_ja.\n\n" +
                 "Output only valid JSON in this schema:\n" +
@@ -1432,7 +1450,7 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"" + word.word.Trim() + "\",\n" +
                 "      \"anchor\": \"" + anchorId + "\",\n" +
-                "      \"mnemonic_en\": \"meaning-first cue story based only on the provided scene\",\n" +
+                "      \"mnemonic_en\": \"tiny learner-friendly memory scene with the Spanish word once\",\n" +
                 "      \"mnemonic_ja\": \"same retrieval path in Japanese\"\n" +
                 "    }\n" +
                 "  ]\n" +
@@ -1568,7 +1586,7 @@ namespace MemPalaceLLM
         {
             var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
             var spanish = string.IsNullOrWhiteSpace(word?.word) ? "the Spanish word" : word.word.Trim();
-            return $"The visible event points to {meaning}; bind {spanish}'s syllables to the event's action rhythm.";
+            return $"The Spanish word for {meaning} is {spanish}. Imagine the object in the memory scene has that name, so the name stays with the meaning.";
         }
 
         private static string BuildCueStoryFallbackJa(WordEntry word)
@@ -1676,16 +1694,16 @@ namespace MemPalaceLLM
                 "- The scene should feel like an object or small action placed on, beside, under, or attached to the anchor, not a whole-room redesign.\n\n" +
 
                 "Cue Story rules:\n" +
-                "- visual_cue_en and mnemonic_en must describe the same mnemonic, not two separate ideas.\n" +
-                "- mnemonic_en must describe one unified retrieval path based on the same visible scene.\n" +
-                "- First explain why the visible event points to the meaning.\n" +
-                "- Then state a clean visible-detail, sound, syllable-action, or cognate-like bridge for the Spanish word form.\n" +
-                "- Do not invent a new sound-hint object in mnemonic_en unless it already appears in visual_cue_en and visual_objects.\n" +
-                "- A sound hook may be mentioned without adding a new object only when it is a direct sound similarity between the Spanish word and the meaning word.\n" +
+                "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
+                "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
+                "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
+                "- The Spanish word should appear once in mnemonic_en.\n" +
+                "- If a natural sound hook exists, build the micro-story around it.\n" +
+                "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
                 "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n" +
-                "- Do not explain the word using the word itself, or the meaning using the meaning itself.\n" +
-                "- Do not tell the learner to repeat the Spanish word or mentally replay the same scene.\n" +
-                "- The learner should be able to infer the meaning from the scene first, then use the mnemonic to recall the Spanish word form.\n\n" +
+                "- Do not use meta phrases such as \"visible cue,\" \"points to,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
+                "- Do not merely say \"repeat the word.\"\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
 
                 "Avoid:\n" +
                 "- written words, labels, captions, alphabet letters, logos, arrows, icons, signs, or UI symbols;\n" +
@@ -1702,8 +1720,7 @@ namespace MemPalaceLLM
                 "- visual_cue_en should be 12 to 24 words and must start naturally with \"At the {AnchorLabel}, ...\"\n" +
                 "- visual_cue_en should describe only the visible scene, not explain the symbolism.\n" +
                 "- visual_cue_ja should be fluent and natural Japanese, not a word-for-word translation.\n" +
-                "- mnemonic_en should be 14 to 30 words.\n" +
-                "- mnemonic_en should explain the retrieval path: meaning hook first, then Spanish word-form hook.\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n" +
                 "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
                 "- image_prompt_en should be 6 to 14 words and name only the foreground proxy cue/action, with no room overview.\n" +
                 "- image_prompt_ja should be the same foreground cue/action in natural Japanese.\n" +
@@ -1716,10 +1733,10 @@ namespace MemPalaceLLM
 
                 "Before outputting JSON, silently check each item:\n\n" +
                 "1. Can the visual scene retrieve the meaning without reading the Spanish word?\n" +
-                "2. Does mnemonic_en avoid simply restating the answer?\n" +
-                "3. Does mnemonic_en explain the same scene as visual_cue_en?\n" +
+                "2. Does mnemonic_en feel like a learner-friendly micro-story, not a system explanation?\n" +
+                "3. Does mnemonic_en include the Spanish word exactly once?\n" +
                 "4. If mnemonic_en mentions a concrete sound-hint object, does it appear in visual_cue_en and visual_objects?\n" +
-                "5. If the word-form hook feels artificial, remove it and keep a meaning-first mnemonic.\n" +
+                "5. If no natural sound hook exists, does the story use the Spanish word as the name of the existing cue?\n" +
                 "6. Is the scene realistic enough to fit on or near an ordinary room anchor?\n" +
                 "7. If the meaning is nature/outdoor/large-scale, did you choose the best indoor proxy after rejecting weaker candidates?\n" +
                 "8. Is image_prompt_en a concrete proxy-object prompt rather than a concept-only prompt?\n" +
@@ -1733,7 +1750,7 @@ namespace MemPalaceLLM
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
                 "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground overlay cue action.\",\n" +
                 "      \"visual_cue_ja\": \"same scene in Japanese\",\n" +
-                "      \"mnemonic_en\": \"short cue story that retrieves the meaning and optionally supports the Spanish word form\",\n" +
+                "      \"mnemonic_en\": \"tiny learner-friendly memory scene with the Spanish word once\",\n" +
                 "      \"mnemonic_ja\": \"same memory link in Japanese\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action only\",\n" +
                 "      \"image_prompt_ja\": \"foreground cue/action only in Japanese\",\n" +
@@ -1785,9 +1802,10 @@ namespace MemPalaceLLM
                 "For each word, silently draft 3 candidate mnemonics and output only the best one.\n" +
                 "For nature/weather/sky/water/outdoor/place/travel/large-environment meanings, candidates must use indoor physical proxies: crafted model, cotton/paper/felt object, hanging mobile, contained effect, miniature diorama, or framed glimpse at the assigned anchor.\n" +
                 "Reject candidates that show a real outdoor scene, use only the concept word, ignore the anchor, lack a physical proxy, or force a weak word-form pun.\n" +
-                "mnemonic_en must explain the same visible scene: meaning hook first, then a clean Spanish word-form hook.\n" +
+                "mnemonic_en must be a tiny learner-friendly memory scene where the Spanish word form naturally connects to the meaning.\n" +
+                "The Spanish word should appear once in mnemonic_en.\n" +
                 "If a word-form hook needs a visible object, that object must appear in visual_cue_en and visual_objects.\n" +
-                "Do not tell the learner to repeat the Spanish word or mentally replay the same scene.\n" +
+                "Do not use meta phrases such as visible cue, points to, retrieves, bind syllables, action rhythm, or same scene.\n" +
                 "image_prompt_en must name the proxy object/action, not only a concept word such as cloud, waterfall, beach, or neighborhood.\n" +
                 "visual_objects must list concrete foreground objects only, not anchors or abstract ideas.\n" +
                 "Output only this JSON shape:\n" +
@@ -1862,7 +1880,8 @@ namespace MemPalaceLLM
                 "Candidate ranking / rejection:\n" +
                 "- Silently draft 5 candidate mnemonics, reject weak ones, and output only the best one.\n" +
                 "- Score candidates on: meaning cue clarity, anchor participation, cue-anchor separateness, indoor physical visibility, image_prompt specificity, visual_objects completeness, and natural word-form hook.\n" +
-                "- Prefer stable props over clever puns. If direct sound/cognate hooks are weak, use a syllable-action bridge tied to the visible action.\n\n" +
+                "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
+                "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n\n" +
                 "For nature, outdoor, place, travel, public-space, machine, building, or large-environment meanings:\n" +
                 "- Use an indoor physical proxy: miniature model, crafted object, contained diorama, small toy/prop, paper/felt/cotton object, jar/bowl/tray/bucket effect, or framed small glimpse.\n" +
                 "- Do not output full outdoor landscapes, whole rooms, empty interiors, or concept-only cues.\n" +
@@ -1871,7 +1890,7 @@ namespace MemPalaceLLM
                 "- visual_cue_en should be 12 to 24 words and start naturally with \"At the " + resolvedAnchorLabel + ", ...\".\n" +
                 "- visual_cue_en describes only the visible scene.\n" +
                 "- visual_cue_ja must be natural Japanese.\n" +
-                "- mnemonic_en should be 14 to 30 words and explain the same scene: meaning hook first, then a Spanish form hook.\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words, and include the Spanish word once.\n" +
                 "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
                 "- image_prompt_en should be 6 to 16 words, naming only the foreground cue/action plus its anchor contact point.\n" +
                 "- visual_objects must list every concrete foreground cue object; do not list the anchor unless it is part of the foreground cue.\n\n" +
@@ -1879,7 +1898,7 @@ namespace MemPalaceLLM
                 "1. Can the visible cue retrieve the meaning without reading the Spanish word?\n" +
                 "2. Are the anchor and cue object separate, visible, and close together?\n" +
                 "3. Would Stable Diffusion likely draw this as the requested prop instead of replacing it with the anchor?\n" +
-                "4. Does mnemonic_en explain the same scene and avoid tautology?\n" +
+                "4. Does mnemonic_en feel like a learner-friendly micro-story and avoid tautology?\n" +
                 "5. Is Japanese fluent?\n\n" +
                 "Output only valid JSON in this schema:\n" +
                 "{\n" +
@@ -1889,7 +1908,7 @@ namespace MemPalaceLLM
                 "      \"anchor\": \"" + resolvedAnchorId + "\",\n" +
                 "      \"visual_cue_en\": \"At the " + resolvedAnchorLabel + ", concrete foreground cue action.\",\n" +
                 "      \"visual_cue_ja\": \"same scene in Japanese\",\n" +
-                "      \"mnemonic_en\": \"meaning-first retrieval path with Spanish word-form support\",\n" +
+                "      \"mnemonic_en\": \"tiny learner-friendly memory scene with the Spanish word once\",\n" +
                 "      \"mnemonic_ja\": \"same retrieval path in Japanese\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action only\",\n" +
                 "      \"image_prompt_ja\": \"foreground cue/action only in Japanese\",\n" +

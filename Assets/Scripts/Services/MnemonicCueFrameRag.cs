@@ -93,10 +93,10 @@ namespace MemPalaceLLM
                 "Fix: Add the hook objects to the visible scene and visual_objects, or remove the hook.\n" +
                 "P3 Broad meaning drift:\n" +
                 "Bad: suitcase + passport for airport, because it only suggests travel.\n" +
-                "Fix: Use meaning-specific cues such as boarding pass, security tray, gate waiting, airline tag, or another cue that directly retrieves the target meaning.\n" +
+                "Fix: Use meaning-specific cues such as boarding pass, security tray, gate waiting, airline tag, or another cue that clearly suggests the target meaning.\n" +
                 "P4 Meta explanation:\n" +
                 "Bad: \"The visible cue retrieves the meaning first.\"\n" +
-                "Fix: Write a natural learner-facing memory hint that names the visible cue and the target meaning.\n" +
+                "Fix: Write a natural learner-facing micro-story that connects the Spanish word form to the target meaning.\n" +
                 "P5 Weak foreground:\n" +
                 "Bad: a small object rests beside the anchor.\n" +
                 "Fix: Use a novel but physically possible cue-anchor relation, such as wedged under, hanging from, clipped to, spilling from, wrapped around, cushioning, contained by, or balanced in a visible support.\n" +
@@ -111,7 +111,7 @@ namespace MemPalaceLLM
                 "Fix: Create a target-meaning event using ordinary objects in action, such as a security tray for airport or objects forming a narrow passage for hallway.\n" +
                 "P9 Dead cue story:\n" +
                 "Bad: \"The visible cue retrieves airport; repeat aeropuerto while mentally replaying the same scene.\"\n" +
-                "Fix: Explain two hooks: why the visible event points to the meaning, then a sound/cognate/syllable bridge for the Spanish word form.\n\n";
+                "Fix: Use a tiny learner-friendly memory scene, such as a natural sound hook or naming the existing cue object with the Spanish word.\n\n";
         }
 
         private static void AppendGuidanceForWord(StringBuilder builder, WordEntry word, int wordNumber, string anchorId, string anchorLabel)

@@ -4780,7 +4780,7 @@ namespace MemPalaceLLM
             item.visualCueJa = item.visualCue;
             item.associationPrompt = $"open security tray holds shoes passport boarding pass and luggage tag on {contact}";
             item.associationPromptJa = item.associationPrompt;
-            item.mnemonic = "The security tray with travel documents points to airport; aero- suggests air, and puerto means port, forming air-port.";
+            item.mnemonic = "The Spanish word for airport is aeropuerto. Imagine the security tray at an air-port, where aero feels like air and puerto feels like port.";
             item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
             item.imagePromptJa = item.associationPrompt;
@@ -4801,7 +4801,7 @@ namespace MemPalaceLLM
             item.visualCueJa = item.visualCue;
             item.associationPrompt = $"two upright books squeeze a narrow passage with a toy door on {contact}";
             item.associationPromptJa = item.associationPrompt;
-            item.mnemonic = "The squeezed narrow passage points to hallway; pas- suggests passing through, and -illo completes pasillo's corridor rhythm.";
+            item.mnemonic = "The Spanish word for hallway is pasillo. Imagine squeezing through the narrow passage: pas feels like passing, and illo finishes the tiny corridor.";
             item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
             item.imagePromptJa = item.associationPrompt;
@@ -4821,7 +4821,7 @@ namespace MemPalaceLLM
             item.visualCueJa = item.visualCue;
             item.associationPrompt = $"dry sand spills from pouch into low dune across {contact}";
             item.associationPromptJa = item.associationPrompt;
-            item.mnemonic = "The dry sand piling into a dune points to desert; desierto echoes desert through its desier- chunk.";
+            item.mnemonic = "The Spanish word for desert is desierto. Imagine dry sand forming a dune while the des sound nudges you toward desert.";
             item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
             item.imagePromptJa = item.associationPrompt;
@@ -4844,7 +4844,7 @@ namespace MemPalaceLLM
             item.visualCueJa = item.visualCue;
             item.associationPrompt = $"safe electric flame lantern hangs from {contact} like compact campfire";
             item.associationPromptJa = item.associationPrompt;
-            item.mnemonic = $"The safe flame lantern points to fire or campfire; {spanish}'s syllables ride the lantern's flicker rhythm.";
+            item.mnemonic = $"The Spanish word for fire or campfire is {spanish}. Imagine the safe flame lantern has that name while it flickers warmly.";
             item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
             item.imagePromptJa = item.associationPrompt;
@@ -4862,9 +4862,7 @@ namespace MemPalaceLLM
                 return false;
             }
 
-            var eventDetail = BuildCueStoryEventDetail(item);
-            var meaning = GetMeaningText(item);
-            item.mnemonic = $"{eventDetail} points to {meaning}; {BuildFallbackWordFormBridge(item)}";
+            item.mnemonic = BuildLearnerFriendlyCueStoryFallback(item);
             item.mnemonicJa = item.mnemonic;
             return true;
         }
@@ -4873,14 +4871,49 @@ namespace MemPalaceLLM
         {
             return ContainsAny(mnemonic,
                 "visible cue retrieves",
+                "visible cue",
+                "points to",
+                "retrieves",
                 "repeat the word",
                 "repeat ",
                 "mentally replaying",
                 "same scene",
+                "bind syllables",
+                "action rhythm",
                 "represents the meaning",
                 "symbolizes",
                 "embodies",
                 "shows the word");
+        }
+
+        private string BuildLearnerFriendlyCueStoryFallback(MnemonicItemData item)
+        {
+            var spanish = string.IsNullOrWhiteSpace(item?.word) ? "the Spanish word" : item.word.Trim();
+            var meaning = GetMeaningText(item);
+            var lower = spanish.ToLowerInvariant();
+
+            if (lower == "aeropuerto")
+            {
+                return "The Spanish word for airport is aeropuerto. Imagine the security tray at an air-port, where aero feels like air and puerto feels like port.";
+            }
+
+            if (lower == "pasillo")
+            {
+                return "The Spanish word for hallway is pasillo. Imagine squeezing through the narrow passage: pas feels like passing, and illo finishes the tiny corridor.";
+            }
+
+            if (lower == "cartera")
+            {
+                return "The Spanish word for wallet is cartera. Imagine the open wallet full of cards, because carte feels close to card.";
+            }
+
+            if (lower == "cartel")
+            {
+                return "The Spanish word for poster is cartel. Imagine the taped poster as a big card on the wall, helped by the cart sound.";
+            }
+
+            var detail = BuildCueStoryEventDetail(item);
+            return $"The Spanish word for {meaning} is {spanish}. Imagine {detail} has that name, so the name stays with the memory.";
         }
 
         private static string BuildCueStoryEventDetail(MnemonicItemData item)
@@ -4888,7 +4921,7 @@ namespace MemPalaceLLM
             var detail = ExtractPromptSceneDetail(FirstNonEmptyPrompt(item?.associationPrompt, item?.visualCue, item?.imagePrompt));
             if (string.IsNullOrWhiteSpace(detail))
             {
-                return "The visible event";
+                return "the memory cue";
             }
 
             detail = detail.Trim().TrimEnd('.', ';', ',');
@@ -4907,8 +4940,8 @@ namespace MemPalaceLLM
             }
 
             return string.IsNullOrWhiteSpace(detail)
-                ? "The visible event"
-                : char.ToUpperInvariant(detail[0]) + detail.Substring(1);
+                ? "the memory cue"
+                : char.ToLowerInvariant(detail[0]) + detail.Substring(1);
         }
 
         private static string BuildFallbackWordFormBridge(MnemonicItemData item)
@@ -4928,7 +4961,7 @@ namespace MemPalaceLLM
 
             if (lower == "cartera")
             {
-                return "carte- echoes card, so visible cards support the wallet word form.";
+                return "Imagine the open wallet full of cards, because carte feels close to card.";
             }
 
             if (lower == "cartel")
@@ -4936,7 +4969,7 @@ namespace MemPalaceLLM
                 return "cart- echoes a card-like poster surface, supporting the poster word form.";
             }
 
-            return $"{spanish}'s syllables ride the visible action as the word-form bridge.";
+            return $"Imagine the existing cue is named {spanish}, so the name stays with the meaning.";
         }
 
         private static void RefreshAssociationPromptsAfterCueRewrite(MnemonicItemData item)
@@ -4982,7 +5015,7 @@ namespace MemPalaceLLM
 
             item.visualCue = $"At the {anchor}, an open wallet sits clearly on {contact} with cards and coins visible.";
             item.visualCueJa = $"{anchor}{contactJa}に、カードとコインが見える開いた財布がはっきり置かれている。";
-            item.mnemonic = $"The open wallet with cards points to wallet; {spanish} starts like card/carte, so the visible cards bridge the word form.";
+            item.mnemonic = $"The Spanish word for wallet is {spanish}. Imagine the open wallet full of cards, because carte feels close to card.";
             item.mnemonicJa = $"カードが見える開いた財布が「財布」を思い出させます。見えている財布に集中しながら「{spanish}」と結びつけます。";
             item.imagePrompt = $"open wallet clearly visible on {contact}, cards and coins visible";
             item.imagePromptJa = $"{anchor}{contactJa}に置かれた、カードとコインが見える開いた財布";
@@ -5147,7 +5180,7 @@ namespace MemPalaceLLM
 
             item.visualCue = $"At the {anchor}, a neutral poster is fastened to {contact} with bright tape.";
             item.visualCueJa = $"{anchor}{contactJa}に、明るいテープで中立的なポスターが留められている。";
-            item.mnemonic = $"The taped poster points to poster; {item.word.Trim()} rides the card-like poster surface and its clipped edge.";
+            item.mnemonic = $"The Spanish word for poster is {item.word.Trim()}. Imagine the taped poster as a big card on the wall, helped by the cart sound.";
             item.mnemonicJa = $"テープで留めたポスターが「ポスター」を直接思い出させます。その中立的なポスターを見ながら「{item.word.Trim()}」と結びつけます。";
             item.imagePrompt = $"neutral poster fastened with bright tape to {contact}";
             item.imagePromptJa = $"{anchor}{contactJa}に明るいテープで留めた中立的なポスター";
@@ -5180,7 +5213,7 @@ namespace MemPalaceLLM
             var meaning = GetMeaningText(item);
             item.visualCue = $"At the {anchor}, a neutral study-safe prop for {meaning} is fastened with colored tape.";
             item.visualCueJa = $"{anchor}の近くに、{meaning}を思い出すための中立的な学習用の小道具が色付きテープで示されている。";
-            item.mnemonic = $"The safe visible prop points to {meaning}; bind {item.word.Trim()}'s syllables to the prop's taped action.";
+            item.mnemonic = $"The Spanish word for {meaning} is {item.word.Trim()}. Imagine the taped safe prop has that name while it shows the meaning.";
             item.mnemonicJa = $"中立的な小道具が「{meaning}」を思い出させます。その安全な見た目の手がかりを見ながら「{item.word.Trim()}」と結びつけます。";
             item.imagePrompt = $"neutral study-safe prop for {meaning} with colored tape";
             item.imagePromptJa = $"{meaning}を思い出す中立的な学習用小道具と色付きテープ";
@@ -6612,7 +6645,8 @@ namespace MemPalaceLLM
 
                 if (string.IsNullOrWhiteSpace(item.mnemonic))
                 {
-                    item.mnemonic = $"Use the sound or meaning of '{item.word}' to connect it with the {item.anchorLabel}.";
+                    var meaning = string.IsNullOrWhiteSpace(item.meaning) ? "the target meaning" : item.meaning.Trim();
+                    item.mnemonic = $"The Spanish word for {meaning} is {item.word}. Imagine the cue object has that name, so the name stays with the meaning.";
                 }
 
                 if (string.IsNullOrWhiteSpace(item.associationPrompt))

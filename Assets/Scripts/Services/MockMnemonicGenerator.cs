@@ -34,7 +34,7 @@ namespace MemPalaceLLM
                 var meaning = string.IsNullOrWhiteSpace(word.meaning) ? "the target meaning" : word.meaning.Trim();
                 var cue = $"At the {anchor.label}, an exaggerated scene dramatizes '{word.meaning}' with bright motion and oversized props.";
                 var association = $"oversized prop for {word.meaning} physically interacting with the {anchor.label}";
-                var mnemonic = $"The visible event points to {meaning}; use the action rhythm to carry the syllables of '{word.word}'.";
+                var mnemonic = $"The Spanish word for {meaning} is {word.word}. Imagine the cue object has that name, so the name stays with the meaning.";
 
                 results.Add(new MnemonicItemData
                 {
