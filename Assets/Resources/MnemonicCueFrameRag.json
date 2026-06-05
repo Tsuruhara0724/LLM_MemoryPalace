@@ -1,6 +1,29 @@
 {
   "cases": [
     {
+      "id": "small_personal_object_visible",
+      "title": "Small personal objects as exposed anchor-contact props",
+      "priority": 105,
+      "meaning_keywords": ["wallet", "purse", "key", "ring", "card", "coin", "ticket"],
+      "word_keywords": ["cartera", "llave", "anillo", "tarjeta", "moneda", "boleto"],
+      "anchor_keywords": ["chair", "desk", "table", "door", "wardrobe", "shelf"],
+      "good_patterns": [
+        "open wallet placed visibly on the chair armrest with cards showing",
+        "large key hanging visibly from the door handle",
+        "ring displayed on a small dish on the shelf edge"
+      ],
+      "bad_patterns": [
+        "wallet hidden inside a pocket or drawer",
+        "small object tucked under a cushion or covered by fabric",
+        "cue object blended into the anchor surface"
+      ],
+      "image_prompt_hints": [
+        "make the small cue fully exposed and separate from the anchor",
+        "show contents or high-contrast edges when the object is small"
+      ],
+      "visual_objects": ["wallet", "cards", "key", "ring", "dish"]
+    },
+    {
       "id": "poster_notice_safe",
       "title": "Poster meaning as neutral physical poster",
       "priority": 110,

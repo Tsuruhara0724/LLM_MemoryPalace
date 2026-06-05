@@ -54,6 +54,7 @@ namespace MemPalaceLLM
         {
             public string word;
             public string anchor;
+            public GeneratedCueBlueprint cue_blueprint;
             public string visual_cue_en;
             public string visual_cue_ja;
             public string association_prompt_en;
@@ -65,6 +66,19 @@ namespace MemPalaceLLM
             public string[] image_prompt_candidates_en;
             public string[] image_prompt_candidates_ja;
             public VisualObjectSpec[] visual_objects;
+        }
+
+        [Serializable]
+        private class GeneratedCueBlueprint
+        {
+            public string target_meaning;
+            public string visual_scene_core;
+            public string main_object;
+            public string anchor_relation;
+            public string relative_size;
+            public string main_action_or_state;
+            public string[] visible_objects;
+            public string story_hook_note;
         }
 
         [Serializable]
@@ -841,6 +855,7 @@ namespace MemPalaceLLM
                 meaningJa = sourceWord.meaningJa,
                 anchorId = anchorId,
                 anchorLabel = anchorLabel,
+                cueBlueprint = BuildCueBlueprintData(sourceWord, generated, anchorLabel),
                 visualCue = generated.visual_cue_en,
                 visualCueJa = string.IsNullOrWhiteSpace(generated.visual_cue_ja) ? generated.visual_cue_en : generated.visual_cue_ja,
                 associationPrompt = FirstNonEmpty(generated.association_prompt_en, generated.image_prompt_en, generated.visual_cue_en),
@@ -854,6 +869,73 @@ namespace MemPalaceLLM
                 colorHex = PickColor(itemIndex),
                 visualObjects = NormalizeVisualObjects(generated.visual_objects, itemIndex)
             };
+        }
+
+        private static CueBlueprintData BuildCueBlueprintData(WordEntry sourceWord, GeneratedMnemonicItem generated, string anchorLabel)
+        {
+            var blueprint = generated?.cue_blueprint;
+            var visibleObjects = new List<string>();
+            if (blueprint?.visible_objects != null)
+            {
+                for (int i = 0; i < blueprint.visible_objects.Length; i++)
+                {
+                    AddVisibleObjectName(visibleObjects, blueprint.visible_objects[i]);
+                }
+            }
+
+            if (visibleObjects.Count == 0 && generated?.visual_objects != null)
+            {
+                for (int i = 0; i < generated.visual_objects.Length; i++)
+                {
+                    AddVisibleObjectName(visibleObjects, generated.visual_objects[i]?.label);
+                }
+            }
+
+            var visualSceneCore = FirstNonEmpty(
+                blueprint?.visual_scene_core,
+                generated?.association_prompt_en,
+                generated?.visual_cue_en);
+
+            var mainObject = FirstNonEmpty(
+                blueprint?.main_object,
+                visibleObjects.Count > 0 ? visibleObjects[0] : string.Empty);
+
+            var anchorRelation = FirstNonEmpty(
+                blueprint?.anchor_relation,
+                string.IsNullOrWhiteSpace(anchorLabel) ? string.Empty : "at the " + anchorLabel);
+
+            return new CueBlueprintData
+            {
+                targetMeaning = FirstNonEmpty(blueprint?.target_meaning, sourceWord?.meaning),
+                visualSceneCore = visualSceneCore,
+                mainObject = mainObject,
+                anchorRelation = anchorRelation,
+                relativeSize = FirstNonEmpty(blueprint?.relative_size, "main cue is smaller than the assigned anchor"),
+                mainActionOrState = FirstNonEmpty(blueprint?.main_action_or_state, visualSceneCore),
+                visibleObjects = visibleObjects,
+                storyHookNote = FirstNonEmpty(
+                    blueprint?.story_hook_note,
+                    "use " + FirstNonEmpty(sourceWord?.word, "the Spanish word") + " as the name of the existing cue object or event")
+            };
+        }
+
+        private static void AddVisibleObjectName(List<string> visibleObjects, string value)
+        {
+            if (visibleObjects == null || string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            var cleaned = value.Trim();
+            for (int i = 0; i < visibleObjects.Count; i++)
+            {
+                if (string.Equals(visibleObjects[i], cleaned, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            visibleObjects.Add(cleaned);
         }
 
         private static string FirstNonEmpty(params string[] values)
@@ -1082,6 +1164,11 @@ namespace MemPalaceLLM
                 "- Do not consider the Spanish word form, pronunciation, spelling, cognates, puns, or sound similarity.\n" +
                 "- Treat the Spanish word only as an item identifier. The scene should be planned from the meaning and assigned anchor only.\n" +
                 "- The final scene must be meaning-first and image-stable.\n\n" +
+                "Generation architecture:\n" +
+                "- First create cue_blueprint as the shared internal plan.\n" +
+                "- Then derive visual_cue_en and association_prompt_en from cue_blueprint.\n" +
+                "- Association Prompt paints the cue. Cue Story will teach the cue later.\n" +
+                "- Both image prompt and Cue Story must come from cue_blueprint, but they must not copy each other.\n\n" +
                 "Visual cue candidate ranking:\n" +
                 "- Silently draft 4 candidate visual cues for each word and output only the best scene.\n" +
                 "- Score candidates on: immediate meaning retrieval, target-meaning event quality, anchor participation, cue-anchor separateness, realistic indoor physical visibility, visual_objects completeness, association_prompt concreteness, and image_prompt specificity.\n" +
@@ -1106,12 +1193,26 @@ namespace MemPalaceLLM
                 "- Bad: a fire pit burns across a door frame. Good: a safe electric flame lantern hangs from the door handle, glowing like a campfire.\n\n" +
                 "Image generation preparation:\n" +
                 "- Do not use mnemonic_en as an image prompt.\n" +
-                "- First create association_prompt_en: a short concrete visual description of the association scene.\n" +
-                "- association_prompt_en must include only visible objects, actions, and physical relations.\n" +
-                "- association_prompt_en must not include explanations, learning instructions, translations, word meanings, or phrases such as \"helps recall\".\n" +
+                "- cue_blueprint is internal and should not be written as a story.\n" +
+                "- association_prompt_en is only for image generation and must be derived from cue_blueprint.\n" +
+                "- association_prompt_en must be an objective visual layout instruction, not a story sentence.\n" +
+                "- association_prompt_en must describe: main visible object, relative size, position relative to anchor, physical relation with anchor, visible action/state, and foreground composition.\n" +
+                "- Recommended association_prompt_en format: [composition], [main object + size], [position relative to anchor], [physical relation], [visible action/state], [simple background], no text.\n" +
+                "- association_prompt_en must not include Spanish words, memory explanations, learner instructions, emotion, story wording, translations, or phrases such as \"helps recall\".\n" +
                 "- image_prompt_en must be derived from association_prompt_en and emphasize foreground clarity.\n" +
                 "- image_prompt_en and all image_prompt_candidates_en must be English-first and must not describe the whole room.\n" +
                 "- Generate exactly 4 visually different image_prompt_candidates_en while keeping the same memory link: object-on-anchor close-up, action-focused version, unusual-but-realistic object relation, and simplest literal version.\n\n" +
+                "Good structural example:\n" +
+                "word=linterna; meaning=flashlight; anchor_id=air_conditioner; anchor_label=Air Conditioner\n" +
+                "cue_blueprint.visual_scene_core=\"a small handheld flashlight shining under the air conditioner vent\"\n" +
+                "cue_blueprint.main_object=\"flashlight\"\n" +
+                "cue_blueprint.anchor_relation=\"under the air conditioner vent\"\n" +
+                "cue_blueprint.relative_size=\"flashlight is much smaller than the air conditioner vent\"\n" +
+                "cue_blueprint.main_action_or_state=\"beam pointing across the floor\"\n" +
+                "cue_blueprint.visible_objects=[\"flashlight\", \"light beam\", \"air conditioner vent\"]\n" +
+                "cue_blueprint.story_hook_note=\"use linterna as the name of the flashlight in a tiny finding-in-the-dark story\"\n" +
+                "visual_cue_en=\"At the Air Conditioner, a small handheld flashlight shines under the vent, its beam crossing the floor.\"\n" +
+                "association_prompt_en=\"Close-up, small handheld flashlight under a much larger air conditioner vent, beam pointing across the floor, simple background, no text\"\n\n" +
                 "Avoid:\n" +
                 "- mnemonic explanations, Spanish sound hooks, puns, cognate notes, syllable hints, or learner-facing cue stories;\n" +
                 "- written words, labels, captions, alphabet letters, logos, arrows, icons, signs, or UI symbols;\n" +
@@ -1121,7 +1222,9 @@ namespace MemPalaceLLM
                 "Field-specific rules:\n" +
                 "- visual_cue_en should be 12 to 24 words and describe only the visible scene.\n" +
                 "- visual_cue_ja should be fluent natural Japanese, not a word-for-word translation.\n" +
-                "- association_prompt_en should be 6 to 18 words, English, drawable, and free of teaching/explanation language.\n" +
+                "- cue_blueprint.visual_scene_core should be one compact objective scene core, not a learner-facing story.\n" +
+                "- cue_blueprint.story_hook_note should briefly say how Cue Story can use the Spanish word form without changing the visible scene.\n" +
+                "- association_prompt_en should be English, camera-like, drawable, and free of teaching/explanation language.\n" +
                 "- association_prompt_ja should be the same drawable association in natural Japanese.\n" +
                 "- image_prompt_en should be 6 to 16 words and name only the foreground cue/action plus its anchor contact point.\n" +
                 "- image_prompt_ja should be the same foreground cue/action in natural Japanese.\n" +
@@ -1134,20 +1237,31 @@ namespace MemPalaceLLM
                 "Before outputting JSON, silently check each item:\n" +
                 "1. Can the visual scene retrieve the meaning without reading the Spanish word?\n" +
                 "2. Are the anchor and foreground cue both visible and close together?\n" +
-                "3. Does association_prompt_en contain only drawable objects, actions, and physical relations?\n" +
-                "4. Does image_prompt_en name drawable prop objects rather than a concept-only word?\n" +
-                "5. Are there exactly 4 diverse image_prompt_candidates_en?\n" +
-                "6. Is the scene neutral and participant-safe for academic research?\n" +
-                "7. Is Japanese natural and fluent?\n\n" +
+                "3. Does cue_blueprint contain the shared scene plan for both image prompt and later Cue Story?\n" +
+                "4. Does association_prompt_en contain only objective visual layout, objects, actions, and physical relations?\n" +
+                "5. Does image_prompt_en name drawable prop objects rather than a concept-only word?\n" +
+                "6. Are there exactly 4 diverse image_prompt_candidates_en?\n" +
+                "7. Is the scene neutral and participant-safe for academic research?\n" +
+                "8. Is Japanese natural and fluent?\n\n" +
                 "Output only valid JSON in this shape:\n" +
                 "{\n" +
                 "  \"items\": [\n" +
                 "    {\n" +
                 "      \"word\": \"the word\",\n" +
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
+                "      \"cue_blueprint\": {\n" +
+                "        \"target_meaning\": \"target meaning\",\n" +
+                "        \"visual_scene_core\": \"small objective scene core\",\n" +
+                "        \"main_object\": \"main cue object\",\n" +
+                "        \"anchor_relation\": \"position and physical relation to anchor\",\n" +
+                "        \"relative_size\": \"cue size relative to anchor\",\n" +
+                "        \"main_action_or_state\": \"visible action or state\",\n" +
+                "        \"visible_objects\": [\"main cue object\", \"visible detail\", \"anchor part\"],\n" +
+                "        \"story_hook_note\": \"how Cue Story can connect the Spanish word form to meaning\"\n" +
+                "      },\n" +
                 "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground cue action.\",\n" +
                 "      \"visual_cue_ja\": \"same visible scene in Japanese\",\n" +
-                "      \"association_prompt_en\": \"short drawable association scene, no explanation\",\n" +
+                "      \"association_prompt_en\": \"Close-up objective visual layout, relative size, anchor relation, visible action, simple background, no text\",\n" +
                 "      \"association_prompt_ja\": \"same drawable association in Japanese\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action and anchor contact point only\",\n" +
                 "      \"image_prompt_ja\": \"foreground cue/action in Japanese\",\n" +
@@ -1187,12 +1301,14 @@ namespace MemPalaceLLM
                 academicSafetyRules +
                 "\nReturn exactly " + words.Count + " items in one JSON object whose top-level key is items.\n" +
                 "Use each anchor_id and anchor_label exactly.\n" +
-                "Generate only visual_cue_en, visual_cue_ja, association_prompt_en, association_prompt_ja, image_prompt_en, image_prompt_ja, image_prompt_candidates_en, image_prompt_candidates_ja, and visual_objects.\n" +
+                "Generate only cue_blueprint, visual_cue_en, visual_cue_ja, association_prompt_en, association_prompt_ja, image_prompt_en, image_prompt_ja, image_prompt_candidates_en, image_prompt_candidates_ja, and visual_objects.\n" +
                 "Do not output mnemonic_en or mnemonic_ja. Do not consider Spanish sound, spelling, cognates, or puns.\n" +
+                "First create cue_blueprint as the shared internal visual plan; derive association_prompt_en from that blueprint.\n" +
                 "The visual cue must retrieve the meaning first through a realistic target-meaning event at the assigned anchor.\n" +
                 "Do not make target-object displays: no model/miniature/toy simply sitting, resting, perched, balanced, or displayed on furniture.\n" +
                 "For nature/outdoor/place/travel/large meanings, use indoor proxy objects in action rather than real outdoor scenes or static models.\n" +
-                "association_prompt_en must be a short English drawable scene: visible objects, action, and physical relation only; no teaching explanation.\n" +
+                "association_prompt_en must be an objective English image layout instruction: composition, main object, relative size, anchor position, physical relation, visible action/state, simple background, no text.\n" +
+                "association_prompt_en must not include Spanish words, memory explanation, learner instruction, emotion, story wording, translations, or helps-recall language.\n" +
                 "Use a novel but physically possible cue-anchor relation, not a plain object resting beside the anchor.\n" +
                 "image_prompt_candidates_en must contain exactly 4 diverse foreground prompts: object-on-anchor close-up, action-focused, unusual-but-realistic relation, and simplest literal.\n" +
                 hiddenCueRules +
@@ -1202,9 +1318,19 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"the word\",\n" +
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
+                "      \"cue_blueprint\": {\n" +
+                "        \"target_meaning\": \"target meaning\",\n" +
+                "        \"visual_scene_core\": \"small objective scene core\",\n" +
+                "        \"main_object\": \"main cue object\",\n" +
+                "        \"anchor_relation\": \"position and physical relation to anchor\",\n" +
+                "        \"relative_size\": \"cue size relative to anchor\",\n" +
+                "        \"main_action_or_state\": \"visible action or state\",\n" +
+                "        \"visible_objects\": [\"main cue object\", \"visible detail\", \"anchor part\"],\n" +
+                "        \"story_hook_note\": \"how Cue Story can connect the Spanish word form to meaning\"\n" +
+                "      },\n" +
                 "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground cue action.\",\n" +
                 "      \"visual_cue_ja\": \"same visible scene in Japanese\",\n" +
-                "      \"association_prompt_en\": \"short drawable association scene, no explanation\",\n" +
+                "      \"association_prompt_en\": \"Close-up objective visual layout, relative size, anchor relation, visible action, simple background, no text\",\n" +
                 "      \"association_prompt_ja\": \"same drawable association in Japanese\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action and anchor contact point only\",\n" +
                 "      \"image_prompt_ja\": \"foreground cue/action in Japanese\",\n" +
@@ -1238,11 +1364,12 @@ namespace MemPalaceLLM
                     .Append("; anchor_id=").Append(anchor.id)
                     .Append("; anchor_label=").Append(anchor.label)
                     .AppendLine();
-                sceneLines.Append("   visual_cue_en=").Append(CompactPromptLine(visualCue?.visual_cue_en)).AppendLine();
-                sceneLines.Append("   visual_cue_ja=").Append(CompactPromptLine(visualCue?.visual_cue_ja)).AppendLine();
-                sceneLines.Append("   association_prompt_en=").Append(CompactPromptLine(visualCue?.association_prompt_en)).AppendLine();
-                sceneLines.Append("   image_prompt_en=").Append(CompactPromptLine(visualCue?.image_prompt_en)).AppendLine();
-                sceneLines.Append("   visual_objects=").Append(FormatVisualObjectLabels(visualCue?.visual_objects)).AppendLine();
+                sceneLines.Append("   visual_scene_core=").Append(CompactPromptLine(GetBlueprintVisualSceneCore(visualCue))).AppendLine();
+                sceneLines.Append("   main_object=").Append(CompactPromptLine(GetBlueprintMainObject(visualCue))).AppendLine();
+                sceneLines.Append("   anchor_relation=").Append(CompactPromptLine(GetBlueprintAnchorRelation(visualCue))).AppendLine();
+                sceneLines.Append("   main_action_or_state=").Append(CompactPromptLine(GetBlueprintMainActionOrState(visualCue))).AppendLine();
+                sceneLines.Append("   visible_objects=").Append(FormatBlueprintVisibleObjects(visualCue)).AppendLine();
+                sceneLines.Append("   story_hook_note=").Append(CompactPromptLine(GetBlueprintStoryHookNote(visualCue, word))).AppendLine();
             }
 
             var academicSafetyRules = BuildAcademicSafetyRules();
@@ -1253,10 +1380,11 @@ namespace MemPalaceLLM
                 "\n" + academicSafetyRules +
                 "Goal for Call 2:\n" +
                 "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
-                "- Write mnemonic_en and mnemonic_ja based only on the provided visual scene and association_prompt_en.\n" +
-                "- Do not change, improve, reinterpret, or replace the visual scene.\n" +
+                "- Write mnemonic_en and mnemonic_ja based only on the provided cue_blueprint fields.\n" +
+                "- Do not change, improve, reinterpret, or replace the blueprint scene.\n" +
+                "- Do not generate or imitate an image prompt.\n" +
                 "- Do not introduce any new concrete foreground object, person, place, prop, animal, sign, label, or visual detail.\n" +
-                "- Do not merely restate visual_cue_en or association_prompt_en in shorter words.\n\n" +
+                "- Do not merely restate visual_scene_core in shorter words or write camera/image-prompt wording.\n\n" +
                 "Cue Story rules:\n" +
                 "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
                 "- The story should connect the Spanish word form to the meaning through a simple familiar word, sound, action, or scene.\n" +
@@ -1267,6 +1395,7 @@ namespace MemPalaceLLM
                 "- Do not merely say \"repeat the word.\"\n" +
                 "- If a natural sound hook exists, build the micro-story around it.\n" +
                 "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
+                "- Use story_hook_note as the preferred plan for connecting the Spanish word form to the visible cue.\n" +
                 "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
                 "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n" +
                 "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
@@ -1276,14 +1405,14 @@ namespace MemPalaceLLM
                 "mnemonic_en: \"The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play.\"\n" +
                 "Why it works: the meaning is clear, playa sounds like play, and the story is simple, visual, and easy to imagine.\n\n" +
                 "Hard constraints:\n" +
-                "- Every concrete object mentioned in mnemonic_en must already appear in visual_cue_en, association_prompt_en, or visual_objects.\n" +
-                "- Every concrete object mentioned in mnemonic_ja must already appear in visual_cue_ja, association_prompt_ja, or visual_objects.\n" +
+                "- Every concrete object mentioned in mnemonic_en must already appear in visual_scene_core or visible_objects.\n" +
+                "- Every concrete object mentioned in mnemonic_ja must already appear in visual_scene_core or visible_objects.\n" +
                 "- Do not mention hidden etymology, spelling tricks, private explanations, labels, written words, signs, or objects the learner cannot see.\n" +
                 "- Keep the cue story neutral and participant-safe for academic research.\n\n" +
                 "Field rules:\n" +
                 "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n" +
                 "- mnemonic_ja should express the same retrieval path in natural Japanese.\n" +
-                "- Output only word, anchor, mnemonic_en, and mnemonic_ja. Do not output visual_cue_en, visual_cue_ja, image_prompt_en, image_prompt_ja, or visual_objects.\n\n" +
+                "- Output only word, anchor, mnemonic_en, and mnemonic_ja. Do not output cue_blueprint, visual_cue_en, association_prompt_en, image_prompt_en, or visual_objects.\n\n" +
                 "Before outputting JSON, silently check each item:\n" +
                 "1. Does mnemonic_en feel like a learner-friendly micro-story, not a system explanation?\n" +
                 "2. Did you avoid introducing new concrete objects?\n" +
@@ -1345,6 +1474,7 @@ namespace MemPalaceLLM
                 "- Do not generate mnemonic_en or mnemonic_ja yet.\n" +
                 "- Do not consider the Spanish word form, pronunciation, spelling, cognates, puns, or sound similarity.\n" +
                 "- Treat the Spanish word only as an item identifier; plan the scene from the meaning and assigned anchor only.\n" +
+                "- First create cue_blueprint as the shared internal visual plan, then derive visual_cue_en and association_prompt_en from it.\n" +
                 "- Build a target-meaning event, not a target-object display or furniture exhibit.\n" +
                 "- The cue object must remain separate from the anchor, not become a color, texture, decoration, or transformed version of the anchor.\n" +
                 "- The image model should be able to draw both the anchor and cue object in the same close-up frame.\n\n" +
@@ -1362,7 +1492,10 @@ namespace MemPalaceLLM
                 "- visual_cue_en should be 12 to 24 words and start naturally with \"At the " + resolvedAnchorLabel + ", ...\".\n" +
                 "- visual_cue_en describes only the visible scene.\n" +
                 "- visual_cue_ja must be natural Japanese.\n" +
-                "- association_prompt_en should be 6 to 18 English words: visible objects, action, and physical relation only; no teaching explanation.\n" +
+                "- cue_blueprint.visual_scene_core should be one compact objective scene core, not a learner-facing story.\n" +
+                "- cue_blueprint.story_hook_note should briefly say how Cue Story can use the Spanish word form without changing the visible scene.\n" +
+                "- association_prompt_en should be an objective English image layout instruction: composition, main object, relative size, anchor position, physical relation, visible action/state, simple background, no text.\n" +
+                "- association_prompt_en must not include Spanish words, memory explanation, learner instruction, emotion, story wording, translations, or helps-recall language.\n" +
                 "- association_prompt_ja should be the same drawable association in natural Japanese.\n" +
                 "- image_prompt_en should be 6 to 16 words, naming only the foreground cue/action plus its anchor contact point.\n" +
                 "- image_prompt_ja should be the same foreground cue/action in natural Japanese.\n" +
@@ -1374,9 +1507,19 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"" + word.word.Trim() + "\",\n" +
                 "      \"anchor\": \"" + resolvedAnchorId + "\",\n" +
+                "      \"cue_blueprint\": {\n" +
+                "        \"target_meaning\": \"target meaning\",\n" +
+                "        \"visual_scene_core\": \"small objective scene core\",\n" +
+                "        \"main_object\": \"main cue object\",\n" +
+                "        \"anchor_relation\": \"position and physical relation to anchor\",\n" +
+                "        \"relative_size\": \"cue size relative to anchor\",\n" +
+                "        \"main_action_or_state\": \"visible action or state\",\n" +
+                "        \"visible_objects\": [\"main cue object\", \"visible detail\", \"anchor part\"],\n" +
+                "        \"story_hook_note\": \"how Cue Story can connect the Spanish word form to meaning\"\n" +
+                "      },\n" +
                 "      \"visual_cue_en\": \"At the " + resolvedAnchorLabel + ", concrete foreground cue action.\",\n" +
                 "      \"visual_cue_ja\": \"same visible scene in Japanese\",\n" +
-                "      \"association_prompt_en\": \"short drawable association scene, no explanation\",\n" +
+                "      \"association_prompt_en\": \"Close-up objective visual layout, relative size, anchor relation, visible action, simple background, no text\",\n" +
                 "      \"association_prompt_ja\": \"same drawable association in Japanese\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action and anchor contact point only\",\n" +
                 "      \"image_prompt_ja\": \"foreground cue/action in Japanese\",\n" +
@@ -1404,19 +1547,20 @@ namespace MemPalaceLLM
                 "meaning=" + (word.meaning ?? string.Empty).Trim() + meaningJa + "\n" +
                 "anchor_id=" + anchorId + "\n" +
                 "anchor_label=" + anchorLabel + "\n" +
-                "visual_cue_en=" + CompactPromptLine(visualCue?.visual_cue_en) + "\n" +
-                "visual_cue_ja=" + CompactPromptLine(visualCue?.visual_cue_ja) + "\n" +
-                "association_prompt_en=" + CompactPromptLine(visualCue?.association_prompt_en) + "\n" +
-                "association_prompt_ja=" + CompactPromptLine(visualCue?.association_prompt_ja) + "\n" +
-                "image_prompt_en=" + CompactPromptLine(visualCue?.image_prompt_en) + "\n" +
-                "visual_objects=" + FormatVisualObjectLabels(visualCue?.visual_objects) + "\n\n" +
+                "visual_scene_core=" + CompactPromptLine(GetBlueprintVisualSceneCore(visualCue)) + "\n" +
+                "main_object=" + CompactPromptLine(GetBlueprintMainObject(visualCue)) + "\n" +
+                "anchor_relation=" + CompactPromptLine(GetBlueprintAnchorRelation(visualCue)) + "\n" +
+                "main_action_or_state=" + CompactPromptLine(GetBlueprintMainActionOrState(visualCue)) + "\n" +
+                "visible_objects=" + FormatBlueprintVisibleObjects(visualCue) + "\n" +
+                "story_hook_note=" + CompactPromptLine(GetBlueprintStoryHookNote(visualCue, word)) + "\n\n" +
                 academicSafetyRules +
                 "Goal for Call 2:\n" +
                 "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
-                "- Write mnemonic_en and mnemonic_ja based only on this visual scene and association_prompt_en.\n" +
-                "- Do not change, improve, reinterpret, or replace the visual scene.\n" +
+                "- Write mnemonic_en and mnemonic_ja based only on the provided cue_blueprint fields.\n" +
+                "- Do not change, improve, reinterpret, or replace the blueprint scene.\n" +
+                "- Do not generate or imitate an image prompt.\n" +
                 "- Do not introduce any new concrete foreground object, person, place, prop, animal, sign, label, or visual detail.\n" +
-                "- Do not merely restate visual_cue_en or association_prompt_en in shorter words.\n\n" +
+                "- Do not merely restate visual_scene_core in shorter words or write camera/image-prompt wording.\n\n" +
                 "Cue Story rules:\n" +
                 "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
                 "- The story should connect the Spanish word form to the meaning through a simple familiar word, sound, action, or scene.\n" +
@@ -1427,6 +1571,7 @@ namespace MemPalaceLLM
                 "- Do not merely say \"repeat the word.\"\n" +
                 "- If a natural sound hook exists, build the micro-story around it.\n" +
                 "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
+                "- Use story_hook_note as the preferred plan for connecting the Spanish word form to the visible cue.\n" +
                 "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
                 "- Do not write tautologies or explain the word using itself.\n" +
                 "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
@@ -1436,8 +1581,8 @@ namespace MemPalaceLLM
                 "mnemonic_en: \"The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play.\"\n" +
                 "Why it works: the meaning is clear, playa sounds like play, and the story is simple, visual, and easy to imagine.\n\n" +
                 "Hard constraints:\n" +
-                "- Every concrete object mentioned in mnemonic_en must already appear in visual_cue_en, association_prompt_en, or visual_objects.\n" +
-                "- Every concrete object mentioned in mnemonic_ja must already appear in visual_cue_ja, association_prompt_ja, or visual_objects.\n" +
+                "- Every concrete object mentioned in mnemonic_en must already appear in visual_scene_core or visible_objects.\n" +
+                "- Every concrete object mentioned in mnemonic_ja must already appear in visual_scene_core or visible_objects.\n" +
                 "- Do not mention hidden etymology, spelling tricks, labels, written words, signs, or objects the learner cannot see.\n" +
                 "- Keep the cue story neutral and participant-safe for academic research.\n\n" +
                 "Field rules:\n" +
@@ -1515,6 +1660,91 @@ namespace MemPalaceLLM
             return assignmentLines.ToString();
         }
 
+        private static string GetBlueprintVisualSceneCore(GeneratedMnemonicItem item)
+        {
+            return FirstNonEmpty(item?.cue_blueprint?.visual_scene_core, item?.visual_cue_en);
+        }
+
+        private static string GetBlueprintMainObject(GeneratedMnemonicItem item)
+        {
+            var fromBlueprint = item?.cue_blueprint?.main_object;
+            if (!string.IsNullOrWhiteSpace(fromBlueprint))
+            {
+                return fromBlueprint.Trim();
+            }
+
+            if (item?.cue_blueprint?.visible_objects != null)
+            {
+                for (int i = 0; i < item.cue_blueprint.visible_objects.Length; i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.cue_blueprint.visible_objects[i]))
+                    {
+                        return item.cue_blueprint.visible_objects[i].Trim();
+                    }
+                }
+            }
+
+            if (item?.visual_objects != null)
+            {
+                for (int i = 0; i < item.visual_objects.Length; i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.visual_objects[i]?.label))
+                    {
+                        return item.visual_objects[i].label.Trim();
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string GetBlueprintAnchorRelation(GeneratedMnemonicItem item)
+        {
+            return FirstNonEmpty(item?.cue_blueprint?.anchor_relation, item?.association_prompt_en);
+        }
+
+        private static string GetBlueprintMainActionOrState(GeneratedMnemonicItem item)
+        {
+            return FirstNonEmpty(item?.cue_blueprint?.main_action_or_state, item?.visual_cue_en);
+        }
+
+        private static string GetBlueprintStoryHookNote(GeneratedMnemonicItem item, WordEntry word)
+        {
+            return FirstNonEmpty(
+                item?.cue_blueprint?.story_hook_note,
+                "use " + FirstNonEmpty(word?.word, "the Spanish word") + " as the name of the existing cue object or event");
+        }
+
+        private static string FormatBlueprintVisibleObjects(GeneratedMnemonicItem item)
+        {
+            if (item?.cue_blueprint?.visible_objects != null && item.cue_blueprint.visible_objects.Length > 0)
+            {
+                var builder = new StringBuilder();
+                for (int i = 0; i < item.cue_blueprint.visible_objects.Length; i++)
+                {
+                    var label = item.cue_blueprint.visible_objects[i];
+                    if (string.IsNullOrWhiteSpace(label))
+                    {
+                        continue;
+                    }
+
+                    if (builder.Length > 0)
+                    {
+                        builder.Append(", ");
+                    }
+
+                    builder.Append(label.Trim());
+                }
+
+                if (builder.Length > 0)
+                {
+                    return builder.ToString();
+                }
+            }
+
+            return FormatVisualObjectLabels(item?.visual_objects);
+        }
+
         private static string FormatVisualObjectLabels(VisualObjectSpec[] visualObjects)
         {
             if (visualObjects == null || visualObjects.Length == 0)
@@ -1551,6 +1781,7 @@ namespace MemPalaceLLM
             {
                 word = string.IsNullOrWhiteSpace(visualCue?.word) ? sourceWord.word : visualCue.word,
                 anchor = string.IsNullOrWhiteSpace(visualCue?.anchor) ? cueStory?.anchor : visualCue.anchor,
+                cue_blueprint = visualCue?.cue_blueprint,
                 visual_cue_en = visualCue?.visual_cue_en,
                 visual_cue_ja = visualCue?.visual_cue_ja,
                 association_prompt_en = visualCue?.association_prompt_en,

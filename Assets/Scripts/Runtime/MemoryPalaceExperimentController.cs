@@ -3008,6 +3008,8 @@ namespace MemPalaceLLM
                 target.visualCue = replacement.visualCue;
             }
 
+            target.cueBlueprint = CloneCueBlueprint(replacement.cueBlueprint);
+
             target.visualCueJa = string.IsNullOrWhiteSpace(replacement.visualCueJa)
                 ? target.visualCue
                 : replacement.visualCueJa;
@@ -3227,6 +3229,57 @@ namespace MemPalaceLLM
             }
 
             return string.Empty;
+        }
+
+        private static CueBlueprintData CloneCueBlueprint(CueBlueprintData source)
+        {
+            if (source == null)
+            {
+                return new CueBlueprintData();
+            }
+
+            return new CueBlueprintData
+            {
+                targetMeaning = source.targetMeaning,
+                visualSceneCore = source.visualSceneCore,
+                mainObject = source.mainObject,
+                anchorRelation = source.anchorRelation,
+                relativeSize = source.relativeSize,
+                mainActionOrState = source.mainActionOrState,
+                visibleObjects = source.visibleObjects == null ? new List<string>() : new List<string>(source.visibleObjects),
+                storyHookNote = source.storyHookNote
+            };
+        }
+
+        private CueBlueprintData BuildCueBlueprintFromCurrentItem(MnemonicItemData item)
+        {
+            var visibleObjects = new List<string>();
+            if (item?.visualObjects != null)
+            {
+                for (int i = 0; i < item.visualObjects.Count; i++)
+                {
+                    var label = item.visualObjects[i]?.label;
+                    if (!string.IsNullOrWhiteSpace(label) && !visibleObjects.Contains(label.Trim()))
+                    {
+                        visibleObjects.Add(label.Trim());
+                    }
+                }
+            }
+
+            var mainObject = visibleObjects.Count > 0 ? visibleObjects[0] : "memory cue";
+            var sceneCore = FirstNonEmptyPrompt(item?.associationPrompt, ExtractPromptSceneDetail(item?.visualCue), item?.imagePrompt);
+            var anchor = GetAnchorDisplayName(item);
+            return new CueBlueprintData
+            {
+                targetMeaning = GetMeaningText(item),
+                visualSceneCore = sceneCore,
+                mainObject = mainObject,
+                anchorRelation = string.IsNullOrWhiteSpace(anchor) ? string.Empty : "at the " + anchor,
+                relativeSize = "main cue is smaller than the assigned anchor",
+                mainActionOrState = sceneCore,
+                visibleObjects = visibleObjects,
+                storyHookNote = "use " + (string.IsNullOrWhiteSpace(item?.word) ? "the Spanish word" : item.word.Trim()) + " as the name of the existing cue object or event"
+            };
         }
 
         private IEnumerator GenerateMnemonicImageCueRoutine(MnemonicItemData item)
@@ -4972,7 +5025,7 @@ namespace MemPalaceLLM
             return $"Imagine the existing cue is named {spanish}, so the name stays with the meaning.";
         }
 
-        private static void RefreshAssociationPromptsAfterCueRewrite(MnemonicItemData item)
+        private void RefreshAssociationPromptsAfterCueRewrite(MnemonicItemData item)
         {
             if (item == null)
             {
@@ -4983,6 +5036,7 @@ namespace MemPalaceLLM
                 ExtractPromptSceneDetail(item.visualCue),
                 ExtractPromptSceneDetail(item.imagePrompt));
             item.associationPromptJa = item.associationPrompt;
+            item.cueBlueprint = BuildCueBlueprintFromCurrentItem(item);
             item.imagePromptCandidates = new List<string>();
             item.selectedImagePrompt = string.Empty;
             item.selectedImageCandidateIndex = -1;
@@ -5459,11 +5513,29 @@ namespace MemPalaceLLM
                 + (item.associationPrompt ?? string.Empty) + " "
                 + (item.mnemonic ?? string.Empty) + " "
                 + (item.imagePrompt ?? string.Empty) + " "
+                + BuildCueBlueprintSearchText(item.cueBlueprint) + " "
                 + (item.imagePromptCandidates == null ? string.Empty : string.Join(" ", item.imagePromptCandidates.ToArray())) + " "
                 + (item.visualCueJa ?? string.Empty) + " "
                 + (item.associationPromptJa ?? string.Empty) + " "
                 + (item.mnemonicJa ?? string.Empty) + " "
                 + (item.imagePromptJa ?? string.Empty)).ToLowerInvariant();
+        }
+
+        private static string BuildCueBlueprintSearchText(CueBlueprintData blueprint)
+        {
+            if (blueprint == null)
+            {
+                return string.Empty;
+            }
+
+            return (blueprint.targetMeaning ?? string.Empty) + " "
+                + (blueprint.visualSceneCore ?? string.Empty) + " "
+                + (blueprint.mainObject ?? string.Empty) + " "
+                + (blueprint.anchorRelation ?? string.Empty) + " "
+                + (blueprint.relativeSize ?? string.Empty) + " "
+                + (blueprint.mainActionOrState ?? string.Empty) + " "
+                + (blueprint.storyHookNote ?? string.Empty) + " "
+                + (blueprint.visibleObjects == null ? string.Empty : string.Join(" ", blueprint.visibleObjects.ToArray()));
         }
 
         private string BuildRecoveredSceneDetail(MnemonicItemData item)
@@ -6053,6 +6125,7 @@ namespace MemPalaceLLM
                     meaning = item.meaning,
                     meaningJa = item.meaningJa,
                     anchorId = item.anchorId,
+                    cueBlueprint = CloneCueBlueprint(item.cueBlueprint),
                     cue = item.visualCue,
                     cueJa = item.visualCueJa,
                     associationPrompt = item.associationPrompt,
@@ -6570,6 +6643,7 @@ namespace MemPalaceLLM
                     meaningJa = words[i].meaningJa,
                     anchorId = anchor.id,
                     anchorLabel = anchor.label,
+                    cueBlueprint = new CueBlueprintData(),
                     visualCue = string.Empty,
                     visualCueJa = string.Empty,
                     associationPrompt = string.Empty,
@@ -6681,6 +6755,11 @@ namespace MemPalaceLLM
                 items[i].anchorId = anchor.id;
                 items[i].anchorLabel = anchor.label;
 
+                if (items[i].cueBlueprint == null)
+                {
+                    items[i].cueBlueprint = new CueBlueprintData();
+                }
+
                 if (string.IsNullOrWhiteSpace(items[i].objectShape))
                 {
                     items[i].objectShape = PickShape(i);
@@ -6734,6 +6813,11 @@ namespace MemPalaceLLM
                 if (items[i].imagePromptCandidates == null)
                 {
                     items[i].imagePromptCandidates = new List<string>();
+                }
+
+                if (string.IsNullOrWhiteSpace(items[i].cueBlueprint.visualSceneCore))
+                {
+                    items[i].cueBlueprint = BuildCueBlueprintFromCurrentItem(items[i]);
                 }
 
                 ApplyAnchorConsistency(items[i]);
@@ -6919,6 +7003,7 @@ namespace MemPalaceLLM
             }
 
             item.imagePromptCandidates = new List<string>();
+            item.cueBlueprint = new CueBlueprintData();
             item.associationPrompt = string.Empty;
             item.associationPromptJa = string.Empty;
             item.selectedImagePrompt = string.Empty;

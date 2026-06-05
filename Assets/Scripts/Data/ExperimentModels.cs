@@ -63,6 +63,7 @@ namespace MemPalaceLLM
     {
         public string word;
         public string anchorId;
+        public CueBlueprintData cueBlueprint = new();
         public string visualCue;
         public string visualCueJa;
         public string associationPrompt;
@@ -93,6 +94,19 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class CueBlueprintData
+    {
+        public string targetMeaning;
+        public string visualSceneCore;
+        public string mainObject;
+        public string anchorRelation;
+        public string relativeSize;
+        public string mainActionOrState;
+        public List<string> visibleObjects = new();
+        public string storyHookNote;
+    }
+
+    [Serializable]
     public class MnemonicItemData
     {
         public string word;
@@ -100,6 +114,7 @@ namespace MemPalaceLLM
         public string meaningJa;
         public string anchorId;
         public string anchorLabel;
+        public CueBlueprintData cueBlueprint = new();
         public string visualCue;
         public string visualCueJa;
         public string associationPrompt;
@@ -173,6 +188,7 @@ namespace MemPalaceLLM
         public string meaning;
         public string meaningJa;
         public string anchorId;
+        public CueBlueprintData cueBlueprint = new();
         public string cue;
         public string cueJa;
         public string associationPrompt;

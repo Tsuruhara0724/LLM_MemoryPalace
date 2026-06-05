@@ -43,6 +43,17 @@ namespace MemPalaceLLM
                     meaningJa = word.meaningJa,
                     anchorId = anchor.id,
                     anchorLabel = anchor.label,
+                    cueBlueprint = new CueBlueprintData
+                    {
+                        targetMeaning = meaning,
+                        visualSceneCore = cue,
+                        mainObject = "oversized prop",
+                        anchorRelation = "physically interacting with the " + anchor.label,
+                        relativeSize = "cue prop is smaller than the anchor",
+                        mainActionOrState = "bright motion and oversized props",
+                        visibleObjects = new List<string> { "oversized prop", anchor.label },
+                        storyHookNote = "use " + word.word + " as the name of the existing cue object or event"
+                    },
                     visualCue = cue,
                     visualCueJa = $"{anchor.label} で、「{(string.IsNullOrWhiteSpace(word.meaningJa) ? word.meaning : word.meaningJa)}」を表す印象的な場面を想像する。",
                     associationPrompt = association,
@@ -96,6 +107,19 @@ namespace MemPalaceLLM
                     meaningJa = word.meaningJa,
                     anchorId = sample.anchorId,
                     anchorLabel = anchor.label,
+                    cueBlueprint = sample.cueBlueprint == null
+                        ? new CueBlueprintData()
+                        : new CueBlueprintData
+                        {
+                            targetMeaning = sample.cueBlueprint.targetMeaning,
+                            visualSceneCore = sample.cueBlueprint.visualSceneCore,
+                            mainObject = sample.cueBlueprint.mainObject,
+                            anchorRelation = sample.cueBlueprint.anchorRelation,
+                            relativeSize = sample.cueBlueprint.relativeSize,
+                            mainActionOrState = sample.cueBlueprint.mainActionOrState,
+                            visibleObjects = sample.cueBlueprint.visibleObjects == null ? new List<string>() : new List<string>(sample.cueBlueprint.visibleObjects),
+                            storyHookNote = sample.cueBlueprint.storyHookNote
+                        },
                     visualCue = sample.visualCue,
                     visualCueJa = sample.visualCueJa,
                     associationPrompt = string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt,
