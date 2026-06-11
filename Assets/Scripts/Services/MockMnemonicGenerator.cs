@@ -40,17 +40,12 @@ namespace MemPalaceLLM
                 {
                     word = word.word,
                     meaning = word.meaning,
-                    meaningJa = word.meaningJa,
                     anchorId = anchor.id,
                     anchorLabel = anchor.label,
                     visualCue = cue,
-                    visualCueJa = $"{anchor.label} で、「{(string.IsNullOrWhiteSpace(word.meaningJa) ? word.meaning : word.meaningJa)}」を表す印象的な場面を想像する。",
                     associationPrompt = association,
-                    associationPromptJa = association,
                     mnemonic = mnemonic,
-                    mnemonicJa = $"「{word.word}」の音や意味を {anchor.label} と結びつけて覚える。",
                     imagePrompt = association,
-                    imagePromptJa = association,
                     imagePromptCandidates = new List<string>
                     {
                         association + ", object-on-anchor close-up",
@@ -93,19 +88,12 @@ namespace MemPalaceLLM
                 {
                     word = word.word,
                     meaning = word.meaning,
-                    meaningJa = word.meaningJa,
                     anchorId = sample.anchorId,
                     anchorLabel = anchor.label,
                     visualCue = sample.visualCue,
-                    visualCueJa = sample.visualCueJa,
                     associationPrompt = string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt,
-                    associationPromptJa = string.IsNullOrWhiteSpace(sample.associationPromptJa)
-                        ? (string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt)
-                        : sample.associationPromptJa,
                     mnemonic = sample.mnemonic,
-                    mnemonicJa = sample.mnemonicJa,
                     imagePrompt = sample.imagePrompt,
-                    imagePromptJa = sample.imagePromptJa,
                     imagePromptCandidates = sample.imagePromptCandidates == null ? new List<string>() : new List<string>(sample.imagePromptCandidates),
                     objectShape = string.IsNullOrWhiteSpace(sample.objectShape) ? Shapes[i % Shapes.Length] : sample.objectShape,
                     colorHex = string.IsNullOrWhiteSpace(sample.colorHex) ? Colors[i % Colors.Length] : sample.colorHex

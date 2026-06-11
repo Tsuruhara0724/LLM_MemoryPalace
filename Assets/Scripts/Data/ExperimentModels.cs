@@ -48,7 +48,6 @@ namespace MemPalaceLLM
     {
         public string word;
         public string meaning;
-        public string meaningJa;
     }
 
     [Serializable]
@@ -64,13 +63,9 @@ namespace MemPalaceLLM
         public string word;
         public string anchorId;
         public string visualCue;
-        public string visualCueJa;
         public string associationPrompt;
-        public string associationPromptJa;
         public string mnemonic;
-        public string mnemonicJa;
         public string imagePrompt;
-        public string imagePromptJa;
         public List<string> imagePromptCandidates = new();
         public string selectedImagePrompt;
         public int selectedImageCandidateIndex = -1;
@@ -97,17 +92,12 @@ namespace MemPalaceLLM
     {
         public string word;
         public string meaning;
-        public string meaningJa;
         public string anchorId;
         public string anchorLabel;
         public string visualCue;
-        public string visualCueJa;
         public string associationPrompt;
-        public string associationPromptJa;
         public string mnemonic;
-        public string mnemonicJa;
         public string imagePrompt;
-        public string imagePromptJa;
         public List<string> imagePromptCandidates = new();
         public string selectedImagePrompt;
         public int selectedImageCandidateIndex = -1;
@@ -171,16 +161,11 @@ namespace MemPalaceLLM
     {
         public string word;
         public string meaning;
-        public string meaningJa;
         public string anchorId;
         public string cue;
-        public string cueJa;
         public string associationPrompt;
-        public string associationPromptJa;
         public string mnemonic;
-        public string mnemonicJa;
         public string imagePrompt;
-        public string imagePromptJa;
         public List<string> imagePromptCandidates = new();
         public string selectedImagePrompt;
         public int selectedImageCandidateIndex = -1;

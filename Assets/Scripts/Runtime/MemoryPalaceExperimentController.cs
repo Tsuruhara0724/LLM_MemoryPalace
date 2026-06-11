@@ -32,6 +32,7 @@ namespace MemPalaceLLM
         private const float StudyDetailMaxDistance = 2.85f;
         private const float StudyDetailFacingDotThreshold = 0.5f;
         private const int RequiredImagePromptCandidateCount = 4;
+        private const int BufferedImageCueResultCount = 4;
 
         private enum BuilderToolMode
         {
@@ -145,6 +146,8 @@ namespace MemPalaceLLM
         private readonly List<SnapshotTestResponse> snapshotTestResponses = new();
         private readonly Dictionary<string, Texture2D> memorySnapshots = new();
         private readonly Dictionary<string, Texture2D> mnemonicImageCues = new();
+        private readonly Dictionary<string, List<ImageCueCandidateResult>> imageCueCandidateResults = new();
+        private readonly Dictionary<string, int> displayedImageCueCandidateIndexes = new();
         private readonly Dictionary<string, string> imageCueValidationFailures = new();
         private readonly Dictionary<string, Transform> studyItemTargets = new();
         private readonly HashSet<string> generatingImageCueWords = new();
@@ -217,7 +220,6 @@ namespace MemPalaceLLM
         private string imageGenerationEndpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img";
         private string imageGenerationCheckpoint = string.Empty;
         private string imageCueValidationModel = "gemma3:12b";
-        private int imageCueValidationAttempts = RequiredImagePromptCandidateCount;
         private bool enableVrStudyMode = true;
         private bool showAbstractMnemonicProps = false;
         private bool showLegacyRoomGenerator = false;
@@ -703,7 +705,7 @@ namespace MemPalaceLLM
                 imageGenerationEndpoint = DrawLabeledTextField("Image Endpoint", imageGenerationEndpoint);
                 imageGenerationCheckpoint = DrawLabeledTextField("Image Checkpoint", imageGenerationCheckpoint);
                 imageCueValidationModel = DrawLabeledTextField("Image Cue Validation Model", imageCueValidationModel);
-                imageCueValidationAttempts = DrawSlider("Image cue candidate images", imageCueValidationAttempts, RequiredImagePromptCandidateCount, 5);
+                GUILayout.Label("Image cue generation: each displayed result is selected from 4 generated candidates, and the app prepares 4 best results (A-D).", mutedStyle);
                 showAbstractMnemonicProps = GUILayout.Toggle(showAbstractMnemonicProps, "Show experimental 3D proxy props in the room");
                 GUILayout.Label("Mnemonic text uses the text model. Cue images generate multiple prompt candidates with Stable Diffusion, then Ollama Vision scores and selects the clearest anchor-cue image.", mutedStyle);
             }
@@ -761,7 +763,7 @@ namespace MemPalaceLLM
             useCustomCsv = GUILayout.Toggle(useCustomCsv, "Use custom CSV/pasted word list instead of the default word set");
             if (useCustomCsv)
             {
-                GUILayout.Label("Format: word,meaning,meaning_ja", mutedStyle);
+                GUILayout.Label("Format: word,meaning", mutedStyle);
                 customCsvText = GUILayout.TextArea(customCsvText, textAreaStyle, GUILayout.MinHeight(180f));
             }
 
@@ -2045,16 +2047,11 @@ namespace MemPalaceLLM
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{item.word}  -  {item.anchorLabel}", smallTitleStyle);
                 GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
-                DrawBilingualSection("Overlay Cue Scene / Image Scene", item.visualCue, item.visualCueJa, smallTitleStyle, labelStyle);
+                DrawTextSection("Overlay Cue Scene / Image Scene", item.visualCue, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
-                DrawBilingualSection("Association Prompt / Image Association", item.associationPrompt, item.associationPromptJa, smallTitleStyle, labelStyle);
+                DrawTextSection("Association Prompt / Image Association", item.associationPrompt, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
-                DrawBilingualSection("Cue Story / Memory Link", item.mnemonic, item.mnemonicJa, smallTitleStyle, labelStyle);
-                /*
-                DrawBilingualSection("Scene To Imagine / 想像シーン", item.visualCue, item.visualCueJa, smallTitleStyle, labelStyle);
-                GUILayout.Space(4);
-                DrawBilingualSection("Word Connection / 単語とのつながり", item.mnemonic, item.mnemonicJa, smallTitleStyle, labelStyle);
-                */
+                DrawTextSection("Cue Story / Memory Link", item.mnemonic, smallTitleStyle, labelStyle);
                 GUILayout.Space(6);
                 DrawRegenerateMnemonicButton(item);
                 GUILayout.EndVertical();
@@ -2093,7 +2090,7 @@ namespace MemPalaceLLM
             authoringScroll = GUILayout.BeginScrollView(authoringScroll);
 
             GUILayout.Label("Step 2 of 7 - Self-Generated Mnemonic Authoring", titleStyle);
-            GUILayout.Label("Assign each word to an anchor and write your own bilingual scene and memory link. For the demo, you can auto-fill a starter draft and then edit it before entering the room.", mutedStyle);
+            GUILayout.Label("Assign each word to an anchor and write your own scene and memory link. For the demo, you can auto-fill a starter draft and then edit it before entering the room.", mutedStyle);
             GUILayout.Space(10);
 
             if (GUILayout.Button("Auto-Fill Starter Drafts", buttonStyle))
@@ -2126,16 +2123,10 @@ namespace MemPalaceLLM
 
                 GUILayout.Label("Overlay Cue Scene (EN)", mutedStyle);
                 item.visualCue = GUILayout.TextArea(item.visualCue ?? string.Empty, textAreaStyle, GUILayout.MinHeight(54f));
-                GUILayout.Label("Overlay Cue Scene (JA)", mutedStyle);
-                item.visualCueJa = GUILayout.TextArea(item.visualCueJa ?? string.Empty, textAreaStyle, GUILayout.MinHeight(54f));
                 GUILayout.Label("Association Prompt for Image (EN)", mutedStyle);
                 item.associationPrompt = GUILayout.TextArea(item.associationPrompt ?? string.Empty, textAreaStyle, GUILayout.MinHeight(42f));
-                GUILayout.Label("Association Prompt for Image (JA)", mutedStyle);
-                item.associationPromptJa = GUILayout.TextArea(item.associationPromptJa ?? string.Empty, textAreaStyle, GUILayout.MinHeight(42f));
                 GUILayout.Label("Cue Story (EN)", mutedStyle);
                 item.mnemonic = GUILayout.TextArea(item.mnemonic ?? string.Empty, textAreaStyle, GUILayout.MinHeight(54f));
-                GUILayout.Label("Cue Story (JA)", mutedStyle);
-                item.mnemonicJa = GUILayout.TextArea(item.mnemonicJa ?? string.Empty, textAreaStyle, GUILayout.MinHeight(54f));
 
                 GUILayout.EndVertical();
             }
@@ -2255,16 +2246,11 @@ namespace MemPalaceLLM
                 GUILayout.Label(GetDisplayMeaningText(selectedStudyItem), mutedStyle);
                 GUILayout.Label($"Anchor: {selectedStudyItem.anchorLabel}", mutedStyle);
                 GUILayout.Space(10);
-                DrawBilingualSection("Overlay Cue Scene / Image Scene", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa, smallTitleStyle, guideStyle);
+                DrawTextSection("Overlay Cue Scene / Image Scene", selectedStudyItem.visualCue, smallTitleStyle, guideStyle);
                 GUILayout.Space(10);
-                DrawBilingualSection("Association Prompt / Image Association", selectedStudyItem.associationPrompt, selectedStudyItem.associationPromptJa, smallTitleStyle, guideStyle);
+                DrawTextSection("Association Prompt / Image Association", selectedStudyItem.associationPrompt, smallTitleStyle, guideStyle);
                 GUILayout.Space(10);
-                DrawBilingualSection("Cue Story / Memory Link", selectedStudyItem.mnemonic, selectedStudyItem.mnemonicJa, smallTitleStyle, guideStyle);
-                /*
-                DrawBilingualSection("Scene To Imagine / 想像シーン", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa, smallTitleStyle, guideStyle);
-                GUILayout.Space(10);
-                DrawBilingualSection("Word Connection / 単語とのつながり", selectedStudyItem.mnemonic, selectedStudyItem.mnemonicJa, smallTitleStyle, guideStyle);
-                */
+                DrawTextSection("Cue Story / Memory Link", selectedStudyItem.mnemonic, smallTitleStyle, guideStyle);
                 GUILayout.Space(8);
                 DrawRegenerateMnemonicButton(selectedStudyItem);
                 GUILayout.Space(8);
@@ -2500,16 +2486,11 @@ namespace MemPalaceLLM
             foreach (var item in currentItems)
             {
                 GUILayout.Label($"{item.word} @ {item.anchorLabel}", labelStyle);
-                DrawBilingualSection("Overlay Cue Scene / Image Scene", item.visualCue, item.visualCueJa, smallTitleStyle, mutedStyle);
+                DrawTextSection("Overlay Cue Scene / Image Scene", item.visualCue, smallTitleStyle, mutedStyle);
                 GUILayout.Space(4);
-                DrawBilingualSection("Association Prompt / Image Association", item.associationPrompt, item.associationPromptJa, smallTitleStyle, mutedStyle);
+                DrawTextSection("Association Prompt / Image Association", item.associationPrompt, smallTitleStyle, mutedStyle);
                 GUILayout.Space(4);
-                DrawBilingualSection("Cue Story / Memory Link", item.mnemonic, item.mnemonicJa, smallTitleStyle, mutedStyle);
-                /*
-                DrawBilingualSection("Scene To Imagine / 想像シーン", item.visualCue, item.visualCueJa, smallTitleStyle, mutedStyle);
-                GUILayout.Space(4);
-                DrawBilingualSection("Word Connection / 単語とのつながり", item.mnemonic, item.mnemonicJa, smallTitleStyle, mutedStyle);
-                */
+                DrawTextSection("Cue Story / Memory Link", item.mnemonic, smallTitleStyle, mutedStyle);
                 GUILayout.Space(6);
             }
             GUILayout.EndVertical();
@@ -2858,16 +2839,54 @@ namespace MemPalaceLLM
             {
                 GUILayout.Box(texture, GUILayout.Width(220f), GUILayout.Height(220f));
                 GUILayout.Label("This image will be used for the image-choice tests when you capture this memory.", mutedStyle);
+                var candidateCount = imageCueCandidateResults.TryGetValue(item.word, out var candidateResults) && candidateResults != null
+                    ? candidateResults.Count
+                    : 0;
+                var displayedCandidateIndex = GetDisplayedImageCueCandidateIndex(item.word);
+                if (candidateCount > 0)
+                {
+                    var displayNumber = Mathf.Clamp(displayedCandidateIndex + 1, 1, candidateCount);
+                    GUILayout.Label(
+                        isGeneratingCue && candidateCount < BufferedImageCueResultCount
+                            ? $"Best image set {displayNumber}/{candidateCount} shown; preparing more best-of-four sets in background..."
+                            : $"Best image set {displayNumber}/{candidateCount}",
+                        mutedStyle);
+
+                    GUILayout.BeginHorizontal();
+                    GUI.enabled = candidateCount > 1;
+                    if (GUILayout.Button("<", buttonStyle, GUILayout.Width(54f)))
+                    {
+                        TryCycleDisplayedImageCueCandidate(item, -1);
+                    }
+
+                    if (GUILayout.Button(">", buttonStyle, GUILayout.Width(54f)))
+                    {
+                        TryCycleDisplayedImageCueCandidate(item, 1);
+                    }
+                    GUI.enabled = true;
+                    GUILayout.EndHorizontal();
+                }
+
                 if (item.selectedImageCandidateIndex > 0 && !string.IsNullOrWhiteSpace(item.imageSelectionReason))
                 {
                     GUILayout.Label(item.imageSelectionReason, mutedStyle);
                 }
 
                 GUI.enabled = !isGeneratingCue;
-                if (GUILayout.Button(isGeneratingCue ? "Regenerating Image Cue..." : "Regenerate Image Cue", buttonStyle))
+                var regenerateLabel = isGeneratingCue
+                    ? "Preparing More Best Images..."
+                    : "Regenerate Image Cue Set";
+                if (GUILayout.Button(regenerateLabel, buttonStyle))
                 {
-                    imageGenerationStatus = $"Starting image cue regeneration for {item.word}...";
-                    StartCoroutine(GenerateMnemonicImageCueRoutine(item));
+                    if (isGeneratingCue)
+                    {
+                        imageGenerationStatus = $"The current image cue set for {item.word} is still generating in the background.";
+                    }
+                    else
+                    {
+                        imageGenerationStatus = $"Starting a new four-result image cue set for {item.word}...";
+                        StartCoroutine(GenerateMnemonicImageCueRoutine(item));
+                    }
                 }
                 GUI.enabled = true;
                 if (!string.IsNullOrWhiteSpace(imageGenerationStatus))
@@ -2926,8 +2945,7 @@ namespace MemPalaceLLM
             var word = new WordEntry
             {
                 word = item.word,
-                meaning = item.meaning,
-                meaningJa = item.meaningJa
+                meaning = item.meaning
             };
 
             yield return StartCoroutine(service.RegenerateMnemonicItem(
@@ -3008,26 +3026,14 @@ namespace MemPalaceLLM
                 target.visualCue = replacement.visualCue;
             }
 
-            target.visualCueJa = string.IsNullOrWhiteSpace(replacement.visualCueJa)
-                ? target.visualCue
-                : replacement.visualCueJa;
-
             target.associationPrompt = string.IsNullOrWhiteSpace(replacement.associationPrompt)
                 ? FirstNonEmptyPrompt(replacement.imagePrompt, replacement.visualCue, target.associationPrompt)
                 : replacement.associationPrompt;
-
-            target.associationPromptJa = string.IsNullOrWhiteSpace(replacement.associationPromptJa)
-                ? target.associationPrompt
-                : replacement.associationPromptJa;
 
             if (!string.IsNullOrWhiteSpace(replacement.mnemonic))
             {
                 target.mnemonic = replacement.mnemonic;
             }
-
-            target.mnemonicJa = string.IsNullOrWhiteSpace(replacement.mnemonicJa)
-                ? target.mnemonic
-                : replacement.mnemonicJa;
 
             if (!string.IsNullOrWhiteSpace(replacement.imagePrompt))
             {
@@ -3039,9 +3045,6 @@ namespace MemPalaceLLM
                 target.imagePrompt = BuildMnemonicImagePrompt(target);
             }
 
-            target.imagePromptJa = string.IsNullOrWhiteSpace(replacement.imagePromptJa)
-                ? target.imagePrompt
-                : replacement.imagePromptJa;
             target.objectShape = string.IsNullOrWhiteSpace(replacement.objectShape) ? target.objectShape : replacement.objectShape;
             target.colorHex = string.IsNullOrWhiteSpace(replacement.colorHex) ? target.colorHex : replacement.colorHex;
             target.visualObjects = replacement.visualObjects ?? new List<VisualObjectSpec>();
@@ -3072,7 +3075,7 @@ namespace MemPalaceLLM
 
         private List<ImagePromptCandidate> BuildMnemonicImagePromptCandidates(MnemonicItemData item)
         {
-            var targetCount = Mathf.Clamp(imageCueValidationAttempts, RequiredImagePromptCandidateCount, 5);
+            var targetCount = RequiredImagePromptCandidateCount;
             var rawPrompts = new List<string>();
             AddImagePromptCandidates(rawPrompts, item?.imagePromptCandidates);
             AddImagePromptCandidate(rawPrompts, item?.imagePrompt);
@@ -3229,6 +3232,228 @@ namespace MemPalaceLLM
             return string.Empty;
         }
 
+        private void ClearImageCueCandidatePool(string word, bool keepDisplayedTexture)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+            {
+                return;
+            }
+
+            mnemonicImageCues.TryGetValue(word, out var displayedTexture);
+            if (imageCueCandidateResults.TryGetValue(word, out var results))
+            {
+                for (int i = 0; i < results.Count; i++)
+                {
+                    var texture = results[i]?.texture;
+                    if (texture == null || (keepDisplayedTexture && texture == displayedTexture))
+                    {
+                        continue;
+                    }
+
+                    Destroy(texture);
+                }
+            }
+
+            imageCueCandidateResults.Remove(word);
+            displayedImageCueCandidateIndexes.Remove(word);
+        }
+
+        private bool IsTextureInImageCueCandidatePool(string word, Texture2D texture)
+        {
+            if (string.IsNullOrWhiteSpace(word) || texture == null)
+            {
+                return false;
+            }
+
+            if (!imageCueCandidateResults.TryGetValue(word, out var results) || results == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (results[i]?.texture == texture)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private List<ImageCueCandidateResult> GetImageCueCandidateResults(string word)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+            {
+                return null;
+            }
+
+            if (!imageCueCandidateResults.TryGetValue(word, out var results) || results == null)
+            {
+                results = new List<ImageCueCandidateResult>();
+                imageCueCandidateResults[word] = results;
+            }
+
+            return results;
+        }
+
+        private int GetDisplayedImageCueCandidateIndex(string word)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+            {
+                return -1;
+            }
+
+            return displayedImageCueCandidateIndexes.TryGetValue(word, out var index) ? index : -1;
+        }
+
+        private bool TryCycleDisplayedImageCueCandidate(MnemonicItemData item, int direction)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.word))
+            {
+                return false;
+            }
+
+            if (!imageCueCandidateResults.TryGetValue(item.word, out var results) || results == null || results.Count <= 1)
+            {
+                return false;
+            }
+
+            var currentIndex = GetDisplayedImageCueCandidateIndex(item.word);
+            if (currentIndex < 0 || currentIndex >= results.Count)
+            {
+                currentIndex = 0;
+            }
+
+            var nextIndex = (currentIndex + direction + results.Count) % results.Count;
+            return TryDisplayImageCueCandidate(item, nextIndex, true);
+        }
+
+        private void AddImageCueCandidateResult(MnemonicItemData item, ImageCueCandidateResult result)
+        {
+            if (item == null || result == null || result.texture == null || string.IsNullOrWhiteSpace(item.word))
+            {
+                return;
+            }
+
+            var results = GetImageCueCandidateResults(item.word);
+            result.listIndex = results.Count;
+            results.Add(result);
+
+            if (!mnemonicImageCues.TryGetValue(item.word, out var currentTexture) || currentTexture == null || results.Count == 1)
+            {
+                TryDisplayImageCueCandidate(item, result.listIndex, false);
+            }
+            else
+            {
+                var displayedIndex = GetDisplayedImageCueCandidateIndex(item.word);
+                if (displayedIndex >= 0 && displayedIndex < results.Count)
+                {
+                    RefreshDisplayedImageCueCandidateMetadata(item, results[displayedIndex]);
+                }
+            }
+        }
+
+        private bool TryDisplayImageCueCandidate(MnemonicItemData item, int listIndex, bool userSelected)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.word))
+            {
+                return false;
+            }
+
+            if (!imageCueCandidateResults.TryGetValue(item.word, out var results)
+                || results == null
+                || listIndex < 0
+                || listIndex >= results.Count)
+            {
+                return false;
+            }
+
+            var result = results[listIndex];
+            if (result == null || result.texture == null)
+            {
+                return false;
+            }
+
+            if (mnemonicImageCues.TryGetValue(item.word, out var previousTexture)
+                && previousTexture != null
+                && previousTexture != result.texture
+                && !IsTextureInImageCueCandidatePool(item.word, previousTexture))
+            {
+                Destroy(previousTexture);
+            }
+
+            mnemonicImageCues[item.word] = result.texture;
+            displayedImageCueCandidateIndexes[item.word] = listIndex;
+            item.imageCuePath = SaveMnemonicImageCue(item, result.texture);
+            item.selectedImagePrompt = result.fullPrompt;
+            item.selectedImageCandidateIndex = result.candidateIndex;
+            item.imageSelectionReason = BuildImageCueCandidateDisplaySummary(item, result, listIndex, results.Count);
+
+            if (result.validationComplete && !result.pass)
+            {
+                imageCueValidationFailures[item.word] = result.reason;
+            }
+            else if (result.validationComplete && result.pass)
+            {
+                imageCueValidationFailures.Remove(item.word);
+            }
+
+            if (userSelected)
+            {
+                imageGenerationStatus = $"Showing image cue {listIndex + 1}/{results.Count} for {item.word}.";
+                LogInteraction("select_image_cue_candidate", item.word, item.anchorId, item.imageSelectionReason);
+            }
+
+            return true;
+        }
+
+        private void RefreshDisplayedImageCueCandidateMetadata(MnemonicItemData item, ImageCueCandidateResult result)
+        {
+            if (item == null || result == null || string.IsNullOrWhiteSpace(item.word))
+            {
+                return;
+            }
+
+            if (!displayedImageCueCandidateIndexes.TryGetValue(item.word, out var displayedIndex)
+                || !imageCueCandidateResults.TryGetValue(item.word, out var results)
+                || results == null
+                || displayedIndex < 0
+                || displayedIndex >= results.Count
+                || results[displayedIndex] != result)
+            {
+                return;
+            }
+
+            item.imageSelectionReason = BuildImageCueCandidateDisplaySummary(item, result, displayedIndex, results.Count);
+            if (result.validationComplete && !result.pass)
+            {
+                imageCueValidationFailures[item.word] = result.reason;
+            }
+            else if (result.validationComplete && result.pass)
+            {
+                imageCueValidationFailures.Remove(item.word);
+            }
+        }
+
+        private static string BuildImageCueCandidateDisplaySummary(
+            MnemonicItemData item,
+            ImageCueCandidateResult result,
+            int listIndex,
+            int totalCount)
+        {
+            var state = result.validationComplete
+                ? (result.pass ? "passed" : "best available / did not fully pass")
+                : "validation pending";
+            var reason = string.IsNullOrWhiteSpace(result.reason)
+                ? "Generated image is available while background validation continues."
+                : result.reason.Trim();
+            var inner = string.IsNullOrWhiteSpace(result.innerLabel)
+                ? $"inner candidate {result.candidateIndex}"
+                : $"inner candidate {result.candidateIndex} ({result.innerLabel})";
+            return $"Showing result {result.label} ({listIndex + 1}/{Mathf.Max(1, totalCount)}): best {inner}, score {result.score}, {state}. {reason}";
+        }
+
         private IEnumerator GenerateMnemonicImageCueRoutine(MnemonicItemData item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.word))
@@ -3257,24 +3482,104 @@ namespace MemPalaceLLM
                 yield break;
             }
 
+            ClearGeneratedImageCueForWord(item.word);
+
+            for (int variantIndex = 0; variantIndex < BufferedImageCueResultCount; variantIndex++)
+            {
+                ImageCueCandidateResult bestResult = null;
+                string fatalError = null;
+                yield return GenerateBestImageCueVariantRoutine(
+                    item,
+                    variantIndex,
+                    BufferedImageCueResultCount,
+                    result => bestResult = result,
+                    error => fatalError = error);
+
+                if (bestResult != null)
+                {
+                    AddImageCueCandidateResult(item, bestResult);
+                    LogInteraction(
+                        "generate_best_of_four_image_cue",
+                        item.word,
+                        item.anchorId,
+                        $"Generated result {bestResult.label} from inner candidate {bestResult.candidateIndex}; score={bestResult.score}. {bestResult.reason}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(fatalError))
+                {
+                    if (!imageCueCandidateResults.TryGetValue(item.word, out var partialResults)
+                        || partialResults == null
+                        || partialResults.Count == 0)
+                    {
+                        generatingImageCueWords.Remove(item.word);
+                        imageGenerationStatus = fatalError;
+                        imageCueValidationFailures[item.word] = fatalError;
+                        yield break;
+                    }
+
+                    imageGenerationStatus = $"Stopped after preparing {partialResults.Count} image cue result(s) for {item.word}: {fatalError}";
+                    break;
+                }
+
+                var readyCount = imageCueCandidateResults.TryGetValue(item.word, out var currentResults) && currentResults != null
+                    ? currentResults.Count
+                    : 0;
+                imageGenerationStatus = variantIndex == 0
+                    ? $"Selected image set A for {item.word}. Preparing B, C, and D in the background..."
+                    : $"Prepared {readyCount}/{BufferedImageCueResultCount} best image set(s) for {item.word}.";
+            }
+
+            generatingImageCueWords.Remove(item.word);
+            if (!imageCueCandidateResults.TryGetValue(item.word, out var generatedResults) || generatedResults == null || generatedResults.Count == 0)
+            {
+                imageGenerationStatus = $"Image generation finished for {item.word}, but no best-of-four result could be kept.";
+                yield break;
+            }
+
+            var displayedIndex = GetDisplayedImageCueCandidateIndex(item.word);
+            if (displayedIndex < 0)
+            {
+                TryDisplayImageCueCandidate(item, 0, false);
+                displayedIndex = 0;
+            }
+
+            imageGenerationStatus = $"Prepared {generatedResults.Count}/{BufferedImageCueResultCount} best image cue result(s) for {item.word}. Use the arrow buttons to switch; Regenerate starts a fresh full set.";
+            var displayedResult = displayedIndex >= 0 && displayedIndex < generatedResults.Count ? generatedResults[displayedIndex] : null;
+            LogInteraction(
+                "generate_image_cue_result_pool",
+                item.word,
+                item.anchorId,
+                $"Prepared {generatedResults.Count} best-of-four result(s). Displayed: {(displayedResult == null ? "none" : BuildImageCueCandidateDisplaySummary(item, displayedResult, displayedIndex, generatedResults.Count))}");
+        }
+
+        private IEnumerator GenerateBestImageCueVariantRoutine(
+            MnemonicItemData item,
+            int variantIndex,
+            int variantCount,
+            Action<ImageCueCandidateResult> onResult,
+            Action<string> onError)
+        {
             Texture2D selectedTexture = null;
             ImageCueValidationResult selectedValidation = null;
             var selectedScore = int.MinValue;
             var selectedPass = false;
             var selectedCandidateIndex = -1;
+            var selectedCandidateLabel = string.Empty;
+            var selectedRawPrompt = string.Empty;
             var selectedPrompt = string.Empty;
             var selectedReason = string.Empty;
-            var savedBestAvailable = false;
             var retryGuidance = string.Empty;
+            var variantLabel = BuildImageCueResultLabel(variantIndex);
             var promptCandidates = BuildMnemonicImagePromptCandidates(item);
             var candidateCount = Mathf.Max(promptCandidates.Count, RequiredImagePromptCandidateCount);
 
             for (int attempt = 0; attempt < promptCandidates.Count; attempt++)
             {
                 var candidate = promptCandidates[attempt];
-                imageGenerationStatus = $"Generating image cue for {item.word} (candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
+                imageGenerationStatus = $"Generating image set {variantLabel}/{BuildImageCueResultLabel(variantCount - 1)} for {item.word} (inner candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
                 var prompt = candidate.fullPrompt;
                 prompt += " Mandatory two-subject frame: the assigned room object and the mnemonic cue object must both be clearly visible, close together, and dominate the image; do not show only one of them.";
+                prompt += " Independent best-of-four image set " + variantLabel + "; make this image visually distinct from other generated sets while preserving the same mnemonic scene.";
                 if (!string.IsNullOrWhiteSpace(retryGuidance))
                 {
                     prompt += " Candidate correction from previous failures: " + retryGuidance;
@@ -3306,9 +3611,15 @@ namespace MemPalaceLLM
 
                     if (request.result != UnityWebRequest.Result.Success)
                     {
-                        generatingImageCueWords.Remove(item.word);
-                        imageGenerationStatus = BuildStableDiffusionErrorStatus(request);
-                        yield break;
+                        var error = BuildStableDiffusionErrorStatus(request);
+                        if (selectedTexture == null)
+                        {
+                            onError?.Invoke(error);
+                            yield break;
+                        }
+
+                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + error;
+                        break;
                     }
 
                     StableDiffusionTxt2ImgResponse response = null;
@@ -3318,26 +3629,43 @@ namespace MemPalaceLLM
                     }
                     catch (Exception ex)
                     {
-                        generatingImageCueWords.Remove(item.word);
-                        imageGenerationStatus = "Failed to parse image response: " + ex.Message;
-                        yield break;
+                        var error = "Failed to parse image response: " + ex.Message;
+                        if (selectedTexture == null)
+                        {
+                            onError?.Invoke(error);
+                            yield break;
+                        }
+
+                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + error;
+                        break;
                     }
 
                     if (response == null || response.images == null || response.images.Length == 0 || string.IsNullOrWhiteSpace(response.images[0]))
                     {
-                        generatingImageCueWords.Remove(item.word);
-                        imageGenerationStatus = "Image response did not contain any images.";
-                        yield break;
+                        const string error = "Image response did not contain any images.";
+                        if (selectedTexture == null)
+                        {
+                            onError?.Invoke(error);
+                            yield break;
+                        }
+
+                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + error;
+                        break;
                     }
 
-                    if (!TryLoadBase64Image(response.images[0], out var texture, out var error))
+                    if (!TryLoadBase64Image(response.images[0], out var texture, out var loadError))
                     {
-                        generatingImageCueWords.Remove(item.word);
-                        imageGenerationStatus = error;
-                        yield break;
+                        if (selectedTexture == null)
+                        {
+                            onError?.Invoke(loadError);
+                            yield break;
+                        }
+
+                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + loadError;
+                        break;
                     }
 
-                    imageGenerationStatus = $"Scoring image cue for {item.word} (candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
+                    imageGenerationStatus = $"Scoring image set {variantLabel} for {item.word} (inner candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
                     ImageCueValidationResult validation = null;
                     string validationError = null;
                     yield return ValidateImageCueSubjectsRoutine(
@@ -3349,7 +3677,6 @@ namespace MemPalaceLLM
 
                     if (!string.IsNullOrWhiteSpace(validationError))
                     {
-                        var validationStopReason = "Vision validation stopped before all candidates could be scored: " + validationError;
                         if (selectedTexture == null)
                         {
                             selectedTexture = texture;
@@ -3357,21 +3684,21 @@ namespace MemPalaceLLM
                             selectedScore = 0;
                             selectedPass = false;
                             selectedCandidateIndex = candidate.index;
+                            selectedCandidateLabel = candidate.label;
+                            selectedRawPrompt = candidate.rawPrompt;
                             selectedPrompt = prompt;
-                            selectedReason = "Vision validation was unavailable, so the generated image was kept: " + validationError;
-                            savedBestAvailable = true;
+                            selectedReason = "Vision validation was unavailable, so this inner candidate was kept: " + validationError;
                         }
                         else
                         {
                             Destroy(texture);
                             if (!selectedPass)
                             {
-                                selectedReason = validationStopReason;
-                                savedBestAvailable = true;
+                                selectedReason = "Vision validation stopped before all inner candidates could be scored: " + validationError;
                             }
                         }
 
-                        LogInteraction("keep_unvalidated_image_cue", item.word, item.anchorId, selectedPass ? validationStopReason : selectedReason);
+                        LogInteraction("keep_unvalidated_image_cue_candidate", item.word, item.anchorId, selectedReason);
                         break;
                     }
 
@@ -3393,6 +3720,8 @@ namespace MemPalaceLLM
                         selectedScore = score;
                         selectedPass = candidatePassed;
                         selectedCandidateIndex = candidate.index;
+                        selectedCandidateLabel = candidate.label;
+                        selectedRawPrompt = candidate.rawPrompt;
                         selectedPrompt = prompt;
                         selectedReason = candidatePassed
                             ? BuildImageCueValidationPassSummary(validation)
@@ -3404,54 +3733,47 @@ namespace MemPalaceLLM
                     }
 
                     LogInteraction(
-                        candidatePassed ? "score_image_cue_candidate" : "reject_image_cue_candidate",
+                        candidatePassed ? "score_image_cue_inner_candidate" : "reject_image_cue_inner_candidate",
                         item.word,
                         item.anchorId,
-                        $"Candidate {candidate.index} ({candidate.label}) score={score}. {(candidatePassed ? BuildImageCueValidationPassSummary(validation) : failure)}");
+                        $"Set {variantLabel}, inner candidate {candidate.index} ({candidate.label}) score={score}. {(candidatePassed ? BuildImageCueValidationPassSummary(validation) : failure)}");
 
                     if (attempt < promptCandidates.Count - 1 && validation != null && !validation.pass)
                     {
                         retryGuidance = BuildImageCueRetryGuidance(validation);
-                        imageGenerationStatus = $"Scored image cue candidate {candidate.index} for {item.word}; generating another candidate. {failure}";
-                        continue;
+                        imageGenerationStatus = $"Scored image set {variantLabel} inner candidate {candidate.index} for {item.word}; generating another inner candidate. {failure}";
                     }
                 }
             }
 
-            generatingImageCueWords.Remove(item.word);
-
             if (selectedTexture == null)
             {
-                imageGenerationStatus = $"Image generation finished for {item.word}, but no candidate image could be kept.";
+                onError?.Invoke($"Image set {variantLabel} finished, but no inner candidate image could be kept.");
                 yield break;
             }
 
-            if (mnemonicImageCues.TryGetValue(item.word, out var previousTexture) && previousTexture != null)
+            var reason = string.IsNullOrWhiteSpace(selectedReason)
+                ? BuildImageCueValidationFailureSummary(selectedValidation)
+                : selectedReason;
+            onResult?.Invoke(new ImageCueCandidateResult
             {
-                Destroy(previousTexture);
-            }
+                candidateIndex = selectedCandidateIndex,
+                label = variantLabel,
+                innerLabel = selectedCandidateLabel,
+                rawPrompt = selectedRawPrompt,
+                fullPrompt = selectedPrompt,
+                texture = selectedTexture,
+                validation = selectedValidation,
+                score = selectedScore,
+                pass = selectedPass,
+                validationComplete = true,
+                reason = reason
+            });
+        }
 
-            mnemonicImageCues[item.word] = selectedTexture;
-            item.imageCuePath = SaveMnemonicImageCue(item, selectedTexture);
-            item.selectedImagePrompt = selectedPrompt;
-            item.selectedImageCandidateIndex = selectedCandidateIndex;
-            item.imageSelectionReason = $"Selected candidate {selectedCandidateIndex} with score {selectedScore}: {selectedReason}";
-            savedBestAvailable = savedBestAvailable || !selectedPass;
-            if (savedBestAvailable)
-            {
-                var fallbackSummary = string.IsNullOrWhiteSpace(selectedReason)
-                    ? BuildImageCueValidationFailureSummary(selectedValidation)
-                    : selectedReason;
-                imageCueValidationFailures[item.word] = fallbackSummary;
-                imageGenerationStatus = $"Saved best available image cue for {item.word} from candidate {selectedCandidateIndex}. It did not fully pass strict validation: {fallbackSummary}";
-                LogInteraction("generate_best_available_image_cue", item.word, item.anchorId, "Saved best available local txt2img cue: " + item.imageCuePath + ". " + item.imageSelectionReason);
-            }
-            else
-            {
-                imageCueValidationFailures.Remove(item.word);
-                imageGenerationStatus = $"Selected validated image cue for {item.word} from candidate {selectedCandidateIndex}: {BuildImageCueValidationPassSummary(selectedValidation)}";
-                LogInteraction("generate_image_cue", item.word, item.anchorId, "Generated validated local txt2img cue: " + item.imageCuePath + ". " + item.imageSelectionReason);
-            }
+        private static string BuildImageCueResultLabel(int variantIndex)
+        {
+            return ((char)('A' + Mathf.Clamp(variantIndex, 0, 25))).ToString();
         }
 
         private IEnumerator ValidateImageCueSubjectsRoutine(
@@ -3957,7 +4279,6 @@ namespace MemPalaceLLM
                 item.imageCuePath = string.Empty;
             }
             item.visualCue = AnchorGroundSceneEnglish(item, item.visualCue);
-            item.visualCueJa = AnchorGroundSceneJapanesePreserve(item, item.visualCueJa);
             if (string.IsNullOrWhiteSpace(item.associationPrompt))
             {
                 item.associationPrompt = FirstNonEmptyPrompt(
@@ -3966,53 +4287,8 @@ namespace MemPalaceLLM
                     BuildRecoveredSceneDetail(item));
             }
 
-            if (string.IsNullOrWhiteSpace(item.associationPromptJa))
-            {
-                item.associationPromptJa = string.IsNullOrWhiteSpace(item.associationPrompt)
-                    ? item.visualCueJa
-                    : item.associationPrompt;
-            }
-
             item.mnemonic = AnchorGroundMnemonicEnglish(item, item.mnemonic);
-            item.mnemonicJa = AnchorGroundMnemonicJapanesePreserve(item, item.mnemonicJa);
             item.imagePrompt = BuildAnchorGroundedImagePrompt(item, item.imagePrompt);
-            item.imagePromptJa = BuildAnchorGroundedImagePrompt(item, item.imagePromptJa);
-        }
-
-        private string AnchorGroundSceneJapanesePreserve(MnemonicItemData item, string scene)
-        {
-            var anchor = GetAnchorDisplayName(item);
-            var meaning = string.IsNullOrWhiteSpace(item.meaningJa) ? GetMeaningText(item) : item.meaningJa.Trim();
-            if (string.IsNullOrWhiteSpace(scene))
-            {
-                return $"{anchor}を舞台に、{meaning}が直感的に浮かぶ印象的な場面。";
-            }
-
-            var trimmed = ReplaceConflictingRoomObjectTerms(scene.Trim(), anchor);
-            if (TextMentionsAnchor(trimmed, anchor))
-            {
-                return trimmed;
-            }
-
-            return $"{anchor}を舞台に、{trimmed}";
-        }
-
-        private string AnchorGroundMnemonicJapanesePreserve(MnemonicItemData item, string mnemonic)
-        {
-            var anchor = GetAnchorDisplayName(item);
-            var meaning = string.IsNullOrWhiteSpace(item.meaningJa) ? GetMeaningText(item) : item.meaningJa.Trim();
-            if (string.IsNullOrWhiteSpace(mnemonic))
-            {
-                return $"{anchor}の具体的なイメージが、{item.word}と{meaning}を結びつける。";
-            }
-
-            var trimmed = RemoveJapaneseMemoryLocationTemplate(ReplaceConflictingRoomObjectTerms(mnemonic.Trim(), anchor), anchor);
-            if (!string.IsNullOrWhiteSpace(trimmed))
-            {
-                return trimmed;
-            }
-
-            return $"{anchor}を記憶場所として、{trimmed}";
         }
 
         private string AnchorGroundSceneEnglish(MnemonicItemData item, string scene)
@@ -4035,24 +4311,6 @@ namespace MemPalaceLLM
             return EnsureEnglishAnchorLead(anchor, sceneText);
         }
 
-        private string AnchorGroundSceneJapanese(MnemonicItemData item, string scene)
-        {
-            var anchor = GetAnchorDisplayName(item);
-            var meaning = string.IsNullOrWhiteSpace(item.meaningJa) ? GetMeaningText(item) : item.meaningJa.Trim();
-            if (string.IsNullOrWhiteSpace(scene))
-            {
-                return $"{anchor}を中心に、{meaning}をその家具の上または周囲で表す印象的な場面。";
-            }
-
-            var trimmed = scene.Trim();
-            if (TextMentionsAnchor(trimmed, anchor))
-            {
-                return trimmed;
-            }
-
-            return $"{anchor}を中心に、{meaning}をその家具の上または周囲で表す場面。";
-        }
-
         private string AnchorGroundMnemonicEnglish(MnemonicItemData item, string mnemonic)
         {
             var anchor = GetAnchorDisplayName(item);
@@ -4064,24 +4322,6 @@ namespace MemPalaceLLM
 
             var trimmed = ReplaceConflictingRoomObjectTerms(mnemonic.Trim(), anchor);
             return RemoveMemoryLocationTemplate(trimmed, anchor);
-        }
-
-        private string AnchorGroundMnemonicJapanese(MnemonicItemData item, string mnemonic)
-        {
-            var anchor = GetAnchorDisplayName(item);
-            var meaning = string.IsNullOrWhiteSpace(item.meaningJa) ? GetMeaningText(item) : item.meaningJa.Trim();
-            if (string.IsNullOrWhiteSpace(mnemonic))
-            {
-                return $"{anchor}の場面が、{item.word}と{meaning}を結びつける。";
-            }
-
-            var trimmed = mnemonic.Trim();
-            if (TextMentionsAnchor(trimmed, anchor))
-            {
-                return trimmed;
-            }
-
-            return $"{anchor}を記憶場所として、{trimmed}";
         }
 
         private string BuildAnchorGroundedImagePrompt(MnemonicItemData item, string promptOverride)
@@ -4133,7 +4373,6 @@ namespace MemPalaceLLM
         {
             var text = ((item?.word ?? string.Empty) + " "
                 + (item?.meaning ?? string.Empty) + " "
-                + (item?.meaningJa ?? string.Empty) + " "
                 + (item?.visualCue ?? string.Empty) + " "
                 + (item?.associationPrompt ?? string.Empty) + " "
                 + (item?.mnemonic ?? string.Empty) + " "
@@ -4156,7 +4395,6 @@ namespace MemPalaceLLM
         {
             var text = ((item?.word ?? string.Empty) + " "
                 + (item?.meaning ?? string.Empty) + " "
-                + (item?.meaningJa ?? string.Empty) + " "
                 + (item?.visualCue ?? string.Empty) + " "
                 + (item?.associationPrompt ?? string.Empty) + " "
                 + (item?.mnemonic ?? string.Empty) + " "
@@ -4221,7 +4459,6 @@ namespace MemPalaceLLM
 
             AddKnownForegroundObjects(item.word, labels);
             AddKnownForegroundObjects(item.meaning, labels);
-            AddKnownForegroundObjects(item.meaningJa, labels);
 
             return labels.Count == 0 ? string.Empty : string.Join(", ", labels);
         }
@@ -4640,7 +4877,7 @@ namespace MemPalaceLLM
                 return item.meaning.Trim();
             }
 
-            return string.IsNullOrWhiteSpace(item.meaningJa) ? "the target meaning" : item.meaningJa.Trim();
+            return "the target meaning";
         }
 
         private string GetDisplayMeaningText(MnemonicItemData item)
@@ -4650,13 +4887,7 @@ namespace MemPalaceLLM
                 return "the target meaning";
             }
 
-            var japanese = item.meaningJa?.Trim();
             var english = item.meaning?.Trim();
-
-            if (!string.IsNullOrWhiteSpace(japanese))
-            {
-                return string.IsNullOrWhiteSpace(english) ? japanese : $"{japanese} ({english})";
-            }
 
             return string.IsNullOrWhiteSpace(english) ? "the target meaning" : english;
         }
@@ -4696,11 +4927,8 @@ namespace MemPalaceLLM
             {
                 var anchor = GetAnchorDisplayName(item);
                 item.visualCue = $"At the {anchor}, a small figure chips a cherished ceramic idol with a tiny hammer.";
-                item.visualCueJa = item.visualCue;
                 item.mnemonic = "The cracked cherished idol cues a person attacking established beliefs, the core of iconoclast.";
-                item.mnemonicJa = item.mnemonic;
                 item.imagePrompt = $"Close-up indoor room-object cue mnemonic at the {anchor}: a small figure uses a tiny hammer to chip a cherished ceramic idol, with cracked fragments visible in the foreground. Keep the {anchor} visible in the background, no text, no letters, no captions, no logos, no watermark.";
-                item.imagePromptJa = item.imagePrompt;
                 RefreshAssociationPromptsAfterCueRewrite(item);
                 return true;
             }
@@ -4744,7 +4972,7 @@ namespace MemPalaceLLM
 
         private bool ApplyTargetMeaningEventFallback(MnemonicItemData item)
         {
-            var key = ((item.word ?? string.Empty) + " " + (item.meaning ?? string.Empty) + " " + (item.meaningJa ?? string.Empty)).ToLowerInvariant();
+            var key = ((item.word ?? string.Empty) + " " + (item.meaning ?? string.Empty)).ToLowerInvariant();
             if (ContainsAny(key, "aeropuerto", "airport"))
             {
                 ApplyAirportEventCue(item);
@@ -4777,13 +5005,9 @@ namespace MemPalaceLLM
             var anchor = GetAnchorDisplayName(item);
             var contact = GetVisibleWalletContactPoint(anchor);
             item.visualCue = $"At the {anchor}, an open security tray on {contact} holds shoes, a passport, boarding pass, and luggage tag.";
-            item.visualCueJa = item.visualCue;
             item.associationPrompt = $"open security tray holds shoes passport boarding pass and luggage tag on {contact}";
-            item.associationPromptJa = item.associationPrompt;
             item.mnemonic = "The Spanish word for airport is aeropuerto. Imagine the security tray at an air-port, where aero feels like air and puerto feels like port.";
-            item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
-            item.imagePromptJa = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new() { label = "security tray", primitiveShape = "Cube", colorHex = "#8D99AE", localPosition = new Vector3(0f, 0.30f, 0f), scale = new Vector3(0.46f, 0.08f, 0.32f), effect = "airport meaning event" },
@@ -4798,13 +5022,9 @@ namespace MemPalaceLLM
             var anchor = GetAnchorDisplayName(item);
             var contact = GetVisibleWalletContactPoint(anchor);
             item.visualCue = $"At the {anchor}, two upright books on {contact} squeeze a narrow strip into a tiny passage with a toy door.";
-            item.visualCueJa = item.visualCue;
             item.associationPrompt = $"two upright books squeeze a narrow passage with a toy door on {contact}";
-            item.associationPromptJa = item.associationPrompt;
             item.mnemonic = "The Spanish word for hallway is pasillo. Imagine squeezing through the narrow passage: pas feels like passing, and illo finishes the tiny corridor.";
-            item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
-            item.imagePromptJa = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new() { label = "upright books", primitiveShape = "Cube", colorHex = "#457B9D", localPosition = new Vector3(-0.12f, 0.40f, 0f), scale = new Vector3(0.08f, 0.34f, 0.18f), effect = "passage wall cue" },
@@ -4818,13 +5038,9 @@ namespace MemPalaceLLM
             var anchor = GetAnchorDisplayName(item);
             var contact = GetVisibleWalletContactPoint(anchor);
             item.visualCue = $"At the {anchor}, dry sand spills from a small pouch and piles into a low dune across {contact}.";
-            item.visualCueJa = item.visualCue;
             item.associationPrompt = $"dry sand spills from pouch into low dune across {contact}";
-            item.associationPromptJa = item.associationPrompt;
             item.mnemonic = "The Spanish word for desert is desierto. Imagine dry sand forming a dune while the des sound nudges you toward desert.";
-            item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
-            item.imagePromptJa = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new() { label = "sand pouch", primitiveShape = "Cube", colorHex = "#B08968", localPosition = new Vector3(-0.14f, 0.42f, 0f), scale = new Vector3(0.16f, 0.10f, 0.10f), effect = "sand source cue" },
@@ -4841,13 +5057,9 @@ namespace MemPalaceLLM
                 : GetVisibleWalletContactPoint(anchor);
             var spanish = string.IsNullOrWhiteSpace(item.word) ? "the Spanish word" : item.word.Trim();
             item.visualCue = $"At the {anchor}, a safe electric flame lantern hangs from {contact}, glowing like a compact campfire.";
-            item.visualCueJa = item.visualCue;
             item.associationPrompt = $"safe electric flame lantern hangs from {contact} like compact campfire";
-            item.associationPromptJa = item.associationPrompt;
             item.mnemonic = $"The Spanish word for fire or campfire is {spanish}. Imagine the safe flame lantern has that name while it flickers warmly.";
-            item.mnemonicJa = item.mnemonic;
             item.imagePrompt = item.associationPrompt;
-            item.imagePromptJa = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new() { label = "electric flame lantern", primitiveShape = "Cylinder", colorHex = "#F4A261", localPosition = new Vector3(0f, 0.42f, 0f), scale = new Vector3(0.18f, 0.22f, 0.18f), effect = "safe fire meaning event" },
@@ -4863,7 +5075,6 @@ namespace MemPalaceLLM
             }
 
             item.mnemonic = BuildLearnerFriendlyCueStoryFallback(item);
-            item.mnemonicJa = item.mnemonic;
             return true;
         }
 
@@ -4944,34 +5155,6 @@ namespace MemPalaceLLM
                 : char.ToLowerInvariant(detail[0]) + detail.Substring(1);
         }
 
-        private static string BuildFallbackWordFormBridge(MnemonicItemData item)
-        {
-            var spanish = string.IsNullOrWhiteSpace(item?.word) ? "the Spanish word" : item.word.Trim();
-            var lower = spanish.ToLowerInvariant();
-
-            if (lower == "aeropuerto")
-            {
-                return "aero- suggests air, and puerto is port, giving an air-port word form.";
-            }
-
-            if (lower == "pasillo")
-            {
-                return "pas- suggests passing through, and -illo finishes the narrow passage word form.";
-            }
-
-            if (lower == "cartera")
-            {
-                return "Imagine the open wallet full of cards, because carte feels close to card.";
-            }
-
-            if (lower == "cartel")
-            {
-                return "cart- echoes a card-like poster surface, supporting the poster word form.";
-            }
-
-            return $"Imagine the existing cue is named {spanish}, so the name stays with the meaning.";
-        }
-
         private static void RefreshAssociationPromptsAfterCueRewrite(MnemonicItemData item)
         {
             if (item == null)
@@ -4982,7 +5165,6 @@ namespace MemPalaceLLM
             item.associationPrompt = FirstNonEmptyPrompt(
                 ExtractPromptSceneDetail(item.visualCue),
                 ExtractPromptSceneDetail(item.imagePrompt));
-            item.associationPromptJa = item.associationPrompt;
             item.imagePromptCandidates = new List<string>();
             item.selectedImagePrompt = string.Empty;
             item.selectedImageCandidateIndex = -1;
@@ -5010,15 +5192,11 @@ namespace MemPalaceLLM
         {
             var anchor = GetAnchorDisplayName(item);
             var contact = GetVisibleWalletContactPoint(anchor);
-            var contactJa = GetVisibleWalletContactPointJapanese(anchor);
             var spanish = string.IsNullOrWhiteSpace(item.word) ? "cartera" : item.word.Trim();
 
             item.visualCue = $"At the {anchor}, an open wallet sits clearly on {contact} with cards and coins visible.";
-            item.visualCueJa = $"{anchor}{contactJa}に、カードとコインが見える開いた財布がはっきり置かれている。";
             item.mnemonic = $"The Spanish word for wallet is {spanish}. Imagine the open wallet full of cards, because carte feels close to card.";
-            item.mnemonicJa = $"カードが見える開いた財布が「財布」を思い出させます。見えている財布に集中しながら「{spanish}」と結びつけます。";
             item.imagePrompt = $"open wallet clearly visible on {contact}, cards and coins visible";
-            item.imagePromptJa = $"{anchor}{contactJa}に置かれた、カードとコインが見える開いた財布";
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new()
@@ -5114,42 +5292,6 @@ namespace MemPalaceLLM
             return "the room object surface";
         }
 
-        private static string GetVisibleWalletContactPointJapanese(string anchor)
-        {
-            var normalized = string.IsNullOrWhiteSpace(anchor) ? string.Empty : anchor.Trim().ToLowerInvariant();
-            if (normalized.Contains("chair"))
-            {
-                return "のアームレスト";
-            }
-
-            if (normalized.Contains("desk"))
-            {
-                return "の端";
-            }
-
-            if (normalized.Contains("table"))
-            {
-                return "の上";
-            }
-
-            if (normalized.Contains("door"))
-            {
-                return "の前の床";
-            }
-
-            if (normalized.Contains("wardrobe") || normalized.Contains("closet"))
-            {
-                return "の棚の端";
-            }
-
-            if (normalized.Contains("shelf"))
-            {
-                return "の棚板";
-            }
-
-            return "の表面";
-        }
-
         private bool ApplyAcademicSafetyGuardrails(MnemonicItemData item)
         {
             if (item == null || !ContainsParticipantUnsafeCue(item))
@@ -5176,14 +5318,10 @@ namespace MemPalaceLLM
         {
             var anchor = GetAnchorDisplayName(item);
             var contact = GetSafePosterContactPoint(anchor);
-            var contactJa = GetSafePosterContactPointJapanese(anchor);
 
             item.visualCue = $"At the {anchor}, a neutral poster is fastened to {contact} with bright tape.";
-            item.visualCueJa = $"{anchor}{contactJa}に、明るいテープで中立的なポスターが留められている。";
             item.mnemonic = $"The Spanish word for poster is {item.word.Trim()}. Imagine the taped poster as a big card on the wall, helped by the cart sound.";
-            item.mnemonicJa = $"テープで留めたポスターが「ポスター」を直接思い出させます。その中立的なポスターを見ながら「{item.word.Trim()}」と結びつけます。";
             item.imagePrompt = $"neutral poster fastened with bright tape to {contact}";
-            item.imagePromptJa = $"{anchor}{contactJa}に明るいテープで留めた中立的なポスター";
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new()
@@ -5212,11 +5350,8 @@ namespace MemPalaceLLM
             var anchor = GetAnchorDisplayName(item);
             var meaning = GetMeaningText(item);
             item.visualCue = $"At the {anchor}, a neutral study-safe prop for {meaning} is fastened with colored tape.";
-            item.visualCueJa = $"{anchor}の近くに、{meaning}を思い出すための中立的な学習用の小道具が色付きテープで示されている。";
             item.mnemonic = $"The Spanish word for {meaning} is {item.word.Trim()}. Imagine the taped safe prop has that name while it shows the meaning.";
-            item.mnemonicJa = $"中立的な小道具が「{meaning}」を思い出させます。その安全な見た目の手がかりを見ながら「{item.word.Trim()}」と結びつけます。";
             item.imagePrompt = $"neutral study-safe prop for {meaning} with colored tape";
-            item.imagePromptJa = $"{meaning}を思い出す中立的な学習用小道具と色付きテープ";
             item.visualObjects = new List<VisualObjectSpec>
             {
                 new()
@@ -5279,47 +5414,6 @@ namespace MemPalaceLLM
             }
 
             return "the room object";
-        }
-
-        private static string GetSafePosterContactPointJapanese(string anchor)
-        {
-            var normalized = string.IsNullOrWhiteSpace(anchor) ? string.Empty : anchor.Trim().ToLowerInvariant();
-            if (normalized.Contains("door"))
-            {
-                return "の枠";
-            }
-
-            if (normalized.Contains("wardrobe") || normalized.Contains("closet"))
-            {
-                return "の扉";
-            }
-
-            if (normalized.Contains("chair"))
-            {
-                return "の背もたれ";
-            }
-
-            if (normalized.Contains("desk"))
-            {
-                return "の端";
-            }
-
-            if (normalized.Contains("table"))
-            {
-                return "の端";
-            }
-
-            if (normalized.Contains("shelf"))
-            {
-                return "の棚板";
-            }
-
-            if (normalized.Contains("air conditioner"))
-            {
-                return "のすぐ下の壁";
-            }
-
-            return "の近く";
         }
 
         private static bool ContainsParticipantUnsafeCue(MnemonicItemData item)
@@ -5459,11 +5553,7 @@ namespace MemPalaceLLM
                 + (item.associationPrompt ?? string.Empty) + " "
                 + (item.mnemonic ?? string.Empty) + " "
                 + (item.imagePrompt ?? string.Empty) + " "
-                + (item.imagePromptCandidates == null ? string.Empty : string.Join(" ", item.imagePromptCandidates.ToArray())) + " "
-                + (item.visualCueJa ?? string.Empty) + " "
-                + (item.associationPromptJa ?? string.Empty) + " "
-                + (item.mnemonicJa ?? string.Empty) + " "
-                + (item.imagePromptJa ?? string.Empty)).ToLowerInvariant();
+                + (item.imagePromptCandidates == null ? string.Empty : string.Join(" ", item.imagePromptCandidates.ToArray()))).ToLowerInvariant();
         }
 
         private string BuildRecoveredSceneDetail(MnemonicItemData item)
@@ -5619,37 +5709,6 @@ namespace MemPalaceLLM
             return $"At the {anchor}, {LowercaseFirst(trimmed)}";
         }
 
-        private static string StripLeadingEnglishAnchorIntro(string anchor, string text)
-        {
-            var trimmed = string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed) || string.IsNullOrWhiteSpace(anchor))
-            {
-                return trimmed;
-            }
-
-            var patterns = new[]
-            {
-                $"Centered on the {anchor},",
-                $"Centered on {anchor},",
-                $"At the {anchor},",
-                $"At {anchor},",
-                $"On the {anchor},",
-                $"On {anchor},",
-                $"Around the {anchor},",
-                $"Around {anchor},"
-            };
-
-            for (int i = 0; i < patterns.Length; i++)
-            {
-                if (trimmed.StartsWith(patterns[i], StringComparison.OrdinalIgnoreCase))
-                {
-                    return trimmed.Substring(patterns[i].Length).Trim();
-                }
-            }
-
-            return trimmed;
-        }
-
         private static string RemoveMemoryLocationTemplate(string text, string anchor)
         {
             var trimmed = string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim();
@@ -5674,33 +5733,6 @@ namespace MemPalaceLLM
                 if (trimmed.StartsWith(prefixes[i], StringComparison.OrdinalIgnoreCase))
                 {
                     return UppercaseFirst(trimmed.Substring(prefixes[i].Length));
-                }
-            }
-
-            return trimmed;
-        }
-
-        private static string RemoveJapaneseMemoryLocationTemplate(string text, string anchor)
-        {
-            var trimmed = string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed))
-            {
-                return trimmed;
-            }
-
-            var prefixes = new[]
-            {
-                $"{anchor}を記憶場所として、",
-                $"{anchor}を記憶場所にして、",
-                $"{anchor}を舞台として、",
-                $"{anchor}を舞台に、"
-            };
-
-            for (int i = 0; i < prefixes.Length; i++)
-            {
-                if (trimmed.StartsWith(prefixes[i], StringComparison.OrdinalIgnoreCase))
-                {
-                    return trimmed.Substring(prefixes[i].Length).Trim();
                 }
             }
 
@@ -5998,15 +6030,6 @@ namespace MemPalaceLLM
             statusMessage = "Session finished and exported.";
         }
 
-        private void ScoreRecall()
-        {
-            foreach (var response in recallResponses)
-            {
-                response.meaningCorrect = CompareAnswers(response.expectedMeaning, response.answerMeaning);
-                response.wordCorrect = CompareAnswers(response.word, response.answerWord);
-            }
-        }
-
         private ExperimentSessionExport BuildExportPayload()
         {
             var midCorrect = CountSnapshotResponses("mid", true);
@@ -6051,16 +6074,11 @@ namespace MemPalaceLLM
                 {
                     word = item.word,
                     meaning = item.meaning,
-                    meaningJa = item.meaningJa,
                     anchorId = item.anchorId,
                     cue = item.visualCue,
-                    cueJa = item.visualCueJa,
                     associationPrompt = item.associationPrompt,
-                    associationPromptJa = item.associationPromptJa,
                     mnemonic = item.mnemonic,
-                    mnemonicJa = item.mnemonicJa,
                     imagePrompt = item.imagePrompt,
-                    imagePromptJa = item.imagePromptJa,
                     imagePromptCandidates = item.imagePromptCandidates == null ? new List<string>() : new List<string>(item.imagePromptCandidates),
                     selectedImagePrompt = item.selectedImagePrompt,
                     selectedImageCandidateIndex = item.selectedImageCandidateIndex,
@@ -6166,14 +6184,7 @@ namespace MemPalaceLLM
             }
             memorySnapshots.Clear();
 
-            foreach (var imageCue in mnemonicImageCues.Values)
-            {
-                if (imageCue != null)
-                {
-                    Destroy(imageCue);
-                }
-            }
-            mnemonicImageCues.Clear();
+            ClearAllGeneratedImageCueTextures();
 
             if (roomRoot != null)
             {
@@ -6380,8 +6391,7 @@ namespace MemPalaceLLM
                 clone.words.Add(new WordEntry
                 {
                     word = word.word,
-                    meaning = word.meaning,
-                    meaningJa = word.meaningJa
+                    meaning = word.meaning
                 });
             }
 
@@ -6401,8 +6411,7 @@ namespace MemPalaceLLM
                 clone.Add(new WordEntry
                 {
                     word = sourceWords[i].word,
-                    meaning = sourceWords[i].meaning,
-                    meaningJa = sourceWords[i].meaningJa
+                    meaning = sourceWords[i].meaning
                 });
             }
 
@@ -6479,8 +6488,7 @@ namespace MemPalaceLLM
                 words.Add(new WordEntry
                 {
                     word = parts[0].Trim(),
-                    meaning = parts[1].Trim(),
-                    meaningJa = parts.Length >= 3 ? parts[2].Trim() : string.Empty
+                    meaning = parts[1].Trim()
                 });
             }
 
@@ -6524,12 +6532,11 @@ namespace MemPalaceLLM
         private string BuildCsvText(WordSetDefinition wordSet)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("word,meaning,meaning_ja");
+            builder.AppendLine("word,meaning");
             foreach (var word in wordSet.words)
             {
                 builder.Append(word.word).Append(',')
-                    .Append(word.meaning).Append(',')
-                    .Append(word.meaningJa)
+                    .Append(word.meaning)
                     .AppendLine();
             }
 
@@ -6567,17 +6574,12 @@ namespace MemPalaceLLM
                 {
                     word = words[i].word,
                     meaning = words[i].meaning,
-                    meaningJa = words[i].meaningJa,
                     anchorId = anchor.id,
                     anchorLabel = anchor.label,
                     visualCue = string.Empty,
-                    visualCueJa = string.Empty,
                     associationPrompt = string.Empty,
-                    associationPromptJa = string.Empty,
                     mnemonic = string.Empty,
-                    mnemonicJa = string.Empty,
                     imagePrompt = string.Empty,
-                    imagePromptJa = string.Empty,
                     imagePromptCandidates = new List<string>(),
                     selectedImageCandidateIndex = -1,
                     objectShape = PickShape(i),
@@ -6611,13 +6613,9 @@ namespace MemPalaceLLM
             for (int i = 0; i < currentItems.Count && i < autoFilled.Count; i++)
             {
                 currentItems[i].visualCue = autoFilled[i].visualCue;
-                currentItems[i].visualCueJa = autoFilled[i].visualCueJa;
                 currentItems[i].associationPrompt = autoFilled[i].associationPrompt;
-                currentItems[i].associationPromptJa = autoFilled[i].associationPromptJa;
                 currentItems[i].mnemonic = autoFilled[i].mnemonic;
-                currentItems[i].mnemonicJa = autoFilled[i].mnemonicJa;
                 currentItems[i].imagePrompt = autoFilled[i].imagePrompt;
-                currentItems[i].imagePromptJa = autoFilled[i].imagePromptJa;
                 currentItems[i].imagePromptCandidates = autoFilled[i].imagePromptCandidates == null
                     ? new List<string>()
                     : new List<string>(autoFilled[i].imagePromptCandidates);
@@ -6635,14 +6633,6 @@ namespace MemPalaceLLM
                     item.visualCue = $"At the {item.anchorLabel}, imagine a memorable scene that captures '{item.meaning}'.";
                 }
 
-                if (string.IsNullOrWhiteSpace(item.visualCueJa))
-                {
-                    item.visualCueJa = $"At {item.anchorLabel}, imagine a memorable scene for {(string.IsNullOrWhiteSpace(item.meaningJa) ? item.meaning : item.meaningJa)}.";
-                    /*
-                    item.visualCueJa = $"{item.anchorLabel} で、「{(string.IsNullOrWhiteSpace(item.meaningJa) ? item.meaning : item.meaningJa)}」を表す印象的な場面を想像する。";
-                    */
-                }
-
                 if (string.IsNullOrWhiteSpace(item.mnemonic))
                 {
                     var meaning = string.IsNullOrWhiteSpace(item.meaning) ? "the target meaning" : item.meaning.Trim();
@@ -6652,19 +6642,6 @@ namespace MemPalaceLLM
                 if (string.IsNullOrWhiteSpace(item.associationPrompt))
                 {
                     item.associationPrompt = ExtractPromptSceneDetail(item.visualCue);
-                }
-
-                if (string.IsNullOrWhiteSpace(item.associationPromptJa))
-                {
-                    item.associationPromptJa = string.IsNullOrWhiteSpace(item.visualCueJa) ? item.associationPrompt : item.visualCueJa;
-                }
-
-                if (string.IsNullOrWhiteSpace(item.mnemonicJa))
-                {
-                    item.mnemonicJa = $"Connect {item.word} with {item.anchorLabel} through sound or meaning.";
-                    /*
-                    item.mnemonicJa = $"「{item.word}」の音や意味を {item.anchorLabel} と結びつけて覚える。";
-                    */
                 }
 
                 ApplyAnchorConsistency(item);
@@ -6697,11 +6674,6 @@ namespace MemPalaceLLM
                     items[i].visualObjects = BuildDefaultVisualObjects(i);
                 }
 
-                if (string.IsNullOrWhiteSpace(items[i].visualCueJa))
-                {
-                    items[i].visualCueJa = items[i].visualCue;
-                }
-
                 if (string.IsNullOrWhiteSpace(items[i].associationPrompt))
                 {
                     items[i].associationPrompt = FirstNonEmptyPrompt(
@@ -6709,26 +6681,9 @@ namespace MemPalaceLLM
                         ExtractPromptSceneDetail(items[i].visualCue));
                 }
 
-                if (string.IsNullOrWhiteSpace(items[i].associationPromptJa))
-                {
-                    items[i].associationPromptJa = string.IsNullOrWhiteSpace(items[i].associationPrompt)
-                        ? items[i].visualCueJa
-                        : items[i].associationPrompt;
-                }
-
-                if (string.IsNullOrWhiteSpace(items[i].mnemonicJa))
-                {
-                    items[i].mnemonicJa = items[i].mnemonic;
-                }
-
                 if (string.IsNullOrWhiteSpace(items[i].imagePrompt))
                 {
                     items[i].imagePrompt = BuildMnemonicImagePrompt(items[i]);
-                }
-
-                if (string.IsNullOrWhiteSpace(items[i].imagePromptJa))
-                {
-                    items[i].imagePromptJa = items[i].imagePrompt;
                 }
 
                 if (items[i].imagePromptCandidates == null)
@@ -6824,29 +6779,20 @@ namespace MemPalaceLLM
             {
                 case "immutable":
                     item.visualCue = $"At the {anchor}, a clear resin cube seals a metal gear that cannot turn or change.";
-                    item.visualCueJa = item.visualCue;
                     item.mnemonic = "The sealed gear cannot move or alter shape, cueing something unchangeable.";
-                    item.mnemonicJa = item.mnemonic;
                     item.imagePrompt = $"Close-up at the {anchor}: a transparent resin cube seals a small metal gear, with the gear visibly trapped and unable to turn. Keep the {anchor} only as background context, no text, no letters, no captions, no logos, no watermark.";
-                    item.imagePromptJa = item.imagePrompt;
                     return true;
 
                 case "intransigent":
                     item.visualCue = $"At the {anchor}, two puzzle pieces meet while a tiny steel wedge refuses to slide into place.";
-                    item.visualCueJa = item.visualCue;
                     item.mnemonic = "The stuck wedge refuses to fit with the other piece, cueing refusal to compromise.";
-                    item.mnemonicJa = item.mnemonic;
                     item.imagePrompt = $"Close-up at the {anchor}: two puzzle pieces almost connect, but a tiny steel wedge blocks the join and refuses to slide into place. Keep the {anchor} only as background context, no text, no letters, no captions, no logos, no watermark.";
-                    item.imagePromptJa = item.imagePrompt;
                     return true;
 
                 case "capricious":
                     item.visualCue = $"At the {anchor}, a small puppet face snaps from laughing to crying to angry without warning.";
-                    item.visualCueJa = item.visualCue;
                     item.mnemonic = "The puppet's sudden emotional flips cue capricious changes in mood or behavior.";
-                    item.mnemonicJa = item.mnemonic;
                     item.imagePrompt = $"Close-up at the {anchor}: a small puppet face flips from laughing to crying to angry, dominating the foreground. Keep the {anchor} only as background context, no text, no letters, no captions, no logos, no watermark.";
-                    item.imagePromptJa = item.imagePrompt;
                     return true;
 
                 default:
@@ -6920,7 +6866,6 @@ namespace MemPalaceLLM
 
             item.imagePromptCandidates = new List<string>();
             item.associationPrompt = string.Empty;
-            item.associationPromptJa = string.Empty;
             item.selectedImagePrompt = string.Empty;
             item.selectedImageCandidateIndex = -1;
             item.imageSelectionReason = string.Empty;
@@ -6939,14 +6884,7 @@ namespace MemPalaceLLM
                 }
             }
             memorySnapshots.Clear();
-            foreach (var imageCue in mnemonicImageCues.Values)
-            {
-                if (imageCue != null)
-                {
-                    Destroy(imageCue);
-                }
-            }
-            mnemonicImageCues.Clear();
+            ClearAllGeneratedImageCueTextures();
             imageCueValidationFailures.Clear();
             for (int i = 0; i < currentItems.Count; i++)
             {
@@ -6963,6 +6901,40 @@ namespace MemPalaceLLM
             isFinalRecognitionPhase = false;
         }
 
+        private void ClearAllGeneratedImageCueTextures()
+        {
+            var destroyed = new HashSet<Texture2D>();
+            foreach (var pair in imageCueCandidateResults)
+            {
+                var results = pair.Value;
+                if (results == null)
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < results.Count; i++)
+                {
+                    var texture = results[i]?.texture;
+                    if (texture != null && destroyed.Add(texture))
+                    {
+                        Destroy(texture);
+                    }
+                }
+            }
+
+            foreach (var imageCue in mnemonicImageCues.Values)
+            {
+                if (imageCue != null && destroyed.Add(imageCue))
+                {
+                    Destroy(imageCue);
+                }
+            }
+
+            imageCueCandidateResults.Clear();
+            displayedImageCueCandidateIndexes.Clear();
+            mnemonicImageCues.Clear();
+        }
+
         private void ClearGeneratedImageCueForWord(string word)
         {
             if (string.IsNullOrWhiteSpace(word))
@@ -6970,10 +6942,26 @@ namespace MemPalaceLLM
                 return;
             }
 
-            if (mnemonicImageCues.TryGetValue(word, out var imageCue) && imageCue != null)
+            var destroyed = new HashSet<Texture2D>();
+            if (imageCueCandidateResults.TryGetValue(word, out var results) && results != null)
+            {
+                for (int i = 0; i < results.Count; i++)
+                {
+                    var texture = results[i]?.texture;
+                    if (texture != null && destroyed.Add(texture))
+                    {
+                        Destroy(texture);
+                    }
+                }
+            }
+
+            if (mnemonicImageCues.TryGetValue(word, out var imageCue) && imageCue != null && destroyed.Add(imageCue))
             {
                 Destroy(imageCue);
             }
+
+            imageCueCandidateResults.Remove(word);
+            displayedImageCueCandidateIndexes.Remove(word);
             mnemonicImageCues.Remove(word);
 
             var item = FindItemByWord(word);
@@ -7971,51 +7959,6 @@ namespace MemPalaceLLM
             {
                 AddAutoVerticalShellSegment(fixedPosition, start, end, outwardSign, wallIndex++);
             }
-        }
-
-        private List<Vector2> SplitSegmentAroundDoorGaps(bool horizontal, float fixedPosition, float start, float end)
-        {
-            var segments = new List<Vector2> { new(start, end) };
-            var anchors = RoomSpecCatalog.CurrentRoom.anchors;
-            for (int i = 0; i < anchors.Count; i++)
-            {
-                var anchor = anchors[i];
-                if (anchor == null || !IsDoorAnchor(anchor))
-                {
-                    continue;
-                }
-
-                var doorAlong = horizontal ? anchor.position.x : anchor.position.z;
-                var doorAcross = horizontal ? anchor.position.z : anchor.position.x;
-                if (Mathf.Abs(doorAcross - fixedPosition) > 0.82f || doorAlong < start - 0.95f || doorAlong > end + 0.95f)
-                {
-                    continue;
-                }
-
-                var gapMin = doorAlong - 0.82f;
-                var gapMax = doorAlong + 0.82f;
-                for (int segmentIndex = segments.Count - 1; segmentIndex >= 0; segmentIndex--)
-                {
-                    var segment = segments[segmentIndex];
-                    if (gapMax <= segment.x || gapMin >= segment.y)
-                    {
-                        continue;
-                    }
-
-                    segments.RemoveAt(segmentIndex);
-                    if (gapMin - segment.x > 0.24f)
-                    {
-                        segments.Add(new Vector2(segment.x, Mathf.Clamp(gapMin, segment.x, segment.y)));
-                    }
-
-                    if (segment.y - gapMax > 0.24f)
-                    {
-                        segments.Add(new Vector2(Mathf.Clamp(gapMax, segment.x, segment.y), segment.y));
-                    }
-                }
-            }
-
-            return segments;
         }
 
         private void AddAutoHorizontalShellSegment(float xMin, float xMax, float z, int outwardSign, int index)
@@ -9152,103 +9095,6 @@ namespace MemPalaceLLM
             statusMessage = $"Room JSON saved: {path}";
         }
 
-        /*
-        private GameObject CreateFurnitureModel(AnchorDefinition anchor, Transform parent, bool selected, bool editable, int editableIndex)
-        {
-            var root = new GameObject($"Furniture_{anchor.id}");
-            root.transform.SetParent(parent);
-            root.transform.position = anchor.position;
-            root.transform.rotation = Quaternion.Euler(anchor.rotationEuler);
-            root.transform.localScale = GetFurnitureRenderScale(anchor);
-            root.transform.localScale = GetFurnitureRenderScale(anchor);
-
-            var label = ((anchor.label ?? string.Empty) + " " + (anchor.id ?? string.Empty)).ToLowerInvariant();
-            var color = selected
-                ? Color.Lerp(RoomSpecCatalog.Hex(anchor.colorHex), Color.white, 0.28f)
-                : RoomSpecCatalog.Hex(anchor.colorHex);
-
-            if (ContainsAny(label, "toilet", "马桶", "馬桶", "便器", "トイレ") && !ContainsAny(label, "door", "ドア", "门", "門"))
-            {
-                AddFurniturePart(root.transform, "Tank", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0.28f), new Vector3(0.62f, 0.38f, 0.18f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Bowl", PrimitiveType.Sphere, new Vector3(0f, -0.05f, -0.04f), new Vector3(0.58f, 0.34f, 0.68f), Color.Lerp(color, Color.white, 0.2f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Base", PrimitiveType.Cylinder, new Vector3(0f, -0.32f, -0.04f), new Vector3(0.34f, 0.16f, 0.34f), color, editable, editableIndex);
-            }
-            else if (ContainsAny(label, "bath", "bathtub", "tub", "浴槽", "風呂"))
-            {
-                AddFurniturePart(root.transform, "Tub", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 0.34f, 0.58f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Water", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0f), new Vector3(0.82f, 0.04f, 0.42f), new Color(0.45f, 0.68f, 0.88f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "sink", "洗面", "流し"))
-            {
-                AddFurniturePart(root.transform, "Cabinet", PrimitiveType.Cube, new Vector3(0f, -0.15f, 0f), new Vector3(0.78f, 0.55f, 0.58f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Basin", PrimitiveType.Cube, new Vector3(0f, 0.18f, 0f), new Vector3(0.82f, 0.14f, 0.62f), Color.Lerp(color, Color.white, 0.35f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Faucet", PrimitiveType.Cylinder, new Vector3(0f, 0.42f, 0.16f), new Vector3(0.08f, 0.18f, 0.08f), new Color(0.65f, 0.70f, 0.72f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "bed", "ベッド", "床"))
-            {
-                AddFurniturePart(root.transform, "Base", PrimitiveType.Cube, new Vector3(0f, -0.12f, 0f), new Vector3(1.0f, 0.28f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Pillow", PrimitiveType.Cube, new Vector3(0f, 0.10f, 0.34f), new Vector3(0.62f, 0.16f, 0.22f), new Color(0.92f, 0.89f, 0.80f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "sofa", "couch", "ソファ"))
-            {
-                AddFurniturePart(root.transform, "Seat", PrimitiveType.Cube, new Vector3(0f, -0.10f, 0f), new Vector3(1.0f, 0.36f, 0.72f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Back", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0.34f), new Vector3(1.0f, 0.62f, 0.18f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LeftArm", PrimitiveType.Cube, new Vector3(-0.56f, 0.05f, 0f), new Vector3(0.14f, 0.48f, 0.72f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "RightArm", PrimitiveType.Cube, new Vector3(0.56f, 0.05f, 0f), new Vector3(0.14f, 0.48f, 0.72f), color, editable, editableIndex);
-            }
-            else if (ContainsAny(label, "chair", "椅子", "イス"))
-            {
-                AddFurniturePart(root.transform, "Seat", PrimitiveType.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.78f, 0.18f, 0.78f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Back", PrimitiveType.Cube, new Vector3(0f, 0.46f, 0.32f), new Vector3(0.78f, 0.74f, 0.16f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Legs", PrimitiveType.Cube, new Vector3(0f, -0.34f, 0f), new Vector3(0.54f, 0.58f, 0.54f), Color.Lerp(color, Color.black, 0.18f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "table", "desk", "counter", "机", "テーブル", "カウンター"))
-            {
-                AddFurniturePart(root.transform, "Top", PrimitiveType.Cube, new Vector3(0f, 0.18f, 0f), new Vector3(1.0f, 0.16f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "LegCenter", PrimitiveType.Cube, new Vector3(0f, -0.30f, 0f), new Vector3(0.18f, 0.74f, 0.18f), Color.Lerp(color, Color.black, 0.2f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "shelf", "book", "cabinet", "wardrobe", "closet", "棚", "本棚", "衣柜", "クローゼット"))
-            {
-                AddFurniturePart(root.transform, "Body", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 0.42f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "ShelfLine1", PrimitiveType.Cube, new Vector3(0f, 0.22f, -0.24f), new Vector3(0.9f, 0.05f, 0.08f), Color.Lerp(color, Color.white, 0.2f), editable, editableIndex);
-                AddFurniturePart(root.transform, "ShelfLine2", PrimitiveType.Cube, new Vector3(0f, -0.22f, -0.24f), new Vector3(0.9f, 0.05f, 0.08f), Color.Lerp(color, Color.white, 0.2f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "plant", "植物", "観葉"))
-            {
-                AddFurniturePart(root.transform, "Pot", PrimitiveType.Cylinder, new Vector3(0f, -0.30f, 0f), new Vector3(0.5f, 0.35f, 0.5f), new Color(0.48f, 0.30f, 0.20f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Leaf", PrimitiveType.Sphere, new Vector3(0f, 0.28f, 0f), new Vector3(0.88f, 0.78f, 0.88f), color, editable, editableIndex);
-            }
-            else if (ContainsAny(label, "lamp", "light", "照明", "ライト"))
-            {
-                AddFurniturePart(root.transform, "Pole", PrimitiveType.Cylinder, new Vector3(0f, -0.12f, 0f), new Vector3(0.12f, 0.78f, 0.12f), new Color(0.55f, 0.55f, 0.58f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Shade", PrimitiveType.Sphere, new Vector3(0f, 0.48f, 0f), new Vector3(0.72f, 0.42f, 0.72f), color, editable, editableIndex);
-            }
-            else if (ContainsAny(label, "fridge", "refrigerator", "冷蔵", "冰箱"))
-            {
-                AddFurniturePart(root.transform, "Body", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Handle", PrimitiveType.Cube, new Vector3(0.42f, 0.05f, -0.52f), new Vector3(0.06f, 0.62f, 0.06f), new Color(0.65f, 0.68f, 0.70f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "door", "ドア", "门", "門"))
-            {
-                AddFurniturePart(root.transform, "Panel", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Knob", PrimitiveType.Sphere, new Vector3(0.38f, 0f, -0.55f), new Vector3(0.12f, 0.12f, 0.12f), new Color(0.86f, 0.70f, 0.38f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "window", "balcony", "窓", "窗", "ベランダ"))
-            {
-                AddFurniturePart(root.transform, "Glass", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameH", PrimitiveType.Cube, new Vector3(0f, 0f, -0.06f), new Vector3(1.0f, 0.08f, 0.08f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameV", PrimitiveType.Cube, new Vector3(0f, 0f, -0.07f), new Vector3(0.08f, 1.0f, 0.08f), Color.white, editable, editableIndex);
-            }
-            else
-            {
-                AddFurniturePart(root.transform, "Generic", RoomSpecCatalog.ParsePrimitiveType(anchor.primitiveShape), Vector3.zero, Vector3.one, color, editable, editableIndex);
-            }
-
-            return root;
-        }
-
-        */
-
         private GameObject CreateFurnitureModel(AnchorDefinition anchor, Transform parent, bool selected, bool editable, int editableIndex)
         {
             var root = new GameObject($"Furniture_{anchor.id}");
@@ -9268,141 +9114,57 @@ namespace MemPalaceLLM
             else if (ContainsAny(label, "toilet", "wc", "\u9a6c\u6876", "\u99ac\u6876", "\u4fbf\u5668", "\u30c8\u30a4\u30ec")
                 && !ContainsAny(label, "door", "\u30c9\u30a2", "\u95e8", "\u9580"))
             {
-                AddFurniturePart(root.transform, "Tank", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0.28f), new Vector3(0.62f, 0.38f, 0.18f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Bowl", PrimitiveType.Sphere, new Vector3(0f, -0.05f, -0.04f), new Vector3(0.58f, 0.34f, 0.68f), Color.Lerp(color, Color.white, 0.2f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Base", PrimitiveType.Cylinder, new Vector3(0f, -0.32f, -0.04f), new Vector3(0.34f, 0.16f, 0.34f), color, editable, editableIndex);
+                AddFurnitureParts(root.transform, editable, editableIndex, Prop("Tank", PrimitiveType.Cube, V(0f, 0.20f, 0.28f), V(0.62f, 0.38f, 0.18f), color), Prop("Bowl", PrimitiveType.Sphere, V(0f, -0.05f, -0.04f), V(0.58f, 0.34f, 0.68f), Color.Lerp(color, Color.white, 0.2f)), Prop("Base", PrimitiveType.Cylinder, V(0f, -0.32f, -0.04f), V(0.34f, 0.16f, 0.34f), color));
             }
-            else if (ContainsAny(label, "sink", "\u6d17\u9762", "\u6d41\u3057"))
-            {
-                AddFurniturePart(root.transform, "Cabinet", PrimitiveType.Cube, new Vector3(0f, -0.20f, 0f), new Vector3(0.82f, 0.56f, 0.62f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "CounterTop", PrimitiveType.Cube, new Vector3(0f, 0.14f, 0f), new Vector3(0.92f, 0.10f, 0.70f), Color.Lerp(color, Color.white, 0.25f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Basin", PrimitiveType.Cube, new Vector3(0f, 0.23f, -0.04f), new Vector3(0.56f, 0.10f, 0.42f), new Color(0.88f, 0.92f, 0.95f), editable, editableIndex);
-                AddFurniturePart(root.transform, "FaucetStem", PrimitiveType.Cylinder, new Vector3(0f, 0.42f, 0.18f), new Vector3(0.07f, 0.22f, 0.07f), new Color(0.65f, 0.70f, 0.72f), editable, editableIndex);
-                AddFurniturePart(root.transform, "FaucetHead", PrimitiveType.Cube, new Vector3(0f, 0.52f, 0.04f), new Vector3(0.24f, 0.05f, 0.08f), new Color(0.65f, 0.70f, 0.72f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "bath", "bathtub", "tub", "\u6d74\u69fd", "\u98a8\u5442"))
-            {
-                AddFurniturePart(root.transform, "Tub", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 0.34f, 0.58f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Water", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0f), new Vector3(0.82f, 0.04f, 0.42f), new Color(0.45f, 0.68f, 0.88f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"))
-            {
-                AddFurniturePart(root.transform, "Screen", PrimitiveType.Cube, new Vector3(0f, 0.18f, 0f), new Vector3(1.0f, 0.62f, 0.08f), new Color(0.05f, 0.06f, 0.08f), editable, editableIndex);
-                AddFurniturePart(root.transform, "ScreenGlow", PrimitiveType.Cube, new Vector3(0f, 0.18f, -0.05f), new Vector3(0.86f, 0.48f, 0.03f), new Color(0.18f, 0.30f, 0.42f), editable, editableIndex);
-                AddFurniturePart(root.transform, "StandNeck", PrimitiveType.Cube, new Vector3(0f, -0.20f, 0.02f), new Vector3(0.10f, 0.32f, 0.10f), Color.Lerp(color, Color.black, 0.1f), editable, editableIndex);
-                AddFurniturePart(root.transform, "StandBase", PrimitiveType.Cube, new Vector3(0f, -0.38f, 0.02f), new Vector3(0.46f, 0.08f, 0.28f), Color.Lerp(color, Color.black, 0.1f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"))
-            {
-                AddFurniturePart(root.transform, "MonitorFrame", PrimitiveType.Cube, new Vector3(0f, 0.24f, 0.03f), new Vector3(0.76f, 0.52f, 0.08f), new Color(0.06f, 0.07f, 0.09f), editable, editableIndex);
-                AddFurniturePart(root.transform, "MonitorGlow", PrimitiveType.Cube, new Vector3(0f, 0.24f, -0.02f), new Vector3(0.62f, 0.38f, 0.035f), new Color(0.18f, 0.45f, 0.70f), editable, editableIndex);
-                AddFurniturePart(root.transform, "MonitorStand", PrimitiveType.Cube, new Vector3(0f, -0.08f, 0.04f), new Vector3(0.10f, 0.28f, 0.10f), Color.Lerp(color, Color.black, 0.12f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Keyboard", PrimitiveType.Cube, new Vector3(0f, -0.28f, -0.26f), new Vector3(0.72f, 0.06f, 0.22f), new Color(0.12f, 0.13f, 0.15f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Mouse", PrimitiveType.Sphere, new Vector3(0.42f, -0.26f, -0.24f), new Vector3(0.18f, 0.08f, 0.24f), new Color(0.16f, 0.17f, 0.19f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "air conditioner", "aircon", "air conditioning", "ac unit", "a/c"))
-            {
-                AddFurniturePart(root.transform, "UnitBody", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 0.72f, 0.9f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "VentLineA", PrimitiveType.Cube, new Vector3(0f, -0.20f, -0.48f), new Vector3(0.86f, 0.04f, 0.05f), new Color(0.45f, 0.52f, 0.56f), editable, editableIndex);
-                AddFurniturePart(root.transform, "VentLineB", PrimitiveType.Cube, new Vector3(0f, -0.08f, -0.48f), new Vector3(0.86f, 0.035f, 0.05f), new Color(0.60f, 0.66f, 0.70f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "stove", "cooktop", "range", "hob"))
-            {
-                AddFurniturePart(root.transform, "StoveBody", PrimitiveType.Cube, new Vector3(0f, -0.10f, 0f), new Vector3(1.0f, 0.76f, 0.92f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Cooktop", PrimitiveType.Cube, new Vector3(0f, 0.32f, -0.02f), new Vector3(0.92f, 0.08f, 0.82f), new Color(0.12f, 0.13f, 0.14f), editable, editableIndex);
-                AddFurniturePart(root.transform, "BurnerA", PrimitiveType.Cylinder, new Vector3(-0.25f, 0.39f, -0.18f), new Vector3(0.22f, 0.03f, 0.22f), new Color(0.72f, 0.72f, 0.68f), editable, editableIndex);
-                AddFurniturePart(root.transform, "BurnerB", PrimitiveType.Cylinder, new Vector3(0.25f, 0.39f, 0.16f), new Vector3(0.22f, 0.03f, 0.22f), new Color(0.72f, 0.72f, 0.68f), editable, editableIndex);
-                AddFurniturePart(root.transform, "OvenDoor", PrimitiveType.Cube, new Vector3(0f, -0.20f, -0.48f), new Vector3(0.72f, 0.36f, 0.04f), new Color(0.16f, 0.18f, 0.20f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "bed", "\u30d9\u30c3\u30c9", "\u5e8a"))
-            {
-                AddFurniturePart(root.transform, "Frame", PrimitiveType.Cube, new Vector3(0f, -0.20f, 0f), new Vector3(1.0f, 0.20f, 1.0f), Color.Lerp(color, Color.black, 0.16f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Mattress", PrimitiveType.Cube, new Vector3(0f, 0.02f, 0f), new Vector3(0.92f, 0.22f, 0.92f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Blanket", PrimitiveType.Cube, new Vector3(0f, 0.17f, -0.10f), new Vector3(0.88f, 0.08f, 0.58f), new Color(0.64f, 0.48f, 0.36f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Pillow", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0.34f), new Vector3(0.62f, 0.13f, 0.22f), new Color(0.92f, 0.89f, 0.80f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "sofa", "couch", "\u30bd\u30d5\u30a1"))
-            {
-                AddFurniturePart(root.transform, "Seat", PrimitiveType.Cube, new Vector3(0f, -0.10f, 0f), new Vector3(1.0f, 0.36f, 0.72f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Back", PrimitiveType.Cube, new Vector3(0f, 0.20f, 0.34f), new Vector3(1.0f, 0.62f, 0.18f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LeftArm", PrimitiveType.Cube, new Vector3(-0.56f, 0.05f, 0f), new Vector3(0.14f, 0.48f, 0.72f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "RightArm", PrimitiveType.Cube, new Vector3(0.56f, 0.05f, 0f), new Vector3(0.14f, 0.48f, 0.72f), color, editable, editableIndex);
-            }
-            else if (ContainsAny(label, "chair", "\u6905\u5b50", "\u30a4\u30b9"))
-            {
-                AddFurniturePart(root.transform, "Seat", PrimitiveType.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.78f, 0.18f, 0.78f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "Back", PrimitiveType.Cube, new Vector3(0f, 0.46f, 0.32f), new Vector3(0.78f, 0.74f, 0.16f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegFL", PrimitiveType.Cube, new Vector3(-0.25f, -0.34f, -0.25f), new Vector3(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegFR", PrimitiveType.Cube, new Vector3(0.25f, -0.34f, -0.25f), new Vector3(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegBL", PrimitiveType.Cube, new Vector3(-0.25f, -0.34f, 0.25f), new Vector3(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegBR", PrimitiveType.Cube, new Vector3(0.25f, -0.34f, 0.25f), new Vector3(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f), editable, editableIndex);
-            }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("sink", "\u6d17\u9762", "\u6d41\u3057"), Prop("Cabinet", PrimitiveType.Cube, V(0f, -0.20f, 0f), V(0.82f, 0.56f, 0.62f), color), Prop("CounterTop", PrimitiveType.Cube, V(0f, 0.14f, 0f), V(0.92f, 0.10f, 0.70f), Color.Lerp(color, Color.white, 0.25f)), Prop("Basin", PrimitiveType.Cube, V(0f, 0.23f, -0.04f), V(0.56f, 0.10f, 0.42f), C(0.88f, 0.92f, 0.95f)), Prop("FaucetStem", PrimitiveType.Cylinder, V(0f, 0.42f, 0.18f), V(0.07f, 0.22f, 0.07f), C(0.65f, 0.70f, 0.72f)), Prop("FaucetHead", PrimitiveType.Cube, V(0f, 0.52f, 0.04f), V(0.24f, 0.05f, 0.08f), C(0.65f, 0.70f, 0.72f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("bath", "bathtub", "tub", "\u6d74\u69fd", "\u98a8\u5442"), Prop("Tub", PrimitiveType.Cube, Vector3.zero, V(1.0f, 0.34f, 0.58f), color), Prop("Water", PrimitiveType.Cube, V(0f, 0.20f, 0f), V(0.82f, 0.04f, 0.42f), C(0.45f, 0.68f, 0.88f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"), Prop("Screen", PrimitiveType.Cube, V(0f, 0.18f, 0f), V(1.0f, 0.62f, 0.08f), C(0.05f, 0.06f, 0.08f)), Prop("ScreenGlow", PrimitiveType.Cube, V(0f, 0.18f, -0.05f), V(0.86f, 0.48f, 0.03f), C(0.18f, 0.30f, 0.42f)), Prop("StandNeck", PrimitiveType.Cube, V(0f, -0.20f, 0.02f), V(0.10f, 0.32f, 0.10f), Color.Lerp(color, Color.black, 0.1f)), Prop("StandBase", PrimitiveType.Cube, V(0f, -0.38f, 0.02f), V(0.46f, 0.08f, 0.28f), Color.Lerp(color, Color.black, 0.1f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"), Prop("MonitorFrame", PrimitiveType.Cube, V(0f, 0.24f, 0.03f), V(0.76f, 0.52f, 0.08f), C(0.06f, 0.07f, 0.09f)), Prop("MonitorGlow", PrimitiveType.Cube, V(0f, 0.24f, -0.02f), V(0.62f, 0.38f, 0.035f), C(0.18f, 0.45f, 0.70f)), Prop("MonitorStand", PrimitiveType.Cube, V(0f, -0.08f, 0.04f), V(0.10f, 0.28f, 0.10f), Color.Lerp(color, Color.black, 0.12f)), Prop("Keyboard", PrimitiveType.Cube, V(0f, -0.28f, -0.26f), V(0.72f, 0.06f, 0.22f), C(0.12f, 0.13f, 0.15f)), Prop("Mouse", PrimitiveType.Sphere, V(0.42f, -0.26f, -0.24f), V(0.18f, 0.08f, 0.24f), C(0.16f, 0.17f, 0.19f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("air conditioner", "aircon", "air conditioning", "ac unit", "a/c"), Prop("UnitBody", PrimitiveType.Cube, Vector3.zero, V(1.0f, 0.72f, 0.9f), color), Prop("VentLineA", PrimitiveType.Cube, V(0f, -0.20f, -0.48f), V(0.86f, 0.04f, 0.05f), C(0.45f, 0.52f, 0.56f)), Prop("VentLineB", PrimitiveType.Cube, V(0f, -0.08f, -0.48f), V(0.86f, 0.035f, 0.05f), C(0.60f, 0.66f, 0.70f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("stove", "cooktop", "range", "hob"), Prop("StoveBody", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(1.0f, 0.76f, 0.92f), color), Prop("Cooktop", PrimitiveType.Cube, V(0f, 0.32f, -0.02f), V(0.92f, 0.08f, 0.82f), C(0.12f, 0.13f, 0.14f)), Prop("BurnerA", PrimitiveType.Cylinder, V(-0.25f, 0.39f, -0.18f), V(0.22f, 0.03f, 0.22f), C(0.72f, 0.72f, 0.68f)), Prop("BurnerB", PrimitiveType.Cylinder, V(0.25f, 0.39f, 0.16f), V(0.22f, 0.03f, 0.22f), C(0.72f, 0.72f, 0.68f)), Prop("OvenDoor", PrimitiveType.Cube, V(0f, -0.20f, -0.48f), V(0.72f, 0.36f, 0.04f), C(0.16f, 0.18f, 0.20f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("bed", "\u30d9\u30c3\u30c9", "\u5e8a"), Prop("Frame", PrimitiveType.Cube, V(0f, -0.20f, 0f), V(1.0f, 0.20f, 1.0f), Color.Lerp(color, Color.black, 0.16f)), Prop("Mattress", PrimitiveType.Cube, V(0f, 0.02f, 0f), V(0.92f, 0.22f, 0.92f), color), Prop("Blanket", PrimitiveType.Cube, V(0f, 0.17f, -0.10f), V(0.88f, 0.08f, 0.58f), C(0.64f, 0.48f, 0.36f)), Prop("Pillow", PrimitiveType.Cube, V(0f, 0.20f, 0.34f), V(0.62f, 0.13f, 0.22f), C(0.92f, 0.89f, 0.80f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("sofa", "couch", "\u30bd\u30d5\u30a1"), Prop("Seat", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(1.0f, 0.36f, 0.72f), color), Prop("Back", PrimitiveType.Cube, V(0f, 0.20f, 0.34f), V(1.0f, 0.62f, 0.18f), Color.Lerp(color, Color.black, 0.08f)), Prop("LeftArm", PrimitiveType.Cube, V(-0.56f, 0.05f, 0f), V(0.14f, 0.48f, 0.72f), color), Prop("RightArm", PrimitiveType.Cube, V(0.56f, 0.05f, 0f), V(0.14f, 0.48f, 0.72f), color))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("chair", "\u6905\u5b50", "\u30a4\u30b9"), Prop("Seat", PrimitiveType.Cube, Vector3.zero, V(0.78f, 0.18f, 0.78f), color), Prop("Back", PrimitiveType.Cube, V(0f, 0.46f, 0.32f), V(0.78f, 0.74f, 0.16f), Color.Lerp(color, Color.black, 0.08f)), Prop("LegFL", PrimitiveType.Cube, V(-0.25f, -0.34f, -0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegFR", PrimitiveType.Cube, V(0.25f, -0.34f, -0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegBL", PrimitiveType.Cube, V(-0.25f, -0.34f, 0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegBR", PrimitiveType.Cube, V(0.25f, -0.34f, 0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)))) { }
             else if (ContainsAny(label, "table", "desk", "counter", "\u673a", "\u30c6\u30fc\u30d6\u30eb", "\u30ab\u30a6\u30f3\u30bf\u30fc"))
             {
-                AddFurniturePart(root.transform, "Top", PrimitiveType.Cube, new Vector3(0f, 0.22f, 0f), new Vector3(1.0f, 0.14f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "LegFL", PrimitiveType.Cube, new Vector3(-0.38f, -0.25f, -0.34f), new Vector3(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegFR", PrimitiveType.Cube, new Vector3(0.38f, -0.25f, -0.34f), new Vector3(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegBL", PrimitiveType.Cube, new Vector3(-0.38f, -0.25f, 0.34f), new Vector3(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LegBR", PrimitiveType.Cube, new Vector3(0.38f, -0.25f, 0.34f), new Vector3(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f), editable, editableIndex);
+                AddFurnitureParts(root.transform, editable, editableIndex, Prop("Top", PrimitiveType.Cube, V(0f, 0.22f, 0f), V(1.0f, 0.14f, 1.0f), color), Prop("LegFL", PrimitiveType.Cube, V(-0.38f, -0.25f, -0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegFR", PrimitiveType.Cube, V(0.38f, -0.25f, -0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegBL", PrimitiveType.Cube, V(-0.38f, -0.25f, 0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegBR", PrimitiveType.Cube, V(0.38f, -0.25f, 0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)));
                 if (ContainsAny(label, "desk", "counter", "\u30ab\u30a6\u30f3\u30bf\u30fc"))
                 {
-                    AddFurniturePart(root.transform, "Drawer", PrimitiveType.Cube, new Vector3(0.23f, -0.05f, -0.42f), new Vector3(0.34f, 0.22f, 0.08f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
+                    AddFurniturePart(root.transform, "Drawer", PrimitiveType.Cube, V(0.23f, -0.05f, -0.42f), V(0.34f, 0.22f, 0.08f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
                 }
             }
-            else if (ContainsAny(label, "shelf", "book", "cabinet", "wardrobe", "closet", "\u68da", "\u672c\u68da", "\u8863\u67dc", "\u30af\u30ed\u30fc\u30bc\u30c3\u30c8"))
-            {
-                AddFurniturePart(root.transform, "Frame", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 0.42f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "OpenFace", PrimitiveType.Cube, new Vector3(0f, 0f, -0.24f), new Vector3(0.82f, 0.86f, 0.05f), Color.Lerp(color, Color.white, 0.20f), editable, editableIndex);
-                AddFurniturePart(root.transform, "ShelfLine1", PrimitiveType.Cube, new Vector3(0f, 0.22f, -0.29f), new Vector3(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f), editable, editableIndex);
-                AddFurniturePart(root.transform, "ShelfLine2", PrimitiveType.Cube, new Vector3(0f, -0.20f, -0.29f), new Vector3(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f), editable, editableIndex);
-                AddFurniturePart(root.transform, "BookA", PrimitiveType.Cube, new Vector3(-0.25f, 0.42f, -0.34f), new Vector3(0.10f, 0.28f, 0.10f), new Color(0.65f, 0.22f, 0.18f), editable, editableIndex);
-                AddFurniturePart(root.transform, "BookB", PrimitiveType.Cube, new Vector3(-0.12f, 0.40f, -0.34f), new Vector3(0.09f, 0.24f, 0.10f), new Color(0.20f, 0.38f, 0.65f), editable, editableIndex);
-                AddFurniturePart(root.transform, "BookC", PrimitiveType.Cube, new Vector3(0.03f, -0.02f, -0.34f), new Vector3(0.12f, 0.30f, 0.10f), new Color(0.75f, 0.62f, 0.24f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "plant", "\u690d\u7269", "\u89b3\u8449"))
-            {
-                AddFurniturePart(root.transform, "Pot", PrimitiveType.Cylinder, new Vector3(0f, -0.30f, 0f), new Vector3(0.5f, 0.35f, 0.5f), new Color(0.48f, 0.30f, 0.20f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Stem", PrimitiveType.Cylinder, new Vector3(0f, 0.08f, 0f), new Vector3(0.08f, 0.62f, 0.08f), new Color(0.35f, 0.55f, 0.28f), editable, editableIndex);
-                AddFurniturePart(root.transform, "LeafA", PrimitiveType.Sphere, new Vector3(-0.18f, 0.34f, 0f), new Vector3(0.46f, 0.25f, 0.30f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "LeafB", PrimitiveType.Sphere, new Vector3(0.18f, 0.48f, 0.02f), new Vector3(0.46f, 0.25f, 0.30f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "LeafC", PrimitiveType.Sphere, new Vector3(0f, 0.62f, -0.12f), new Vector3(0.40f, 0.24f, 0.28f), Color.Lerp(color, Color.white, 0.1f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "lamp", "light", "\u7167\u660e", "\u30e9\u30a4\u30c8", "\u30e9\u30f3\u30d7"))
-            {
-                AddFurniturePart(root.transform, "Pole", PrimitiveType.Cylinder, new Vector3(0f, -0.12f, 0f), new Vector3(0.12f, 0.78f, 0.12f), new Color(0.55f, 0.55f, 0.58f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Shade", PrimitiveType.Sphere, new Vector3(0f, 0.48f, 0f), new Vector3(0.72f, 0.42f, 0.72f), color, editable, editableIndex);
-            }
-            else if (ContainsAny(label, "fridge", "refrigerator", "\u51b7\u8535", "\u51b0\u7bb1"))
-            {
-                AddFurniturePart(root.transform, "Body", PrimitiveType.Cube, Vector3.zero, new Vector3(1.0f, 1.0f, 1.0f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "FreezerDoor", PrimitiveType.Cube, new Vector3(0f, 0.24f, -0.52f), new Vector3(0.94f, 0.42f, 0.05f), Color.Lerp(color, Color.white, 0.12f), editable, editableIndex);
-                AddFurniturePart(root.transform, "FridgeDoor", PrimitiveType.Cube, new Vector3(0f, -0.25f, -0.52f), new Vector3(0.94f, 0.50f, 0.05f), Color.Lerp(color, Color.white, 0.06f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Handle", PrimitiveType.Cube, new Vector3(0.42f, 0.05f, -0.52f), new Vector3(0.06f, 0.62f, 0.06f), new Color(0.65f, 0.68f, 0.70f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "door", "\u30c9\u30a2", "\u95e8", "\u9580"))
-            {
-                AddFurniturePart(root.transform, "Panel", PrimitiveType.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.92f, 1.0f, 0.58f), color, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameTop", PrimitiveType.Cube, new Vector3(0f, 0.48f, 0f), new Vector3(1.0f, 0.06f, 0.76f), Color.Lerp(color, Color.black, 0.14f), editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameLeft", PrimitiveType.Cube, new Vector3(-0.46f, 0f, 0f), new Vector3(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f), editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameRight", PrimitiveType.Cube, new Vector3(0.46f, 0f, 0f), new Vector3(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f), editable, editableIndex);
-                AddFurniturePart(root.transform, "Knob", PrimitiveType.Sphere, new Vector3(0.34f, -0.02f, -0.34f), new Vector3(0.10f, 0.10f, 0.10f), new Color(0.86f, 0.70f, 0.38f), editable, editableIndex);
-            }
-            else if (ContainsAny(label, "window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"))
-            {
-                AddFurniturePart(root.transform, "Glass", PrimitiveType.Cube, Vector3.zero, new Vector3(0.84f, 0.78f, 0.28f), new Color(0.60f, 0.76f, 0.92f, 0.72f), editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameTop", PrimitiveType.Cube, new Vector3(0f, 0.39f, 0f), new Vector3(0.94f, 0.055f, 0.46f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameBottom", PrimitiveType.Cube, new Vector3(0f, -0.39f, 0f), new Vector3(0.94f, 0.055f, 0.46f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameLeft", PrimitiveType.Cube, new Vector3(-0.44f, 0f, 0f), new Vector3(0.055f, 0.84f, 0.46f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameRight", PrimitiveType.Cube, new Vector3(0.44f, 0f, 0f), new Vector3(0.055f, 0.84f, 0.46f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "FrameMid", PrimitiveType.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.045f, 0.78f, 0.42f), Color.white, editable, editableIndex);
-                AddFurniturePart(root.transform, "Sill", PrimitiveType.Cube, new Vector3(0f, -0.46f, 0f), new Vector3(0.96f, 0.07f, 0.64f), new Color(0.72f, 0.68f, 0.58f), editable, editableIndex);
-            }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("shelf", "book", "cabinet", "wardrobe", "closet", "\u68da", "\u672c\u68da", "\u8863\u67dc", "\u30af\u30ed\u30fc\u30bc\u30c3\u30c8"), Prop("Frame", PrimitiveType.Cube, Vector3.zero, V(1.0f, 1.0f, 0.42f), color), Prop("OpenFace", PrimitiveType.Cube, V(0f, 0f, -0.24f), V(0.82f, 0.86f, 0.05f), Color.Lerp(color, Color.white, 0.20f)), Prop("ShelfLine1", PrimitiveType.Cube, V(0f, 0.22f, -0.29f), V(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f)), Prop("ShelfLine2", PrimitiveType.Cube, V(0f, -0.20f, -0.29f), V(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f)), Prop("BookA", PrimitiveType.Cube, V(-0.25f, 0.42f, -0.34f), V(0.10f, 0.28f, 0.10f), C(0.65f, 0.22f, 0.18f)), Prop("BookB", PrimitiveType.Cube, V(-0.12f, 0.40f, -0.34f), V(0.09f, 0.24f, 0.10f), C(0.20f, 0.38f, 0.65f)), Prop("BookC", PrimitiveType.Cube, V(0.03f, -0.02f, -0.34f), V(0.12f, 0.30f, 0.10f), C(0.75f, 0.62f, 0.24f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("plant", "\u690d\u7269", "\u89b3\u8449"), Prop("Pot", PrimitiveType.Cylinder, V(0f, -0.30f, 0f), V(0.5f, 0.35f, 0.5f), C(0.48f, 0.30f, 0.20f)), Prop("Stem", PrimitiveType.Cylinder, V(0f, 0.08f, 0f), V(0.08f, 0.62f, 0.08f), C(0.35f, 0.55f, 0.28f)), Prop("LeafA", PrimitiveType.Sphere, V(-0.18f, 0.34f, 0f), V(0.46f, 0.25f, 0.30f), color), Prop("LeafB", PrimitiveType.Sphere, V(0.18f, 0.48f, 0.02f), V(0.46f, 0.25f, 0.30f), color), Prop("LeafC", PrimitiveType.Sphere, V(0f, 0.62f, -0.12f), V(0.40f, 0.24f, 0.28f), Color.Lerp(color, Color.white, 0.1f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("lamp", "light", "\u7167\u660e", "\u30e9\u30a4\u30c8", "\u30e9\u30f3\u30d7"), Prop("Pole", PrimitiveType.Cylinder, V(0f, -0.12f, 0f), V(0.12f, 0.78f, 0.12f), C(0.55f, 0.55f, 0.58f)), Prop("Shade", PrimitiveType.Sphere, V(0f, 0.48f, 0f), V(0.72f, 0.42f, 0.72f), color))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("fridge", "refrigerator", "\u51b7\u8535", "\u51b0\u7bb1"), Prop("Body", PrimitiveType.Cube, Vector3.zero, Vector3.one, color), Prop("FreezerDoor", PrimitiveType.Cube, V(0f, 0.24f, -0.52f), V(0.94f, 0.42f, 0.05f), Color.Lerp(color, Color.white, 0.12f)), Prop("FridgeDoor", PrimitiveType.Cube, V(0f, -0.25f, -0.52f), V(0.94f, 0.50f, 0.05f), Color.Lerp(color, Color.white, 0.06f)), Prop("Handle", PrimitiveType.Cube, V(0.42f, 0.05f, -0.52f), V(0.06f, 0.62f, 0.06f), C(0.65f, 0.68f, 0.70f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("door", "\u30c9\u30a2", "\u95e8", "\u9580"), Prop("Panel", PrimitiveType.Cube, Vector3.zero, V(0.92f, 1.0f, 0.58f), color), Prop("FrameTop", PrimitiveType.Cube, V(0f, 0.48f, 0f), V(1.0f, 0.06f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("FrameLeft", PrimitiveType.Cube, V(-0.46f, 0f, 0f), V(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("FrameRight", PrimitiveType.Cube, V(0.46f, 0f, 0f), V(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("Knob", PrimitiveType.Sphere, V(0.34f, -0.02f, -0.34f), V(0.10f, 0.10f, 0.10f), C(0.86f, 0.70f, 0.38f)))) { }
+            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"), Prop("Glass", PrimitiveType.Cube, Vector3.zero, V(0.84f, 0.78f, 0.28f), C(0.60f, 0.76f, 0.92f, 0.72f)), Prop("FrameTop", PrimitiveType.Cube, V(0f, 0.39f, 0f), V(0.94f, 0.055f, 0.46f), Color.white), Prop("FrameBottom", PrimitiveType.Cube, V(0f, -0.39f, 0f), V(0.94f, 0.055f, 0.46f), Color.white), Prop("FrameLeft", PrimitiveType.Cube, V(-0.44f, 0f, 0f), V(0.055f, 0.84f, 0.46f), Color.white), Prop("FrameRight", PrimitiveType.Cube, V(0.44f, 0f, 0f), V(0.055f, 0.84f, 0.46f), Color.white), Prop("FrameMid", PrimitiveType.Cube, Vector3.zero, V(0.045f, 0.78f, 0.42f), Color.white), Prop("Sill", PrimitiveType.Cube, V(0f, -0.46f, 0f), V(0.96f, 0.07f, 0.64f), C(0.72f, 0.68f, 0.58f)))) { }
             else
             {
                 AddFurniturePart(root.transform, "Generic", RoomSpecCatalog.ParsePrimitiveType(anchor.primitiveShape), Vector3.zero, Vector3.one, color, editable, editableIndex);
             }
 
             return root;
+        }
+
+        private bool TryAddFurnitureParts(string label, Transform root, bool editable, int editableIndex, string[] terms, params PrimitivePartSpec[] parts)
+        {
+            if (!ContainsAny(label, terms))
+            {
+                return false;
+            }
+
+            AddFurnitureParts(root, editable, editableIndex, parts);
+            return true;
+        }
+
+        private void AddFurnitureParts(Transform root, bool editable, int editableIndex, params PrimitivePartSpec[] parts)
+        {
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                AddFurniturePart(root, part.name, part.shape, part.localPosition, part.localScale, part.color, editable, editableIndex);
+            }
         }
 
         private void CreateFurnitureModelFromParts(Transform root, List<VisualObjectSpec> parts, Color fallbackColor, bool editable, int editableIndex)
@@ -9465,23 +9227,6 @@ namespace MemPalaceLLM
                 var interactable = part.AddComponent<RoomAnchorInteractable>();
                 interactable.Index = editableIndex;
             }
-        }
-
-        private Vector3 GetAnchorScaleFromRoot(Transform root)
-        {
-            var id = root.name.StartsWith("Furniture_", StringComparison.Ordinal)
-                ? root.name.Substring("Furniture_".Length)
-                : string.Empty;
-            var anchors = RoomSpecCatalog.CurrentRoom.anchors;
-            for (int i = 0; i < anchors.Count; i++)
-            {
-                if (string.Equals(anchors[i].id, id, StringComparison.Ordinal))
-                {
-                    return GetFurnitureRenderScale(anchors[i]);
-                }
-            }
-
-            return Vector3.one;
         }
 
         private Vector3 GetFurnitureRenderScale(AnchorDefinition anchor)
@@ -9734,209 +9479,66 @@ namespace MemPalaceLLM
         private bool TryCreateSemanticMnemonicProp(MnemonicItemData item, VisualObjectSpec spec, Transform root, Color color, Vector3 baseScale)
         {
             var text = BuildMnemonicVisualSearchText(item, spec);
-            var scale = NormalizePropScale(baseScale);
-            root.localScale = scale;
+            root.localScale = NormalizePropScale(baseScale);
 
-            if (ContainsAny(text, "thread", "string", "wire", "rope", "line", "thin", "tenuous", "\u7cf8", "\u7dda", "\u7d30"))
-            {
-                AddMnemonicPropPart(root, "Thread", PrimitiveType.Cylinder, new Vector3(0f, 0.20f, 0f), new Vector3(0.10f, 2.3f, 0.10f), new Color(0.92f, 0.90f, 0.78f), item);
-                AddMnemonicPropPart(root, "TinyWeight", PrimitiveType.Sphere, new Vector3(0f, -0.28f, 0f), new Vector3(0.42f, 0.42f, 0.42f), color, item);
-                return true;
-            }
-
-            if (ContainsAny(text, "fire", "flame", "burn", "spark", "ignite", "blaze", "\u706b", "\u708e"))
-            {
-                AddMnemonicPropPart(root, "FlameCore", PrimitiveType.Capsule, new Vector3(0f, 0.12f, 0f), new Vector3(0.42f, 1.0f, 0.42f), new Color(1.0f, 0.42f, 0.10f), item, true);
-                AddMnemonicPropPart(root, "FlameGlow", PrimitiveType.Sphere, new Vector3(0f, 0.02f, 0f), new Vector3(0.72f, 0.42f, 0.72f), new Color(1.0f, 0.82f, 0.18f), item, true);
-                AddMnemonicPropPart(root, "Ember", PrimitiveType.Sphere, new Vector3(0.28f, -0.20f, -0.05f), new Vector3(0.18f, 0.18f, 0.18f), new Color(1.0f, 0.26f, 0.06f), item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "lantern", "lamp", "light", "glow", "luminous", "\u30e9\u30f3\u30bf\u30f3", "\u30e9\u30a4\u30c8", "\u5149"))
-            {
-                AddMnemonicPropPart(root, "LanternGlass", PrimitiveType.Sphere, new Vector3(0f, 0.10f, 0f), new Vector3(1.0f, 0.85f, 1.0f), new Color(1.0f, 0.82f, 0.28f), item, true);
-                AddMnemonicPropPart(root, "LanternTop", PrimitiveType.Cube, new Vector3(0f, 0.40f, 0f), new Vector3(0.72f, 0.16f, 0.72f), new Color(0.42f, 0.28f, 0.18f), item);
-                AddMnemonicPropPart(root, "LanternBase", PrimitiveType.Cube, new Vector3(0f, -0.22f, 0f), new Vector3(0.72f, 0.12f, 0.72f), new Color(0.42f, 0.28f, 0.18f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "smoke", "fume", "poison", "toxic", "cloud", "mist", "\u7159", "\u6bd2", "\u96f2"))
-            {
-                AddMnemonicPropPart(root, "SmokeA", PrimitiveType.Sphere, new Vector3(-0.16f, 0.02f, 0f), new Vector3(0.72f, 0.52f, 0.72f), new Color(0.42f, 0.78f, 0.50f), item, true);
-                AddMnemonicPropPart(root, "SmokeB", PrimitiveType.Sphere, new Vector3(0.12f, 0.25f, 0.03f), new Vector3(0.62f, 0.48f, 0.62f), new Color(0.54f, 0.86f, 0.62f), item, true);
-                AddMnemonicPropPart(root, "SmokeC", PrimitiveType.Sphere, new Vector3(0.24f, 0.48f, -0.03f), new Vector3(0.48f, 0.36f, 0.48f), new Color(0.74f, 0.90f, 0.70f), item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "jar", "bottle", "spice", "vial", "potion", "\u74f6", "\u7f50", "\u30b8\u30e3\u30fc"))
-            {
-                AddMnemonicPropPart(root, "BottleBody", PrimitiveType.Cylinder, new Vector3(0f, 0.02f, 0f), new Vector3(0.62f, 1.15f, 0.62f), color, item);
-                AddMnemonicPropPart(root, "BottleCap", PrimitiveType.Cylinder, new Vector3(0f, 0.42f, 0f), new Vector3(0.46f, 0.18f, 0.46f), new Color(0.25f, 0.25f, 0.28f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "plate", "plain", "dish", "austere", "\u76bf", "\u30d7\u30ec\u30fc\u30c8"))
-            {
-                AddMnemonicPropPart(root, "Plate", PrimitiveType.Cylinder, new Vector3(0f, -0.06f, 0f), new Vector3(1.15f, 0.10f, 1.15f), new Color(0.92f, 0.92f, 0.86f), item);
-                AddMnemonicPropPart(root, "HardLight", PrimitiveType.Cube, new Vector3(0f, 0.22f, 0f), new Vector3(0.62f, 0.05f, 0.62f), new Color(1.0f, 0.96f, 0.72f), item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "person", "guest", "people", "crowd", "friend", "social", "gregarious", "\u4eba", "\u53cb", "\u5ba2"))
-            {
-                AddMnemonicPropPart(root, "BodyA", PrimitiveType.Capsule, new Vector3(-0.16f, 0f, 0f), new Vector3(0.34f, 0.95f, 0.34f), color, item);
-                AddMnemonicPropPart(root, "HeadA", PrimitiveType.Sphere, new Vector3(-0.16f, 0.58f, 0f), new Vector3(0.28f, 0.28f, 0.28f), new Color(0.94f, 0.70f, 0.52f), item);
-                AddMnemonicPropPart(root, "BodyB", PrimitiveType.Capsule, new Vector3(0.22f, -0.04f, 0.08f), new Vector3(0.30f, 0.82f, 0.30f), Color.Lerp(color, Color.white, 0.22f), item);
-                AddMnemonicPropPart(root, "HeadB", PrimitiveType.Sphere, new Vector3(0.22f, 0.48f, 0.08f), new Vector3(0.24f, 0.24f, 0.24f), new Color(0.94f, 0.70f, 0.52f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "book", "paper", "note", "word", "study", "\u672c", "\u7d19", "\u30ce\u30fc\u30c8"))
-            {
-                AddMnemonicPropPart(root, "OpenBookLeft", PrimitiveType.Cube, new Vector3(-0.12f, 0f, 0f), new Vector3(0.52f, 0.08f, 0.72f), new Color(0.92f, 0.88f, 0.76f), item);
-                AddMnemonicPropPart(root, "OpenBookRight", PrimitiveType.Cube, new Vector3(0.12f, 0f, 0f), new Vector3(0.52f, 0.08f, 0.72f), new Color(0.96f, 0.92f, 0.80f), item);
-                AddMnemonicPropPart(root, "Spine", PrimitiveType.Cube, new Vector3(0f, 0.04f, 0f), new Vector3(0.06f, 0.10f, 0.75f), new Color(0.36f, 0.20f, 0.14f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "crack", "broken", "shatter", "fragment", "fragile", "\u5272", "\u58ca", "\u7834"))
-            {
-                AddMnemonicPropPart(root, "ShardA", PrimitiveType.Cube, new Vector3(-0.12f, 0.08f, 0f), new Vector3(0.08f, 0.78f, 0.08f), color, item, false, new Vector3(0f, 0f, 28f));
-                AddMnemonicPropPart(root, "ShardB", PrimitiveType.Cube, new Vector3(0.12f, 0.02f, 0f), new Vector3(0.08f, 0.68f, 0.08f), Color.Lerp(color, Color.white, 0.2f), item, false, new Vector3(0f, 0f, -22f));
-                return true;
-            }
-
-            if (ContainsAny(text, "water", "drip", "rain", "melt", "ephemeral", "\u6c34", "\u96e8", "\u6ef4"))
-            {
-                AddMnemonicPropPart(root, "DropA", PrimitiveType.Sphere, new Vector3(-0.12f, 0.28f, 0f), new Vector3(0.32f, 0.42f, 0.32f), new Color(0.35f, 0.72f, 1f), item, true);
-                AddMnemonicPropPart(root, "DropB", PrimitiveType.Sphere, new Vector3(0.15f, 0.02f, 0.05f), new Vector3(0.26f, 0.34f, 0.26f), new Color(0.45f, 0.82f, 1f), item, true);
-                AddMnemonicPropPart(root, "Puddle", PrimitiveType.Cylinder, new Vector3(0f, -0.22f, 0f), new Vector3(0.88f, 0.06f, 0.52f), new Color(0.32f, 0.62f, 0.82f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "ice", "frost", "freeze", "snow", "cold", "\u6c37", "\u96ea", "\u51b7"))
-            {
-                AddMnemonicPropPart(root, "IceBlock", PrimitiveType.Cube, new Vector3(0f, 0.04f, 0f), new Vector3(0.82f, 0.62f, 0.82f), new Color(0.62f, 0.88f, 1.0f), item, true, new Vector3(0f, 18f, 0f));
-                AddMnemonicPropPart(root, "FrostEdgeA", PrimitiveType.Cube, new Vector3(-0.34f, 0.36f, 0.02f), new Vector3(0.08f, 0.22f, 0.72f), new Color(0.86f, 0.96f, 1.0f), item, true, new Vector3(0f, 0f, 12f));
-                AddMnemonicPropPart(root, "FrostEdgeB", PrimitiveType.Cube, new Vector3(0.22f, -0.18f, -0.22f), new Vector3(0.55f, 0.06f, 0.08f), new Color(0.86f, 0.96f, 1.0f), item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "chain", "lock", "locked", "shackle", "bind", "\u9396", "\u30ed\u30c3\u30af"))
-            {
-                AddMnemonicPropPart(root, "ChainA", PrimitiveType.Capsule, new Vector3(-0.22f, 0.18f, 0f), new Vector3(0.16f, 0.58f, 0.16f), new Color(0.60f, 0.62f, 0.66f), item, false, new Vector3(0f, 0f, 50f));
-                AddMnemonicPropPart(root, "ChainB", PrimitiveType.Capsule, new Vector3(0.18f, 0.18f, 0f), new Vector3(0.16f, 0.58f, 0.16f), new Color(0.66f, 0.68f, 0.72f), item, false, new Vector3(0f, 0f, -50f));
-                AddMnemonicPropPart(root, "LockBody", PrimitiveType.Cube, new Vector3(0f, -0.22f, 0f), new Vector3(0.50f, 0.36f, 0.18f), new Color(0.95f, 0.68f, 0.20f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "mirror", "reflect", "reflection", "glass", "\u93e1", "\u53cd\u5c04"))
-            {
-                AddMnemonicPropPart(root, "MirrorGlass", PrimitiveType.Cube, new Vector3(0f, 0.06f, 0f), new Vector3(0.76f, 0.92f, 0.06f), new Color(0.62f, 0.82f, 0.95f), item, true);
-                AddMnemonicPropPart(root, "MirrorFrameH", PrimitiveType.Cube, new Vector3(0f, 0.54f, -0.03f), new Vector3(0.88f, 0.08f, 0.10f), new Color(0.72f, 0.55f, 0.34f), item);
-                AddMnemonicPropPart(root, "MirrorFrameV", PrimitiveType.Cube, new Vector3(-0.44f, 0.06f, -0.03f), new Vector3(0.08f, 0.98f, 0.10f), new Color(0.72f, 0.55f, 0.34f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "clock", "time", "timer", "hour", "temporal", "\u6642", "\u6642\u9593", "\u6642\u8a08"))
-            {
-                AddMnemonicPropPart(root, "ClockFace", PrimitiveType.Cylinder, new Vector3(0f, 0.08f, 0f), new Vector3(0.82f, 0.10f, 0.82f), new Color(0.92f, 0.88f, 0.74f), item, false, new Vector3(90f, 0f, 0f));
-                AddMnemonicPropPart(root, "HourHand", PrimitiveType.Cube, new Vector3(0.08f, 0.10f, -0.04f), new Vector3(0.08f, 0.38f, 0.04f), new Color(0.12f, 0.12f, 0.14f), item, false, new Vector3(0f, 0f, -35f));
-                AddMnemonicPropPart(root, "MinuteHand", PrimitiveType.Cube, new Vector3(-0.10f, 0.11f, -0.04f), new Vector3(0.06f, 0.52f, 0.04f), new Color(0.12f, 0.12f, 0.14f), item, false, new Vector3(0f, 0f, 55f));
-                return true;
-            }
-
-            if (ContainsAny(text, "feather", "lightweight", "soft", "gentle", "\u7fbd", "\u8efd"))
-            {
-                AddMnemonicPropPart(root, "FeatherSpine", PrimitiveType.Capsule, new Vector3(0f, 0.04f, 0f), new Vector3(0.08f, 0.92f, 0.08f), new Color(0.92f, 0.88f, 0.72f), item, false, new Vector3(0f, 0f, -25f));
-                AddMnemonicPropPart(root, "FeatherLeft", PrimitiveType.Cube, new Vector3(-0.18f, 0.08f, 0f), new Vector3(0.34f, 0.08f, 0.04f), new Color(0.78f, 0.86f, 0.92f), item, false, new Vector3(0f, 0f, -18f));
-                AddMnemonicPropPart(root, "FeatherRight", PrimitiveType.Cube, new Vector3(0.18f, 0.18f, 0f), new Vector3(0.34f, 0.08f, 0.04f), new Color(0.86f, 0.92f, 0.96f), item, false, new Vector3(0f, 0f, 18f));
-                return true;
-            }
-
-            if (ContainsAny(text, "stone", "rock", "weight", "heavy", "burden", "\u77f3", "\u91cd"))
-            {
-                AddMnemonicPropPart(root, "StoneBody", PrimitiveType.Sphere, new Vector3(0f, -0.04f, 0f), new Vector3(0.84f, 0.62f, 0.76f), new Color(0.45f, 0.46f, 0.45f), item);
-                AddMnemonicPropPart(root, "StoneFacet", PrimitiveType.Cube, new Vector3(0.20f, 0.20f, -0.06f), new Vector3(0.32f, 0.08f, 0.34f), new Color(0.62f, 0.62f, 0.58f), item, false, new Vector3(0f, 0f, -24f));
-                return true;
-            }
-
-            if (ContainsAny(text, "arrow", "path", "point", "direction", "route", "\u77e2", "\u65b9\u5411"))
-            {
-                AddMnemonicPropPart(root, "ArrowShaft", PrimitiveType.Cube, new Vector3(-0.10f, 0.02f, 0f), new Vector3(0.78f, 0.08f, 0.08f), color, item);
-                AddMnemonicPropPart(root, "ArrowHeadA", PrimitiveType.Cube, new Vector3(0.34f, 0.14f, 0f), new Vector3(0.34f, 0.08f, 0.08f), color, item, false, new Vector3(0f, 0f, 38f));
-                AddMnemonicPropPart(root, "ArrowHeadB", PrimitiveType.Cube, new Vector3(0.34f, -0.10f, 0f), new Vector3(0.34f, 0.08f, 0.08f), color, item, false, new Vector3(0f, 0f, -38f));
-                return true;
-            }
-
-            if (ContainsAny(text, "eye", "watch", "observe", "look", "visible", "\u76ee", "\u898b"))
-            {
-                AddMnemonicPropPart(root, "EyeWhite", PrimitiveType.Sphere, new Vector3(0f, 0.06f, 0f), new Vector3(0.86f, 0.42f, 0.18f), new Color(0.96f, 0.96f, 0.90f), item);
-                AddMnemonicPropPart(root, "Iris", PrimitiveType.Sphere, new Vector3(0f, 0.06f, -0.08f), new Vector3(0.26f, 0.26f, 0.08f), color, item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "hand", "grab", "hold", "touch", "grasp", "\u624b", "\u63b4"))
-            {
-                AddMnemonicPropPart(root, "Palm", PrimitiveType.Sphere, new Vector3(0f, -0.06f, 0f), new Vector3(0.48f, 0.36f, 0.20f), new Color(0.94f, 0.70f, 0.52f), item);
-                AddMnemonicPropPart(root, "FingerA", PrimitiveType.Capsule, new Vector3(-0.18f, 0.22f, 0f), new Vector3(0.10f, 0.46f, 0.10f), new Color(0.94f, 0.70f, 0.52f), item);
-                AddMnemonicPropPart(root, "FingerB", PrimitiveType.Capsule, new Vector3(0.00f, 0.26f, 0f), new Vector3(0.10f, 0.54f, 0.10f), new Color(0.94f, 0.70f, 0.52f), item);
-                AddMnemonicPropPart(root, "FingerC", PrimitiveType.Capsule, new Vector3(0.18f, 0.22f, 0f), new Vector3(0.10f, 0.46f, 0.10f), new Color(0.94f, 0.70f, 0.52f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "web", "net", "mesh", "trap", "network", "\u7db2"))
-            {
-                AddMnemonicPropPart(root, "WebA", PrimitiveType.Cube, new Vector3(0f, 0.10f, 0f), new Vector3(0.92f, 0.035f, 0.035f), new Color(0.84f, 0.88f, 0.92f), item, false, new Vector3(0f, 0f, 0f));
-                AddMnemonicPropPart(root, "WebB", PrimitiveType.Cube, new Vector3(0f, 0.10f, 0f), new Vector3(0.92f, 0.035f, 0.035f), new Color(0.84f, 0.88f, 0.92f), item, false, new Vector3(0f, 0f, 60f));
-                AddMnemonicPropPart(root, "WebC", PrimitiveType.Cube, new Vector3(0f, 0.10f, 0f), new Vector3(0.92f, 0.035f, 0.035f), new Color(0.84f, 0.88f, 0.92f), item, false, new Vector3(0f, 0f, -60f));
-                return true;
-            }
-
-            if (ContainsAny(text, "balance", "scale", "weigh", "justice", "equal", "\u79e4", "\u5929\u79e4"))
-            {
-                AddMnemonicPropPart(root, "ScaleStand", PrimitiveType.Cylinder, new Vector3(0f, -0.06f, 0f), new Vector3(0.08f, 0.70f, 0.08f), new Color(0.64f, 0.55f, 0.36f), item);
-                AddMnemonicPropPart(root, "ScaleBeam", PrimitiveType.Cube, new Vector3(0f, 0.34f, 0f), new Vector3(1.05f, 0.06f, 0.06f), new Color(0.74f, 0.63f, 0.38f), item);
-                AddMnemonicPropPart(root, "PanLeft", PrimitiveType.Cylinder, new Vector3(-0.45f, -0.08f, 0f), new Vector3(0.34f, 0.04f, 0.34f), new Color(0.72f, 0.65f, 0.50f), item);
-                AddMnemonicPropPart(root, "PanRight", PrimitiveType.Cylinder, new Vector3(0.45f, -0.08f, 0f), new Vector3(0.34f, 0.04f, 0.34f), new Color(0.72f, 0.65f, 0.50f), item);
-                return true;
-            }
-
-            if (ContainsAny(text, "coin", "money", "gold", "wealth", "price", "\u91d1", "\u30b3\u30a4\u30f3"))
-            {
-                AddMnemonicPropPart(root, "CoinA", PrimitiveType.Cylinder, new Vector3(-0.18f, 0.00f, 0f), new Vector3(0.36f, 0.08f, 0.36f), new Color(1.0f, 0.76f, 0.20f), item, true, new Vector3(90f, 0f, 0f));
-                AddMnemonicPropPart(root, "CoinB", PrimitiveType.Cylinder, new Vector3(0.18f, 0.16f, 0f), new Vector3(0.32f, 0.08f, 0.32f), new Color(0.95f, 0.66f, 0.18f), item, true, new Vector3(90f, 0f, 0f));
-                return true;
-            }
-
-            if (ContainsAny(text, "flower", "vine", "leaf", "grow", "bloom", "\u82b1", "\u8449", "\u8513"))
-            {
-                AddMnemonicPropPart(root, "Stem", PrimitiveType.Cylinder, new Vector3(0f, 0.00f, 0f), new Vector3(0.07f, 0.72f, 0.07f), new Color(0.32f, 0.56f, 0.28f), item);
-                AddMnemonicPropPart(root, "PetalA", PrimitiveType.Sphere, new Vector3(-0.18f, 0.38f, 0f), new Vector3(0.28f, 0.18f, 0.22f), color, item, true);
-                AddMnemonicPropPart(root, "PetalB", PrimitiveType.Sphere, new Vector3(0.18f, 0.38f, 0f), new Vector3(0.28f, 0.18f, 0.22f), Color.Lerp(color, Color.white, 0.18f), item, true);
-                AddMnemonicPropPart(root, "Center", PrimitiveType.Sphere, new Vector3(0f, 0.34f, -0.02f), new Vector3(0.20f, 0.20f, 0.20f), new Color(1.0f, 0.78f, 0.22f), item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "crown", "king", "royal", "queen", "\u738b", "\u51a0"))
-            {
-                AddMnemonicPropPart(root, "CrownBand", PrimitiveType.Cube, new Vector3(0f, -0.10f, 0f), new Vector3(0.76f, 0.16f, 0.30f), new Color(1.0f, 0.74f, 0.18f), item, true);
-                AddMnemonicPropPart(root, "CrownPointA", PrimitiveType.Capsule, new Vector3(-0.28f, 0.16f, 0f), new Vector3(0.14f, 0.44f, 0.14f), new Color(1.0f, 0.78f, 0.24f), item, true);
-                AddMnemonicPropPart(root, "CrownPointB", PrimitiveType.Capsule, new Vector3(0f, 0.24f, 0f), new Vector3(0.16f, 0.56f, 0.16f), new Color(1.0f, 0.82f, 0.28f), item, true);
-                AddMnemonicPropPart(root, "CrownPointC", PrimitiveType.Capsule, new Vector3(0.28f, 0.16f, 0f), new Vector3(0.14f, 0.44f, 0.14f), new Color(1.0f, 0.78f, 0.24f), item, true);
-                return true;
-            }
-
-            if (ContainsAny(text, "heart", "love", "care", "warm", "\u5fc3", "\u611b"))
-            {
-                AddMnemonicPropPart(root, "HeartLeft", PrimitiveType.Sphere, new Vector3(-0.16f, 0.12f, 0f), new Vector3(0.36f, 0.36f, 0.24f), new Color(0.95f, 0.16f, 0.22f), item, true);
-                AddMnemonicPropPart(root, "HeartRight", PrimitiveType.Sphere, new Vector3(0.16f, 0.12f, 0f), new Vector3(0.36f, 0.36f, 0.24f), new Color(0.95f, 0.16f, 0.22f), item, true);
-                AddMnemonicPropPart(root, "HeartPoint", PrimitiveType.Cube, new Vector3(0f, -0.12f, 0f), new Vector3(0.36f, 0.36f, 0.22f), new Color(0.85f, 0.08f, 0.16f), item, true, new Vector3(0f, 0f, 45f));
-                return true;
-            }
-
-            return false;
+            return TryAddSemanticMnemonicProp(text, root, item, K("thread", "string", "wire", "rope", "line", "thin", "tenuous", "\u7cf8", "\u7dda", "\u7d30"), Prop("Thread", PrimitiveType.Cylinder, V(0f, 0.20f, 0f), V(0.10f, 2.3f, 0.10f), C(0.92f, 0.90f, 0.78f)), Prop("TinyWeight", PrimitiveType.Sphere, V(0f, -0.28f, 0f), V(0.42f, 0.42f, 0.42f), color))
+                || TryAddSemanticMnemonicProp(text, root, item, K("fire", "flame", "burn", "spark", "ignite", "blaze", "\u706b", "\u708e"), Prop("FlameCore", PrimitiveType.Capsule, V(0f, 0.12f, 0f), V(0.42f, 1.0f, 0.42f), C(1.0f, 0.42f, 0.10f), true), Prop("FlameGlow", PrimitiveType.Sphere, V(0f, 0.02f, 0f), V(0.72f, 0.42f, 0.72f), C(1.0f, 0.82f, 0.18f), true), Prop("Ember", PrimitiveType.Sphere, V(0.28f, -0.20f, -0.05f), V(0.18f, 0.18f, 0.18f), C(1.0f, 0.26f, 0.06f), true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("lantern", "lamp", "light", "glow", "luminous", "\u30e9\u30f3\u30bf\u30f3", "\u30e9\u30a4\u30c8", "\u5149"), Prop("LanternGlass", PrimitiveType.Sphere, V(0f, 0.10f, 0f), V(1.0f, 0.85f, 1.0f), C(1.0f, 0.82f, 0.28f), true), Prop("LanternTop", PrimitiveType.Cube, V(0f, 0.40f, 0f), V(0.72f, 0.16f, 0.72f), C(0.42f, 0.28f, 0.18f)), Prop("LanternBase", PrimitiveType.Cube, V(0f, -0.22f, 0f), V(0.72f, 0.12f, 0.72f), C(0.42f, 0.28f, 0.18f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("smoke", "fume", "poison", "toxic", "cloud", "mist", "\u7159", "\u6bd2", "\u96f2"), Prop("SmokeA", PrimitiveType.Sphere, V(-0.16f, 0.02f, 0f), V(0.72f, 0.52f, 0.72f), C(0.42f, 0.78f, 0.50f), true), Prop("SmokeB", PrimitiveType.Sphere, V(0.12f, 0.25f, 0.03f), V(0.62f, 0.48f, 0.62f), C(0.54f, 0.86f, 0.62f), true), Prop("SmokeC", PrimitiveType.Sphere, V(0.24f, 0.48f, -0.03f), V(0.48f, 0.36f, 0.48f), C(0.74f, 0.90f, 0.70f), true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("jar", "bottle", "spice", "vial", "potion", "\u74f6", "\u7f50", "\u30b8\u30e3\u30fc"), Prop("BottleBody", PrimitiveType.Cylinder, V(0f, 0.02f, 0f), V(0.62f, 1.15f, 0.62f), color), Prop("BottleCap", PrimitiveType.Cylinder, V(0f, 0.42f, 0f), V(0.46f, 0.18f, 0.46f), C(0.25f, 0.25f, 0.28f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("plate", "plain", "dish", "austere", "\u76bf", "\u30d7\u30ec\u30fc\u30c8"), Prop("Plate", PrimitiveType.Cylinder, V(0f, -0.06f, 0f), V(1.15f, 0.10f, 1.15f), C(0.92f, 0.92f, 0.86f)), Prop("HardLight", PrimitiveType.Cube, V(0f, 0.22f, 0f), V(0.62f, 0.05f, 0.62f), C(1.0f, 0.96f, 0.72f), true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("person", "guest", "people", "crowd", "friend", "social", "gregarious", "\u4eba", "\u53cb", "\u5ba2"), Prop("BodyA", PrimitiveType.Capsule, V(-0.16f, 0f, 0f), V(0.34f, 0.95f, 0.34f), color), Prop("HeadA", PrimitiveType.Sphere, V(-0.16f, 0.58f, 0f), V(0.28f, 0.28f, 0.28f), C(0.94f, 0.70f, 0.52f)), Prop("BodyB", PrimitiveType.Capsule, V(0.22f, -0.04f, 0.08f), V(0.30f, 0.82f, 0.30f), Color.Lerp(color, Color.white, 0.22f)), Prop("HeadB", PrimitiveType.Sphere, V(0.22f, 0.48f, 0.08f), V(0.24f, 0.24f, 0.24f), C(0.94f, 0.70f, 0.52f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("book", "paper", "note", "word", "study", "\u672c", "\u7d19", "\u30ce\u30fc\u30c8"), Prop("OpenBookLeft", PrimitiveType.Cube, V(-0.12f, 0f, 0f), V(0.52f, 0.08f, 0.72f), C(0.92f, 0.88f, 0.76f)), Prop("OpenBookRight", PrimitiveType.Cube, V(0.12f, 0f, 0f), V(0.52f, 0.08f, 0.72f), C(0.96f, 0.92f, 0.80f)), Prop("Spine", PrimitiveType.Cube, V(0f, 0.04f, 0f), V(0.06f, 0.10f, 0.75f), C(0.36f, 0.20f, 0.14f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("crack", "broken", "shatter", "fragment", "fragile", "\u5272", "\u58ca", "\u7834"), Prop("ShardA", PrimitiveType.Cube, V(-0.12f, 0.08f, 0f), V(0.08f, 0.78f, 0.08f), color, false, V(0f, 0f, 28f)), Prop("ShardB", PrimitiveType.Cube, V(0.12f, 0.02f, 0f), V(0.08f, 0.68f, 0.08f), Color.Lerp(color, Color.white, 0.2f), false, V(0f, 0f, -22f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("water", "drip", "rain", "melt", "ephemeral", "\u6c34", "\u96e8", "\u6ef4"), Prop("DropA", PrimitiveType.Sphere, V(-0.12f, 0.28f, 0f), V(0.32f, 0.42f, 0.32f), C(0.35f, 0.72f, 1f), true), Prop("DropB", PrimitiveType.Sphere, V(0.15f, 0.02f, 0.05f), V(0.26f, 0.34f, 0.26f), C(0.45f, 0.82f, 1f), true), Prop("Puddle", PrimitiveType.Cylinder, V(0f, -0.22f, 0f), V(0.88f, 0.06f, 0.52f), C(0.32f, 0.62f, 0.82f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("ice", "frost", "freeze", "snow", "cold", "\u6c37", "\u96ea", "\u51b7"), Prop("IceBlock", PrimitiveType.Cube, V(0f, 0.04f, 0f), V(0.82f, 0.62f, 0.82f), C(0.62f, 0.88f, 1.0f), true, V(0f, 18f, 0f)), Prop("FrostEdgeA", PrimitiveType.Cube, V(-0.34f, 0.36f, 0.02f), V(0.08f, 0.22f, 0.72f), C(0.86f, 0.96f, 1.0f), true, V(0f, 0f, 12f)), Prop("FrostEdgeB", PrimitiveType.Cube, V(0.22f, -0.18f, -0.22f), V(0.55f, 0.06f, 0.08f), C(0.86f, 0.96f, 1.0f), true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("chain", "lock", "locked", "shackle", "bind", "\u9396", "\u30ed\u30c3\u30af"), Prop("ChainA", PrimitiveType.Capsule, V(-0.22f, 0.18f, 0f), V(0.16f, 0.58f, 0.16f), C(0.60f, 0.62f, 0.66f), false, V(0f, 0f, 50f)), Prop("ChainB", PrimitiveType.Capsule, V(0.18f, 0.18f, 0f), V(0.16f, 0.58f, 0.16f), C(0.66f, 0.68f, 0.72f), false, V(0f, 0f, -50f)), Prop("LockBody", PrimitiveType.Cube, V(0f, -0.22f, 0f), V(0.50f, 0.36f, 0.18f), C(0.95f, 0.68f, 0.20f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("mirror", "reflect", "reflection", "glass", "\u93e1", "\u53cd\u5c04"), Prop("MirrorGlass", PrimitiveType.Cube, V(0f, 0.06f, 0f), V(0.76f, 0.92f, 0.06f), C(0.62f, 0.82f, 0.95f), true), Prop("MirrorFrameH", PrimitiveType.Cube, V(0f, 0.54f, -0.03f), V(0.88f, 0.08f, 0.10f), C(0.72f, 0.55f, 0.34f)), Prop("MirrorFrameV", PrimitiveType.Cube, V(-0.44f, 0.06f, -0.03f), V(0.08f, 0.98f, 0.10f), C(0.72f, 0.55f, 0.34f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("clock", "time", "timer", "hour", "temporal", "\u6642", "\u6642\u9593", "\u6642\u8a08"), Prop("ClockFace", PrimitiveType.Cylinder, V(0f, 0.08f, 0f), V(0.82f, 0.10f, 0.82f), C(0.92f, 0.88f, 0.74f), false, V(90f, 0f, 0f)), Prop("HourHand", PrimitiveType.Cube, V(0.08f, 0.10f, -0.04f), V(0.08f, 0.38f, 0.04f), C(0.12f, 0.12f, 0.14f), false, V(0f, 0f, -35f)), Prop("MinuteHand", PrimitiveType.Cube, V(-0.10f, 0.11f, -0.04f), V(0.06f, 0.52f, 0.04f), C(0.12f, 0.12f, 0.14f), false, V(0f, 0f, 55f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("feather", "lightweight", "soft", "gentle", "\u7fbd", "\u8efd"), Prop("FeatherSpine", PrimitiveType.Capsule, V(0f, 0.04f, 0f), V(0.08f, 0.92f, 0.08f), C(0.92f, 0.88f, 0.72f), false, V(0f, 0f, -25f)), Prop("FeatherLeft", PrimitiveType.Cube, V(-0.18f, 0.08f, 0f), V(0.34f, 0.08f, 0.04f), C(0.78f, 0.86f, 0.92f), false, V(0f, 0f, -18f)), Prop("FeatherRight", PrimitiveType.Cube, V(0.18f, 0.18f, 0f), V(0.34f, 0.08f, 0.04f), C(0.86f, 0.92f, 0.96f), false, V(0f, 0f, 18f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("stone", "rock", "weight", "heavy", "burden", "\u77f3", "\u91cd"), Prop("StoneBody", PrimitiveType.Sphere, V(0f, -0.04f, 0f), V(0.84f, 0.62f, 0.76f), C(0.45f, 0.46f, 0.45f)), Prop("StoneFacet", PrimitiveType.Cube, V(0.20f, 0.20f, -0.06f), V(0.32f, 0.08f, 0.34f), C(0.62f, 0.62f, 0.58f), false, V(0f, 0f, -24f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("arrow", "path", "point", "direction", "route", "\u77e2", "\u65b9\u5411"), Prop("ArrowShaft", PrimitiveType.Cube, V(-0.10f, 0.02f, 0f), V(0.78f, 0.08f, 0.08f), color), Prop("ArrowHeadA", PrimitiveType.Cube, V(0.34f, 0.14f, 0f), V(0.34f, 0.08f, 0.08f), color, false, V(0f, 0f, 38f)), Prop("ArrowHeadB", PrimitiveType.Cube, V(0.34f, -0.10f, 0f), V(0.34f, 0.08f, 0.08f), color, false, V(0f, 0f, -38f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("eye", "watch", "observe", "look", "visible", "\u76ee", "\u898b"), Prop("EyeWhite", PrimitiveType.Sphere, V(0f, 0.06f, 0f), V(0.86f, 0.42f, 0.18f), C(0.96f, 0.96f, 0.90f)), Prop("Iris", PrimitiveType.Sphere, V(0f, 0.06f, -0.08f), V(0.26f, 0.26f, 0.08f), color, true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("hand", "grab", "hold", "touch", "grasp", "\u624b", "\u63b4"), Prop("Palm", PrimitiveType.Sphere, V(0f, -0.06f, 0f), V(0.48f, 0.36f, 0.20f), C(0.94f, 0.70f, 0.52f)), Prop("FingerA", PrimitiveType.Capsule, V(-0.18f, 0.22f, 0f), V(0.10f, 0.46f, 0.10f), C(0.94f, 0.70f, 0.52f)), Prop("FingerB", PrimitiveType.Capsule, V(0.00f, 0.26f, 0f), V(0.10f, 0.54f, 0.10f), C(0.94f, 0.70f, 0.52f)), Prop("FingerC", PrimitiveType.Capsule, V(0.18f, 0.22f, 0f), V(0.10f, 0.46f, 0.10f), C(0.94f, 0.70f, 0.52f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("web", "net", "mesh", "trap", "network", "\u7db2"), Prop("WebA", PrimitiveType.Cube, V(0f, 0.10f, 0f), V(0.92f, 0.035f, 0.035f), C(0.84f, 0.88f, 0.92f), false, V(0f, 0f, 0f)), Prop("WebB", PrimitiveType.Cube, V(0f, 0.10f, 0f), V(0.92f, 0.035f, 0.035f), C(0.84f, 0.88f, 0.92f), false, V(0f, 0f, 60f)), Prop("WebC", PrimitiveType.Cube, V(0f, 0.10f, 0f), V(0.92f, 0.035f, 0.035f), C(0.84f, 0.88f, 0.92f), false, V(0f, 0f, -60f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("balance", "scale", "weigh", "justice", "equal", "\u79e4", "\u5929\u79e4"), Prop("ScaleStand", PrimitiveType.Cylinder, V(0f, -0.06f, 0f), V(0.08f, 0.70f, 0.08f), C(0.64f, 0.55f, 0.36f)), Prop("ScaleBeam", PrimitiveType.Cube, V(0f, 0.34f, 0f), V(1.05f, 0.06f, 0.06f), C(0.74f, 0.63f, 0.38f)), Prop("PanLeft", PrimitiveType.Cylinder, V(-0.45f, -0.08f, 0f), V(0.34f, 0.04f, 0.34f), C(0.72f, 0.65f, 0.50f)), Prop("PanRight", PrimitiveType.Cylinder, V(0.45f, -0.08f, 0f), V(0.34f, 0.04f, 0.34f), C(0.72f, 0.65f, 0.50f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("coin", "money", "gold", "wealth", "price", "\u91d1", "\u30b3\u30a4\u30f3"), Prop("CoinA", PrimitiveType.Cylinder, V(-0.18f, 0.00f, 0f), V(0.36f, 0.08f, 0.36f), C(1.0f, 0.76f, 0.20f), true, V(90f, 0f, 0f)), Prop("CoinB", PrimitiveType.Cylinder, V(0.18f, 0.16f, 0f), V(0.32f, 0.08f, 0.32f), C(0.95f, 0.66f, 0.18f), true, V(90f, 0f, 0f)))
+                || TryAddSemanticMnemonicProp(text, root, item, K("flower", "vine", "leaf", "grow", "bloom", "\u82b1", "\u8449", "\u8513"), Prop("Stem", PrimitiveType.Cylinder, V(0f, 0.00f, 0f), V(0.07f, 0.72f, 0.07f), C(0.32f, 0.56f, 0.28f)), Prop("PetalA", PrimitiveType.Sphere, V(-0.18f, 0.38f, 0f), V(0.28f, 0.18f, 0.22f), color, true), Prop("PetalB", PrimitiveType.Sphere, V(0.18f, 0.38f, 0f), V(0.28f, 0.18f, 0.22f), Color.Lerp(color, Color.white, 0.18f), true), Prop("Center", PrimitiveType.Sphere, V(0f, 0.34f, -0.02f), V(0.20f, 0.20f, 0.20f), C(1.0f, 0.78f, 0.22f), true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("crown", "king", "royal", "queen", "\u738b", "\u51a0"), Prop("CrownBand", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(0.76f, 0.16f, 0.30f), C(1.0f, 0.74f, 0.18f), true), Prop("CrownPointA", PrimitiveType.Capsule, V(-0.28f, 0.16f, 0f), V(0.14f, 0.44f, 0.14f), C(1.0f, 0.78f, 0.24f), true), Prop("CrownPointB", PrimitiveType.Capsule, V(0f, 0.24f, 0f), V(0.16f, 0.56f, 0.16f), C(1.0f, 0.82f, 0.28f), true), Prop("CrownPointC", PrimitiveType.Capsule, V(0.28f, 0.16f, 0f), V(0.14f, 0.44f, 0.14f), C(1.0f, 0.78f, 0.24f), true))
+                || TryAddSemanticMnemonicProp(text, root, item, K("heart", "love", "care", "warm", "\u5fc3", "\u611b"), Prop("HeartLeft", PrimitiveType.Sphere, V(-0.16f, 0.12f, 0f), V(0.36f, 0.36f, 0.24f), C(0.95f, 0.16f, 0.22f), true), Prop("HeartRight", PrimitiveType.Sphere, V(0.16f, 0.12f, 0f), V(0.36f, 0.36f, 0.24f), C(0.95f, 0.16f, 0.22f), true), Prop("HeartPoint", PrimitiveType.Cube, V(0f, -0.12f, 0f), V(0.36f, 0.36f, 0.22f), C(0.85f, 0.08f, 0.16f), true, V(0f, 0f, 45f)));
         }
+
+        private bool TryAddSemanticMnemonicProp(string text, Transform root, MnemonicItemData item, string[] terms, params PrimitivePartSpec[] parts)
+        {
+            if (!ContainsAny(text, terms))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                AddMnemonicPropPart(root, part.name, part.shape, part.localPosition, part.localScale, part.color, item, part.emissive, part.localEuler);
+            }
+
+            return true;
+        }
+
+        private struct PrimitivePartSpec
+        {
+            public string name; public PrimitiveType shape; public Vector3 localPosition; public Vector3 localScale; public Color color; public bool emissive; public Vector3 localEuler;
+            public PrimitivePartSpec(string name, PrimitiveType shape, Vector3 localPosition, Vector3 localScale, Color color, bool emissive, Vector3 localEuler)
+            {
+                this.name = name; this.shape = shape; this.localPosition = localPosition; this.localScale = localScale; this.color = color; this.emissive = emissive; this.localEuler = localEuler;
+            }
+        }
+
+        private static string[] K(params string[] terms) => terms;
+        private static Vector3 V(float x, float y, float z) => new Vector3(x, y, z);
+        private static Color C(float r, float g, float b, float a = 1f) => new Color(r, g, b, a);
+        private static PrimitivePartSpec Prop(string name, PrimitiveType shape, Vector3 localPosition, Vector3 localScale, Color color) => new PrimitivePartSpec(name, shape, localPosition, localScale, color, false, Vector3.zero);
+        private static PrimitivePartSpec Prop(string name, PrimitiveType shape, Vector3 localPosition, Vector3 localScale, Color color, bool emissive) => new PrimitivePartSpec(name, shape, localPosition, localScale, color, emissive, Vector3.zero);
+        private static PrimitivePartSpec Prop(string name, PrimitiveType shape, Vector3 localPosition, Vector3 localScale, Color color, bool emissive, Vector3 localEuler) => new PrimitivePartSpec(name, shape, localPosition, localScale, color, emissive, localEuler);
 
         private void AddMnemonicPropPart(
             Transform root,
@@ -9988,28 +9590,9 @@ namespace MemPalaceLLM
             builder.Append(item?.word).Append(' ');
             builder.Append(item?.meaning).Append(' ');
             builder.Append(item?.visualCue).Append(' ');
-            builder.Append(item?.mnemonic).Append(' ');
-            builder.Append(item?.visualCueJa).Append(' ');
-            builder.Append(item?.mnemonicJa);
+            builder.Append(item?.mnemonic);
 
             return builder.ToString().ToLowerInvariant();
-        }
-
-        private bool IsGenericVisualLabel(string label)
-        {
-            if (string.IsNullOrWhiteSpace(label))
-            {
-                return true;
-            }
-
-            var lower = label.ToLowerInvariant();
-            return lower == "prop"
-                || lower == "object"
-                || lower == "visual"
-                || lower == "memory cue"
-                || lower == "small prop"
-                || lower == "cue"
-                || lower.Contains("generic");
         }
 
         private GameObject CreateEnvironmentPrimitive(RoomPrimitiveDefinition primitive, Transform parent)
@@ -10282,7 +9865,11 @@ namespace MemPalaceLLM
                     {
                         return;
                     }
-                    if (!generatingImageCueWords.Contains(selectedStudyItem.word))
+                    if (generatingImageCueWords.Contains(selectedStudyItem.word))
+                    {
+                        imageGenerationStatus = $"The current image cue set for {selectedStudyItem.word} is still generating in the background.";
+                    }
+                    else
                     {
                         StartCoroutine(GenerateMnemonicImageCueRoutine(selectedStudyItem));
                     }
@@ -10627,8 +10214,8 @@ namespace MemPalaceLLM
             vrTitleText.text = selectedStudyItem.word;
             vrMeaningText.text = GetDisplayMeaningText(selectedStudyItem);
             vrAnchorText.text = "Anchor: " + selectedStudyItem.anchorLabel;
-            vrCueText.text = BuildVrBilingualSectionText("Scene", selectedStudyItem.visualCue, selectedStudyItem.visualCueJa);
-            vrStoryText.text = BuildVrBilingualSectionText("Story", selectedStudyItem.mnemonic, selectedStudyItem.mnemonicJa);
+            vrCueText.text = BuildVrSectionText("Scene", selectedStudyItem.visualCue);
+            vrStoryText.text = BuildVrSectionText("Story", selectedStudyItem.mnemonic);
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
             var hasGeneratedCue = mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null;
@@ -10642,7 +10229,7 @@ namespace MemPalaceLLM
             else if (hasGeneratedCue)
             {
                 vrPreviewHeaderText.text = "Generated Image Cue";
-                vrPreviewInfoText.text = "Look at this image, then press A / Grip to store it into the snapshot panel.";
+                vrPreviewInfoText.text = BuildVrImageCuePreviewInfo(selectedStudyItem, isGeneratingCue);
                 SetVrPanelPreview(vrPreviewImage, cueTexture);
             }
             else
@@ -10660,7 +10247,7 @@ namespace MemPalaceLLM
                 isGeneratingCue
                     ? "Generating Image Cue..."
                     : hasGeneratedCue
-                        ? "Regenerate Image Cue"
+                        ? "Regenerate Image Set"
                         : "Generate Image Cue");
 
             SetVrButtonState(
@@ -10671,30 +10258,6 @@ namespace MemPalaceLLM
             vrActionText.text = hasSnapshot
                 ? "Use the button or press A / Grip to replace the stored snapshot."
                 : "Use the buttons or press A / Grip to capture this memory.";
-        }
-
-        private void UpdateVrAdvanceButton()
-        {
-            if (vrAdvanceButton == null)
-            {
-                return;
-            }
-
-            if (!midTestCompleted)
-            {
-                var ready = memorizedWords.Count >= MidTestTriggerCount;
-                SetVrButtonState(vrAdvanceButton, ready, ready ? "Start Mid Test" : GetStudyProgressHint());
-                return;
-            }
-
-            if (!finalTestCompleted)
-            {
-                var ready = memorizedWords.Count == currentItems.Count && currentItems.Count >= MidTestTriggerCount;
-                SetVrButtonState(vrAdvanceButton, ready, ready ? "Start Final Test" : GetStudyProgressHint());
-                return;
-            }
-
-            SetVrButtonState(vrAdvanceButton, false, "All image tests complete");
         }
 
         private static void SetVrButtonState(VrPanelButtonInteractable button, bool enabled, string label)
@@ -10721,22 +10284,38 @@ namespace MemPalaceLLM
             }
         }
 
-        private static string BuildVrBilingualSectionText(string heading, string englishText, string japaneseText)
+        private static string BuildVrSectionText(string heading, string text)
         {
-            var english = CleanUserFacingMnemonicText(englishText);
-            var japanese = CleanUserFacingMnemonicText(japaneseText);
-
-            if (!string.IsNullOrWhiteSpace(japanese))
+            var displayText = CleanUserFacingMnemonicText(text);
+            if (!string.IsNullOrWhiteSpace(displayText))
             {
-                return $"{heading}: {japanese}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(english))
-            {
-                return $"{heading}: {english}";
+                return $"{heading}: {displayText}";
             }
 
             return $"{heading}:";
+        }
+
+        private string BuildVrImageCuePreviewInfo(MnemonicItemData item, bool isGeneratingCue)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.word))
+            {
+                return "Look at this image, then press A / Grip to store it into the snapshot panel.";
+            }
+
+            if (!imageCueCandidateResults.TryGetValue(item.word, out var results) || results == null || results.Count == 0)
+            {
+                return "Look at this image, then press A / Grip to store it into the snapshot panel.";
+            }
+
+            var displayedIndex = Mathf.Clamp(GetDisplayedImageCueCandidateIndex(item.word), 0, results.Count - 1);
+            var text = $"Showing best image set {displayedIndex + 1}/{results.Count}.";
+            if (isGeneratingCue && results.Count < BufferedImageCueResultCount)
+            {
+                text += " More best-of-four sets are being generated and scored in the background.";
+            }
+
+            text += " A / Grip stores the currently shown image.";
+            return text;
         }
 
         private static void SetVrPanelPreview(RawImage image, Texture texture)
@@ -11840,66 +11419,12 @@ namespace MemPalaceLLM
             return "This condition is configured for direct Ollama generation only.";
         }
 
-        private static bool CompareAnswers(string expected, string answer)
-        {
-            var normalizedExpected = NormalizeText(expected);
-            var normalizedAnswer = NormalizeText(answer);
-
-            if (string.IsNullOrWhiteSpace(normalizedExpected) || string.IsNullOrWhiteSpace(normalizedAnswer))
-            {
-                return false;
-            }
-
-            return normalizedExpected == normalizedAnswer
-                || normalizedExpected.IndexOf(normalizedAnswer, StringComparison.Ordinal) >= 0
-                || normalizedAnswer.IndexOf(normalizedExpected, StringComparison.Ordinal) >= 0;
-        }
-
-        private static string NormalizeText(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return string.Empty;
-            }
-
-            var builder = new StringBuilder(value.Length);
-            foreach (var ch in value.Trim().ToLowerInvariant())
-            {
-                if (char.IsLetterOrDigit(ch))
-                {
-                    builder.Append(ch);
-                }
-            }
-
-            return builder.ToString();
-        }
-
         private static Texture2D MakeTexture(Color color)
         {
             var texture = new Texture2D(1, 1);
             texture.SetPixel(0, 0, color);
             texture.Apply();
             return texture;
-        }
-
-        private static float GetMnemonicLabelSize(string word)
-        {
-            if (string.IsNullOrWhiteSpace(word))
-            {
-                return 0.08f;
-            }
-
-            if (word.Length >= 10)
-            {
-                return 0.07f;
-            }
-
-            if (word.Length >= 8)
-            {
-                return 0.075f;
-            }
-
-            return 0.085f;
         }
 
         private Font GetLabelFont()
@@ -11981,49 +11506,8 @@ namespace MemPalaceLLM
                 return string.Empty;
             }
 
-            var cleaned = StripUserFacingJapaneseAnchorLead(text.Trim());
-            cleaned = StripUserFacingEnglishAnchorLead(cleaned);
+            var cleaned = StripUserFacingEnglishAnchorLead(text.Trim());
             return cleaned.Trim();
-        }
-
-        private static string StripUserFacingJapaneseAnchorLead(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return string.Empty;
-            }
-
-            var markers = new[]
-            {
-                "を舞台に",
-                "を舞台として",
-                "を中心に",
-                "を記憶場所として",
-                "を記憶場所にして"
-            };
-
-            for (int i = 0; i < markers.Length; i++)
-            {
-                var markerIndex = text.IndexOf(markers[i], StringComparison.Ordinal);
-                if (markerIndex < 0 || markerIndex > 40)
-                {
-                    continue;
-                }
-
-                var commaIndex = text.IndexOf('、', markerIndex + markers[i].Length);
-                if (commaIndex >= 0)
-                {
-                    return text.Substring(commaIndex + 1).Trim();
-                }
-
-                var asciiCommaIndex = text.IndexOf(',', markerIndex + markers[i].Length);
-                if (asciiCommaIndex >= 0)
-                {
-                    return text.Substring(asciiCommaIndex + 1).Trim();
-                }
-            }
-
-            return text;
         }
 
         private static string StripUserFacingEnglishAnchorLead(string text)
@@ -12131,20 +11615,13 @@ namespace MemPalaceLLM
             return password ? GUILayout.PasswordField(value ?? string.Empty, '*') : GUILayout.TextField(value ?? string.Empty);
         }
 
-        private void DrawBilingualSection(string heading, string englishText, string japaneseText, GUIStyle headingStyle, GUIStyle bodyStyle)
+        private void DrawTextSection(string heading, string text, GUIStyle headingStyle, GUIStyle bodyStyle)
         {
             GUILayout.Label(heading, headingStyle);
-            var displayJapanese = CleanUserFacingMnemonicText(japaneseText);
-            var displayEnglish = CleanUserFacingMnemonicText(englishText);
-
-            if (!string.IsNullOrWhiteSpace(displayJapanese))
+            var displayText = CleanUserFacingMnemonicText(text);
+            if (!string.IsNullOrWhiteSpace(displayText))
             {
-                GUILayout.Label("JA: " + displayJapanese, bodyStyle);
-            }
-
-            if (!string.IsNullOrWhiteSpace(displayEnglish))
-            {
-                GUILayout.Label("EN: " + displayEnglish, bodyStyle);
+                GUILayout.Label(displayText, bodyStyle);
             }
         }
 
@@ -12239,6 +11716,22 @@ namespace MemPalaceLLM
             public string label;
             public string rawPrompt;
             public string fullPrompt;
+        }
+
+        private sealed class ImageCueCandidateResult
+        {
+            public int listIndex;
+            public int candidateIndex;
+            public string label;
+            public string innerLabel;
+            public string rawPrompt;
+            public string fullPrompt;
+            public Texture2D texture;
+            public ImageCueValidationResult validation;
+            public int score;
+            public bool pass;
+            public bool validationComplete;
+            public string reason;
         }
 
         [Serializable]

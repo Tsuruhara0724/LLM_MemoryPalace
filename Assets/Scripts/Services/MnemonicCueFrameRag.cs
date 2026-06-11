@@ -159,7 +159,7 @@ namespace MemPalaceLLM
                 return results;
             }
 
-            var wordText = (Safe(word.word) + " " + Safe(word.meaning) + " " + Safe(word.meaningJa)).ToLowerInvariant();
+            var wordText = (Safe(word.word) + " " + Safe(word.meaning)).ToLowerInvariant();
             var anchorText = (Safe(anchorId) + " " + Safe(anchorLabel)).ToLowerInvariant();
 
             for (int i = 0; i < library.cases.Length; i++)
