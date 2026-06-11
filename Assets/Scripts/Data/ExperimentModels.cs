@@ -65,6 +65,7 @@ namespace MemPalaceLLM
         public string visualCue;
         public string associationPrompt;
         public string mnemonic;
+        public string storyCue;
         public string imagePrompt;
         public List<string> imagePromptCandidates = new();
         public string selectedImagePrompt;
@@ -97,6 +98,7 @@ namespace MemPalaceLLM
         public string visualCue;
         public string associationPrompt;
         public string mnemonic;
+        public string storyCue;
         public string imagePrompt;
         public List<string> imagePromptCandidates = new();
         public string selectedImagePrompt;
@@ -165,6 +167,7 @@ namespace MemPalaceLLM
         public string cue;
         public string associationPrompt;
         public string mnemonic;
+        public string storyCue;
         public string imagePrompt;
         public List<string> imagePromptCandidates = new();
         public string selectedImagePrompt;

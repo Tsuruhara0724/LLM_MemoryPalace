@@ -57,6 +57,7 @@ namespace MemPalaceLLM
             public string visual_cue_en;
             public string association_prompt_en;
             public string mnemonic_en;
+            public string story_cue_en;
             public string image_prompt_en;
             public string[] image_prompt_candidates_en;
             public VisualObjectSpec[] visual_objects;
@@ -558,7 +559,7 @@ namespace MemPalaceLLM
                     rejectedMnemonic,
                     rejectedImagePrompt,
                     rejectionReason),
-                "You write JSON for Call 1 of a Unity memory-palace app. Return one replacement visual cue scene with association prompts and exactly four image prompt candidates. Do not generate mnemonic text. No markdown or commentary.",
+                "You write JSON for Call 1 of a Unity memory-palace app. Return one replacement image-focused visual cue scene with association prompts and exactly four image prompt candidates. Do not generate mnemonic or story text. No markdown or commentary.",
                 0.48f,
                 1400,
                 "replacement visual cue",
@@ -580,29 +581,52 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            GeneratedMnemonicEnvelope cueStoryEnvelope = null;
-            string cueStoryError = null;
+            GeneratedMnemonicEnvelope mnemonicLinkEnvelope = null;
+            string mnemonicLinkError = null;
             yield return RequestMnemonicEnvelope(
                 normalizedEndpoint,
                 normalizedModel,
-                BuildSingleCueStoryPrompt(word, visualCue, resolvedAnchorId, resolvedAnchorLabel),
-                "You write JSON for Call 2 of a Unity memory-palace app. Return only mnemonic_en with word and anchor. Write a tiny learner-friendly memory scene that connects the Spanish word form to the meaning. No new concrete objects. No markdown or commentary.",
+                BuildSingleMnemonicLinkPrompt(word, resolvedAnchorId, resolvedAnchorLabel),
+                "You write JSON for Call 2 of a Unity memory-palace app. Return only mnemonic_en with word and anchor. Write a concise memory link that connects the Spanish word form, target meaning, and assigned anchor. Do not write an image prompt or story. No markdown or commentary.",
                 0.38f,
                 800,
-                "replacement cue story",
+                "replacement mnemonic link",
                 null,
-                parsed => cueStoryEnvelope = parsed,
-                error => cueStoryError = error);
+                parsed => mnemonicLinkEnvelope = parsed,
+                error => mnemonicLinkError = error);
 
-            if (!string.IsNullOrWhiteSpace(cueStoryError))
+            if (!string.IsNullOrWhiteSpace(mnemonicLinkError))
             {
-                onError?.Invoke(cueStoryError);
+                onError?.Invoke(mnemonicLinkError);
                 yield break;
             }
 
-            var storyItems = AlignGeneratedItemsToWords(new List<WordEntry> { word }, cueStoryEnvelope?.items);
-            var cueStory = storyItems.Count > 0 ? storyItems[0] : null;
-            var generated = MergeVisualCueAndCueStory(word, visualCue, cueStory);
+            var mnemonicItems = AlignGeneratedItemsToWords(new List<WordEntry> { word }, mnemonicLinkEnvelope?.items);
+            var mnemonicLink = mnemonicItems.Count > 0 ? mnemonicItems[0] : null;
+
+            GeneratedMnemonicEnvelope storyCueEnvelope = null;
+            string storyCueError = null;
+            yield return RequestMnemonicEnvelope(
+                normalizedEndpoint,
+                normalizedModel,
+                BuildSingleStoryCuePrompt(word, visualCue, mnemonicLink, resolvedAnchorId, resolvedAnchorLabel),
+                "You write JSON for Call 3 of a Unity memory-palace app. Return only story_cue_en with word and anchor. Write an imaginative learner-facing story cue. Do not write image prompts. No markdown or commentary.",
+                0.46f,
+                900,
+                "replacement story cue",
+                null,
+                parsed => storyCueEnvelope = parsed,
+                error => storyCueError = error);
+
+            if (!string.IsNullOrWhiteSpace(storyCueError))
+            {
+                onError?.Invoke(storyCueError);
+                yield break;
+            }
+
+            var storyItems = AlignGeneratedItemsToWords(new List<WordEntry> { word }, storyCueEnvelope?.items);
+            var storyCue = storyItems.Count > 0 ? storyItems[0] : null;
+            var generated = MergeGeneratedMnemonicFields(word, visualCue, mnemonicLink, storyCue);
 
             var replacement = BuildMnemonicItemData(
                 word,
@@ -629,7 +653,7 @@ namespace MemPalaceLLM
                 endpoint,
                 model,
                 BuildVisualCuePrompt(words, globalOffset, totalWords),
-                "You write JSON for Call 1 of a Unity memory-palace app. Return visual cue scene fields, association prompts, and exactly four image prompt candidates per item. Do not generate mnemonic text. Return exactly one JSON object with top-level items. No markdown or commentary.",
+                "You write JSON for Call 1 of a Unity memory-palace app. Return image-focused visual cue scene fields, association prompts, and exactly four image prompt candidates per item. Do not generate mnemonic or story text. Return exactly one JSON object with top-level items. No markdown or commentary.",
                 0.42f,
                 Mathf.Clamp(words.Count * 560 + 520, 1400, 2600),
                 "visual cue",
@@ -650,27 +674,49 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            GeneratedMnemonicEnvelope cueStoryEnvelope = null;
-            string cueStoryError = null;
+            GeneratedMnemonicEnvelope mnemonicLinkEnvelope = null;
+            string mnemonicLinkError = null;
             yield return RequestMnemonicEnvelope(
                 endpoint,
                 model,
-                BuildCueStoryPrompt(words, alignedVisualCueItems, globalOffset, totalWords),
-                "You write JSON for Call 2 of a Unity memory-palace app. Return only mnemonic_en with word and anchor. Write a tiny learner-friendly memory scene that connects each Spanish word form to its meaning. No new concrete objects. No markdown or commentary.",
+                BuildMnemonicLinkPrompt(words, globalOffset, totalWords),
+                "You write JSON for Call 2 of a Unity memory-palace app. Return only mnemonic_en with word and anchor. Write concise memory links that connect each Spanish word form, target meaning, and assigned anchor. Do not write image prompts or stories. No markdown or commentary.",
                 0.38f,
                 Mathf.Clamp(words.Count * 260 + 360, 800, 1500),
-                "cue story",
+                "mnemonic link",
                 null,
-                parsed => cueStoryEnvelope = parsed,
-                error => cueStoryError = error);
+                parsed => mnemonicLinkEnvelope = parsed,
+                error => mnemonicLinkError = error);
 
-            if (!string.IsNullOrWhiteSpace(cueStoryError))
+            if (!string.IsNullOrWhiteSpace(mnemonicLinkError))
             {
-                onError?.Invoke(cueStoryError);
+                onError?.Invoke(mnemonicLinkError);
                 yield break;
             }
 
-            var alignedCueStoryItems = AlignGeneratedItemsToWords(words, cueStoryEnvelope?.items);
+            var alignedMnemonicLinkItems = AlignGeneratedItemsToWords(words, mnemonicLinkEnvelope?.items);
+
+            GeneratedMnemonicEnvelope storyCueEnvelope = null;
+            string storyCueError = null;
+            yield return RequestMnemonicEnvelope(
+                endpoint,
+                model,
+                BuildStoryCuePrompt(words, alignedVisualCueItems, alignedMnemonicLinkItems, globalOffset, totalWords),
+                "You write JSON for Call 3 of a Unity memory-palace app. Return only story_cue_en with word and anchor. Write imaginative learner-facing story cues. Do not write image prompts. No markdown or commentary.",
+                0.46f,
+                Mathf.Clamp(words.Count * 320 + 420, 900, 1800),
+                "story cue",
+                null,
+                parsed => storyCueEnvelope = parsed,
+                error => storyCueError = error);
+
+            if (!string.IsNullOrWhiteSpace(storyCueError))
+            {
+                onError?.Invoke(storyCueError);
+                yield break;
+            }
+
+            var alignedStoryCueItems = AlignGeneratedItemsToWords(words, storyCueEnvelope?.items);
             var items = new List<MnemonicItemData>();
 
             for (int i = 0; i < alignedVisualCueItems.Count && i < words.Count; i++)
@@ -684,8 +730,9 @@ namespace MemPalaceLLM
 
                 var globalIndex = globalOffset + i;
                 var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
-                var cueStory = i < alignedCueStoryItems.Count ? alignedCueStoryItems[i] : null;
-                var merged = MergeVisualCueAndCueStory(sourceWord, visualCue, cueStory);
+                var mnemonicLink = i < alignedMnemonicLinkItems.Count ? alignedMnemonicLinkItems[i] : null;
+                var storyCue = i < alignedStoryCueItems.Count ? alignedStoryCueItems[i] : null;
+                var merged = MergeGeneratedMnemonicFields(sourceWord, visualCue, mnemonicLink, storyCue);
 
                 items.Add(BuildMnemonicItemData(sourceWord, merged, globalIndex, anchor.id, anchor.label));
             }
@@ -838,6 +885,7 @@ namespace MemPalaceLLM
                 visualCue = generated.visual_cue_en,
                 associationPrompt = FirstNonEmpty(generated.association_prompt_en, generated.image_prompt_en, generated.visual_cue_en),
                 mnemonic = generated.mnemonic_en,
+                storyCue = generated.story_cue_en,
                 imagePrompt = generated.image_prompt_en,
                 imagePromptCandidates = NormalizeImagePromptCandidates(generated),
                 objectShape = PickShape(itemIndex),
@@ -1059,7 +1107,7 @@ namespace MemPalaceLLM
             var hiddenCueRules = BuildHiddenCueRejectionRules();
 
             return
-                "CALL 1 of 2: Generate only the Image Scene / visual cue for VR memory palace vocabulary learning.\n" +
+                "CALL 1 of 3: Generate only the Association Image Cue / visual cue for VR memory palace vocabulary learning.\n" +
                 "Return exactly " + words.Count + " item(s), only for the WORDS listed below.\n\n" +
                 "Use this complete word and anchor data:\n\n" +
                 "WORDS:\n" + wordLines +
@@ -1068,7 +1116,7 @@ namespace MemPalaceLLM
                 academicSafetyRules +
                 "Goal for Call 1:\n" +
                 "- Generate only a realistic visual cue that specifically retrieves the target meaning.\n" +
-                "- Do not generate mnemonic text yet.\n" +
+                "- Do not generate mnemonic text or story text yet.\n" +
                 "- Do not consider the Spanish word form, pronunciation, spelling, cognates, puns, or sound similarity.\n" +
                 "- Treat the Spanish word only as an item identifier. The scene should be planned from the meaning and assigned anchor only.\n" +
                 "- The final scene must be meaning-first and image-stable.\n\n" +
@@ -1116,7 +1164,7 @@ namespace MemPalaceLLM
                 "- visual_objects must list every concrete foreground object used for meaning retrieval.\n" +
                 "- Do not include the anchor itself in visual_objects unless the anchor is also part of the foreground cue.\n" +
                 "- Do not include abstract ideas, emotions, meanings, or invisible sound hints in visual_objects.\n" +
-                "- Do not output mnemonic_en in Call 1.\n\n" +
+                "- Do not output mnemonic_en or story_cue_en in Call 1.\n\n" +
                 "Before outputting JSON, silently check each item:\n" +
                 "1. Can the visual scene retrieve the meaning without reading the Spanish word?\n" +
                 "2. Are the anchor and foreground cue both visible and close together?\n" +
@@ -1169,7 +1217,7 @@ namespace MemPalaceLLM
                 "\nReturn exactly " + words.Count + " items in one JSON object whose top-level key is items.\n" +
                 "Use each anchor_id and anchor_label exactly.\n" +
                 "Generate only visual_cue_en, association_prompt_en, image_prompt_en, image_prompt_candidates_en, and visual_objects.\n" +
-                "Do not output mnemonic_en. Do not consider Spanish sound, spelling, cognates, or puns.\n" +
+                "Do not output mnemonic_en or story_cue_en. Do not consider Spanish sound, spelling, cognates, or puns.\n" +
                 "The visual cue must retrieve the meaning first through a realistic target-meaning event at the assigned anchor.\n" +
                 "Do not make target-object displays: no model/miniature/toy simply sitting, resting, perched, balanced, or displayed on furniture.\n" +
                 "For nature/outdoor/place/travel/large meanings, use indoor proxy objects in action rather than real outdoor scenes or static models.\n" +
@@ -1193,13 +1241,86 @@ namespace MemPalaceLLM
                 "}";
         }
 
-        private static string BuildCueStoryPrompt(
+        private static string BuildMnemonicLinkPrompt(
             List<WordEntry> words,
-            List<GeneratedMnemonicItem> visualCueItems,
             int globalOffset,
             int totalWords)
         {
-            var sceneLines = new StringBuilder();
+            var linkLines = new StringBuilder();
+            for (int i = 0; i < words.Count; i++)
+            {
+                var word = words[i];
+                var globalIndex = globalOffset + i;
+                var wordNumber = globalIndex + 1;
+                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                linkLines.Append(wordNumber)
+                    .Append(". word=").Append(SafePromptText(word.word))
+                    .Append("; meaning=").Append(SafePromptText(word.meaning))
+                    .Append("; anchor_id=").Append(anchor.id)
+                    .Append("; anchor_label=").Append(anchor.label)
+                    .AppendLine();
+            }
+
+            var academicSafetyRules = BuildAcademicSafetyRules();
+
+            return
+                "CALL 2 of 3: Generate only the Mnemonic Link for memory-palace vocabulary learning.\n\n" +
+                "INPUT WORDS AND ANCHORS:\n" + linkLines +
+                "\n" + academicSafetyRules +
+                "Goal for Call 2:\n" +
+                "- mnemonic_en is a memory-link explanation, not an image prompt and not a story cue.\n" +
+                "- Connect exactly three things: the assigned anchor, the Spanish word form, and the target meaning.\n" +
+                "- Work from the word form, target meaning, and assigned anchor only; do not depend on the Association Image Cue.\n" +
+                "- Explain why the word should stick in memory, using a sound hook, familiar association, action, or anchor relation.\n" +
+                "- Keep it learner-facing and compact.\n\n" +
+                "Mnemonic Link rules:\n" +
+                "- The Spanish word should appear exactly once in mnemonic_en.\n" +
+                "- Mention the assigned anchor label naturally.\n" +
+                "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
+                "- If no natural sound hook exists, make the anchor relation the main reason the word sticks.\n" +
+                "- Do not introduce a new image composition, new foreground prop list, camera direction, or visual prompt.\n" +
+                "- Do not mention or assume any generated image, visual cue, association prompt, image prompt, or 3D proxy prop.\n" +
+                "- Do not say \"repeat the word\" or use meta phrases such as \"visible cue,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
+                "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
+                "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 42 words.\n\n" +
+                "Few-shot example to imitate:\n" +
+                "word: playa\n" +
+                "meaning: beach\n" +
+                "anchor_label: Door\n" +
+                "mnemonic_en: \"At the Door, playa links to beach because it sounds like play, so the doorway becomes the place where beach-play begins.\"\n" +
+                "Why it works: the anchor is included, playa appears once, and the memory logic is explicit without becoming an image prompt.\n\n" +
+                "Hard constraints:\n" +
+                "- mnemonic_en is not used for image generation, so do not optimize it for drawing.\n" +
+                "- Keep the link neutral and participant-safe for academic research.\n\n" +
+                "Field rules:\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 42 words.\n" +
+                "- Output only word, anchor, and mnemonic_en. Do not output visual_cue_en, association_prompt_en, image_prompt_en, or visual_objects.\n\n" +
+                "Before outputting JSON, silently check each item:\n" +
+                "1. Does mnemonic_en explain a link among anchor, Spanish word form, and meaning?\n" +
+                "2. Does mnemonic_en include the Spanish word exactly once?\n" +
+                "3. Did you avoid image-prompt language and story expansion?\n" +
+                "4. Is the link free of sexual, gambling, drug, crime, weapon, horror, gore, and other unsafe associations?\n\n" +
+                "Output only valid JSON in this shape:\n" +
+                "{\n" +
+                "  \"items\": [\n" +
+                "    {\n" +
+                "      \"word\": \"the word\",\n" +
+                "      \"anchor\": \"the assigned anchor_id\",\n" +
+                "      \"mnemonic_en\": \"compact anchor-word-meaning memory link with the Spanish word once\"\n" +
+                "    }\n" +
+                "  ]\n" +
+                "}";
+        }
+
+        private static string BuildStoryCuePrompt(
+            List<WordEntry> words,
+            List<GeneratedMnemonicItem> visualCueItems,
+            List<GeneratedMnemonicItem> mnemonicLinkItems,
+            int globalOffset,
+            int totalWords)
+        {
+            var storyLines = new StringBuilder();
             for (int i = 0; i < words.Count; i++)
             {
                 var word = words[i];
@@ -1207,68 +1328,44 @@ namespace MemPalaceLLM
                 var wordNumber = globalIndex + 1;
                 var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
                 var visualCue = i < visualCueItems.Count ? visualCueItems[i] : null;
-                sceneLines.Append(wordNumber)
+                var mnemonicLink = i < mnemonicLinkItems.Count ? mnemonicLinkItems[i] : null;
+                storyLines.Append(wordNumber)
                     .Append(". word=").Append(SafePromptText(word.word))
                     .Append("; meaning=").Append(SafePromptText(word.meaning))
                     .Append("; anchor_id=").Append(anchor.id)
                     .Append("; anchor_label=").Append(anchor.label)
                     .AppendLine();
-                sceneLines.Append("   visual_cue_en=").Append(CompactPromptLine(visualCue?.visual_cue_en)).AppendLine();
-                sceneLines.Append("   association_prompt_en=").Append(CompactPromptLine(visualCue?.association_prompt_en)).AppendLine();
-                sceneLines.Append("   image_prompt_en=").Append(CompactPromptLine(visualCue?.image_prompt_en)).AppendLine();
-                sceneLines.Append("   visual_objects=").Append(FormatVisualObjectLabels(visualCue?.visual_objects)).AppendLine();
+                storyLines.Append("   visual_cue_en=").Append(CompactPromptLine(visualCue?.visual_cue_en)).AppendLine();
+                storyLines.Append("   association_prompt_en=").Append(CompactPromptLine(visualCue?.association_prompt_en)).AppendLine();
+                storyLines.Append("   mnemonic_en=").Append(CompactPromptLine(mnemonicLink?.mnemonic_en)).AppendLine();
             }
 
             var academicSafetyRules = BuildAcademicSafetyRules();
 
             return
-                "CALL 2 of 2: Generate only the Cue Story / memory link from the already generated visual scene.\n\n" +
-                "INPUT SCENES:\n" + sceneLines +
+                "CALL 3 of 3: Generate only the Story Cue for learner imagination.\n\n" +
+                "INPUT LINKS:\n" + storyLines +
                 "\n" + academicSafetyRules +
-                "Goal for Call 2:\n" +
-                "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
-                "- Write mnemonic_en based only on the provided visual scene and association_prompt_en.\n" +
-                "- Do not change, improve, reinterpret, or replace the visual scene.\n" +
-                "- Do not introduce any new concrete foreground object, person, place, prop, animal, sign, label, or visual detail.\n" +
-                "- Do not merely restate visual_cue_en or association_prompt_en in shorter words.\n\n" +
-                "Cue Story rules:\n" +
-                "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
-                "- The story should connect the Spanish word form to the meaning through a simple familiar word, sound, action, or scene.\n" +
-                "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
-                "- The Spanish word should appear once in mnemonic_en.\n" +
-                "- The story should feel like something a learner can actually imagine, not a system explanation.\n" +
-                "- Do not use meta phrases such as \"visible cue,\" \"points to,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
-                "- Do not merely say \"repeat the word.\"\n" +
-                "- If a natural sound hook exists, build the micro-story around it.\n" +
-                "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
-                "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
-                "- Do not write tautologies such as \"the curtain reminds you of cortina because cortina means curtain.\"\n" +
-                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
-                "Few-shot example to imitate:\n" +
-                "word: playa\n" +
-                "meaning: beach\n" +
-                "mnemonic_en: \"The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play.\"\n" +
-                "Why it works: the meaning is clear, playa sounds like play, and the story is simple, visual, and easy to imagine.\n\n" +
-                "Hard constraints:\n" +
-                "- Every concrete object mentioned in mnemonic_en must already appear in visual_cue_en, association_prompt_en, or visual_objects.\n" +
-                "- Do not mention hidden etymology, spelling tricks, private explanations, labels, written words, signs, or objects the learner cannot see.\n" +
-                "- Keep the cue story neutral and participant-safe for academic research.\n\n" +
-                "Field rules:\n" +
-                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n" +
-                "- Output only word, anchor, and mnemonic_en. Do not output visual_cue_en, image_prompt_en, or visual_objects.\n\n" +
-                "Before outputting JSON, silently check each item:\n" +
-                "1. Does mnemonic_en feel like a learner-friendly micro-story, not a system explanation?\n" +
-                "2. Did you avoid introducing new concrete objects?\n" +
-                "3. Does mnemonic_en include the Spanish word exactly once?\n" +
-                "4. Does mnemonic_en use a natural sound hook when one exists, or use the Spanish word as the name of the existing cue when no natural hook exists?\n" +
-                "5. Is the mnemonic free of sexual, gambling, drug, crime, weapon, horror, gore, and other unsafe associations?\n\n" +
+                "Goal for Call 3:\n" +
+                "- story_cue_en is a learner-facing imaginative story, not an image prompt and not the compact mnemonic link.\n" +
+                "- Let the user imagine beyond the generated image and simple 3D proxy props.\n" +
+                "- Start from the assigned anchor and the image cue, then expand into a small memorable moment.\n" +
+                "- Preserve the target meaning and the mnemonic logic, but do not copy mnemonic_en word for word.\n\n" +
+                "Story Cue rules:\n" +
+                "- The Spanish word should appear exactly once in story_cue_en.\n" +
+                "- Mention the assigned anchor label naturally.\n" +
+                "- It may include sensory details, motion, consequence, and a little context beyond what the image model can draw.\n" +
+                "- Keep it concrete and easy to imagine, but do not describe camera framing, image quality, or prompt syntax.\n" +
+                "- Do not add written labels, signs, logos, or text in the imagined scene.\n" +
+                "- Do not introduce unsafe sexual, gambling, drug, crime, weapon, horror, gore, or stigmatizing imagery.\n" +
+                "- story_cue_en should be 2 or 3 sentences, 35 to 80 words.\n\n" +
                 "Output only valid JSON in this shape:\n" +
                 "{\n" +
                 "  \"items\": [\n" +
                 "    {\n" +
                 "      \"word\": \"the word\",\n" +
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
-                "      \"mnemonic_en\": \"tiny learner-friendly memory scene with the Spanish word once\"\n" +
+                "      \"story_cue_en\": \"imaginative learner-facing story cue with the Spanish word once\"\n" +
                 "    }\n" +
                 "  ]\n" +
                 "}";
@@ -1296,7 +1393,7 @@ namespace MemPalaceLLM
             var hiddenCueRules = BuildHiddenCueRejectionRules();
 
             return
-                "CALL 1 of 2: Regenerate only the Image Scene / visual cue because the current cue scene was rejected.\n\n" +
+                "CALL 1 of 3: Regenerate only the Association Image Cue / visual cue because the current cue scene was rejected.\n\n" +
                 "TARGET DATA:\n" +
                 "word=" + word.word.Trim() + "\n" +
                 "meaning=" + (word.meaning ?? string.Empty).Trim() + "\n" +
@@ -1311,7 +1408,7 @@ namespace MemPalaceLLM
                 "rejection_reason=" + CompactPromptLine(reason) + "\n\n" +
                 "Goal for Call 1:\n" +
                 "- Generate only a new realistic visual cue that specifically retrieves the target meaning.\n" +
-                "- Do not generate mnemonic_en yet.\n" +
+                "- Do not generate mnemonic_en or story_cue_en yet.\n" +
                 "- Do not consider the Spanish word form, pronunciation, spelling, cognates, puns, or sound similarity.\n" +
                 "- Treat the Spanish word only as an item identifier; plan the scene from the meaning and assigned anchor only.\n" +
                 "- Build a target-meaning event, not a target-object display or furniture exhibit.\n" +
@@ -1350,56 +1447,48 @@ namespace MemPalaceLLM
                 "}";
         }
 
-        private static string BuildSingleCueStoryPrompt(
+        private static string BuildSingleMnemonicLinkPrompt(
             WordEntry word,
-            GeneratedMnemonicItem visualCue,
             string anchorId,
             string anchorLabel)
         {
             var academicSafetyRules = BuildAcademicSafetyRules();
 
             return
-                "CALL 2 of 2: Generate only the Cue Story / memory link from the already generated visual scene.\n\n" +
-                "INPUT SCENE:\n" +
+                "CALL 2 of 3: Generate only the Mnemonic Link for memory-palace vocabulary learning.\n\n" +
+                "INPUT WORD AND ANCHOR:\n" +
                 "word=" + word.word.Trim() + "\n" +
                 "meaning=" + (word.meaning ?? string.Empty).Trim() + "\n" +
                 "anchor_id=" + anchorId + "\n" +
-                "anchor_label=" + anchorLabel + "\n" +
-                "visual_cue_en=" + CompactPromptLine(visualCue?.visual_cue_en) + "\n" +
-                "association_prompt_en=" + CompactPromptLine(visualCue?.association_prompt_en) + "\n" +
-                "image_prompt_en=" + CompactPromptLine(visualCue?.image_prompt_en) + "\n" +
-                "visual_objects=" + FormatVisualObjectLabels(visualCue?.visual_objects) + "\n\n" +
+                "anchor_label=" + anchorLabel + "\n\n" +
                 academicSafetyRules +
                 "Goal for Call 2:\n" +
-                "- Cue Story should be a tiny learner-friendly memory scene, where the Spanish word form naturally connects to the meaning.\n" +
-                "- Write mnemonic_en based only on this visual scene and association_prompt_en.\n" +
-                "- Do not change, improve, reinterpret, or replace the visual scene.\n" +
-                "- Do not introduce any new concrete foreground object, person, place, prop, animal, sign, label, or visual detail.\n" +
-                "- Do not merely restate visual_cue_en or association_prompt_en in shorter words.\n\n" +
-                "Cue Story rules:\n" +
-                "- mnemonic_en should be a short, natural micro-story that helps the learner remember both the meaning and the Spanish word.\n" +
-                "- The story should connect the Spanish word form to the meaning through a simple familiar word, sound, action, or scene.\n" +
+                "- mnemonic_en is a compact memory-link explanation, not an image prompt and not an imagination story.\n" +
+                "- Connect exactly three things: the assigned anchor, the Spanish word form, and the target meaning.\n" +
+                "- Work from the word form, target meaning, and assigned anchor only; do not depend on the Association Image Cue.\n" +
+                "- Explain why the word should stick in memory, using a sound hook, familiar association, action, or anchor relation.\n\n" +
+                "Mnemonic Link rules:\n" +
+                "- The Spanish word should appear exactly once in mnemonic_en.\n" +
+                "- Mention the assigned anchor label naturally.\n" +
                 "- Prefer natural associations like \"playa -> play at the beach\" over forced syllable splitting.\n" +
-                "- The Spanish word should appear once in mnemonic_en.\n" +
-                "- The story should feel like something a learner can actually imagine, not a system explanation.\n" +
-                "- Do not use meta phrases such as \"visible cue,\" \"points to,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
-                "- Do not merely say \"repeat the word.\"\n" +
-                "- If a natural sound hook exists, build the micro-story around it.\n" +
-                "- If no natural sound hook exists, create a small story where the Spanish word is used as the name of the existing cue object or event.\n" +
+                "- If no natural sound hook exists, make the anchor relation the main reason the word sticks.\n" +
+                "- Do not write camera framing, image prompt language, or story expansion.\n" +
+                "- Do not mention or assume any generated image, visual cue, association prompt, image prompt, or 3D proxy prop.\n" +
+                "- Do not use meta phrases such as \"visible cue,\" \"retrieves,\" \"bind syllables,\" \"action rhythm,\" or \"same scene.\"\n" +
                 "- Do not use unsafe associations as hooks, even if the Spanish word resembles them.\n" +
                 "- Do not write tautologies or explain the word using itself.\n" +
-                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 42 words.\n\n" +
                 "Few-shot example to imitate:\n" +
                 "word: playa\n" +
                 "meaning: beach\n" +
-                "mnemonic_en: \"The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play.\"\n" +
-                "Why it works: the meaning is clear, playa sounds like play, and the story is simple, visual, and easy to imagine.\n\n" +
+                "anchor_label: Door\n" +
+                "mnemonic_en: \"At the Door, playa links to beach because it sounds like play, so the doorway becomes the place where beach-play begins.\"\n" +
+                "Why it works: the anchor is included, playa appears once, and the memory logic is explicit without becoming an image prompt.\n\n" +
                 "Hard constraints:\n" +
-                "- Every concrete object mentioned in mnemonic_en must already appear in visual_cue_en, association_prompt_en, or visual_objects.\n" +
-                "- Do not mention hidden etymology, spelling tricks, labels, written words, signs, or objects the learner cannot see.\n" +
-                "- Keep the cue story neutral and participant-safe for academic research.\n\n" +
+                "- mnemonic_en is not used for image generation, so do not optimize it for drawing.\n" +
+                "- Keep the link neutral and participant-safe for academic research.\n\n" +
                 "Field rules:\n" +
-                "- mnemonic_en should be 1 or 2 sentences, 18 to 45 words.\n" +
+                "- mnemonic_en should be 1 or 2 sentences, 18 to 42 words.\n" +
                 "- Output only word, anchor, and mnemonic_en.\n\n" +
                 "Output only valid JSON in this schema:\n" +
                 "{\n" +
@@ -1407,7 +1496,52 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"" + word.word.Trim() + "\",\n" +
                 "      \"anchor\": \"" + anchorId + "\",\n" +
-                "      \"mnemonic_en\": \"tiny learner-friendly memory scene with the Spanish word once\"\n" +
+                "      \"mnemonic_en\": \"compact anchor-word-meaning memory link with the Spanish word once\"\n" +
+                "    }\n" +
+                "  ]\n" +
+                "}";
+        }
+
+        private static string BuildSingleStoryCuePrompt(
+            WordEntry word,
+            GeneratedMnemonicItem visualCue,
+            GeneratedMnemonicItem mnemonicLink,
+            string anchorId,
+            string anchorLabel)
+        {
+            var academicSafetyRules = BuildAcademicSafetyRules();
+
+            return
+                "CALL 3 of 3: Generate only the Story Cue for learner imagination.\n\n" +
+                "INPUT LINK:\n" +
+                "word=" + word.word.Trim() + "\n" +
+                "meaning=" + (word.meaning ?? string.Empty).Trim() + "\n" +
+                "anchor_id=" + anchorId + "\n" +
+                "anchor_label=" + anchorLabel + "\n" +
+                "visual_cue_en=" + CompactPromptLine(visualCue?.visual_cue_en) + "\n" +
+                "association_prompt_en=" + CompactPromptLine(visualCue?.association_prompt_en) + "\n" +
+                "mnemonic_en=" + CompactPromptLine(mnemonicLink?.mnemonic_en) + "\n\n" +
+                academicSafetyRules +
+                "Goal for Call 3:\n" +
+                "- story_cue_en is a learner-facing imaginative story, not an image prompt and not the compact mnemonic link.\n" +
+                "- Let the user imagine beyond the generated image and simple 3D proxy props.\n" +
+                "- Start from the assigned anchor and image cue, then expand into a small memorable moment.\n" +
+                "- Preserve the target meaning and mnemonic logic, but do not copy mnemonic_en word for word.\n\n" +
+                "Story Cue rules:\n" +
+                "- The Spanish word should appear exactly once in story_cue_en.\n" +
+                "- Mention the assigned anchor label naturally.\n" +
+                "- It may include sensory details, motion, consequence, and a little context beyond what the image model can draw.\n" +
+                "- Keep it concrete and easy to imagine, but do not describe camera framing, image quality, or prompt syntax.\n" +
+                "- Do not add written labels, signs, logos, or text in the imagined scene.\n" +
+                "- Do not introduce unsafe sexual, gambling, drug, crime, weapon, horror, gore, or stigmatizing imagery.\n" +
+                "- story_cue_en should be 2 or 3 sentences, 35 to 80 words.\n\n" +
+                "Output only valid JSON in this schema:\n" +
+                "{\n" +
+                "  \"items\": [\n" +
+                "    {\n" +
+                "      \"word\": \"" + word.word.Trim() + "\",\n" +
+                "      \"anchor\": \"" + anchorId + "\",\n" +
+                "      \"story_cue_en\": \"imaginative learner-facing story cue with the Spanish word once\"\n" +
                 "    }\n" +
                 "  ]\n" +
                 "}";
@@ -1464,68 +1598,55 @@ namespace MemPalaceLLM
             return assignmentLines.ToString();
         }
 
-        private static string FormatVisualObjectLabels(VisualObjectSpec[] visualObjects)
-        {
-            if (visualObjects == null || visualObjects.Length == 0)
-            {
-                return "(none listed)";
-            }
-
-            var builder = new StringBuilder();
-            for (int i = 0; i < visualObjects.Length; i++)
-            {
-                var label = visualObjects[i]?.label;
-                if (string.IsNullOrWhiteSpace(label))
-                {
-                    continue;
-                }
-
-                if (builder.Length > 0)
-                {
-                    builder.Append(", ");
-                }
-
-                builder.Append(label.Trim());
-            }
-
-            return builder.Length == 0 ? "(none listed)" : builder.ToString();
-        }
-
-        private static GeneratedMnemonicItem MergeVisualCueAndCueStory(
+        private static GeneratedMnemonicItem MergeGeneratedMnemonicFields(
             WordEntry sourceWord,
             GeneratedMnemonicItem visualCue,
-            GeneratedMnemonicItem cueStory)
+            GeneratedMnemonicItem mnemonicLink,
+            GeneratedMnemonicItem storyCue)
         {
             var merged = new GeneratedMnemonicItem
             {
                 word = string.IsNullOrWhiteSpace(visualCue?.word) ? sourceWord.word : visualCue.word,
-                anchor = string.IsNullOrWhiteSpace(visualCue?.anchor) ? cueStory?.anchor : visualCue.anchor,
+                anchor = string.IsNullOrWhiteSpace(visualCue?.anchor) ? FirstNonEmpty(mnemonicLink?.anchor, storyCue?.anchor) : visualCue.anchor,
                 visual_cue_en = visualCue?.visual_cue_en,
                 association_prompt_en = visualCue?.association_prompt_en,
                 image_prompt_en = visualCue?.image_prompt_en,
                 image_prompt_candidates_en = visualCue?.image_prompt_candidates_en,
                 visual_objects = visualCue?.visual_objects,
-                mnemonic_en = cueStory?.mnemonic_en
+                mnemonic_en = mnemonicLink?.mnemonic_en,
+                story_cue_en = storyCue?.story_cue_en
             };
 
             if (string.IsNullOrWhiteSpace(merged.anchor))
             {
-                merged.anchor = cueStory?.anchor;
+                merged.anchor = FirstNonEmpty(mnemonicLink?.anchor, storyCue?.anchor);
             }
 
             if (string.IsNullOrWhiteSpace(merged.mnemonic_en))
             {
-                merged.mnemonic_en = BuildCueStoryFallbackEn(sourceWord);
+                merged.mnemonic_en = BuildMnemonicLinkFallbackEn(sourceWord);
+            }
+
+            if (string.IsNullOrWhiteSpace(merged.story_cue_en))
+            {
+                merged.story_cue_en = BuildStoryCueFallbackEn(sourceWord);
             }
 
             return merged;
         }
 
-        private static string BuildCueStoryFallbackEn(WordEntry word)
+        private static string BuildMnemonicLinkFallbackEn(WordEntry word)
         {
             var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
             var spanish = string.IsNullOrWhiteSpace(word?.word) ? "the Spanish word" : word.word.Trim();
-            return $"The Spanish word for {meaning} is {spanish}. Imagine the object in the memory scene has that name, so the name stays with the meaning.";
+            return $"The Spanish word for {meaning} is {spanish}. Link the word to the assigned anchor by treating its image cue as the clue for that meaning.";
+        }
+
+        private static string BuildStoryCueFallbackEn(WordEntry word)
+        {
+            var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
+            var spanish = string.IsNullOrWhiteSpace(word?.word) ? "the Spanish word" : word.word.Trim();
+            return $"At the assigned anchor, let the image cue grow into a small imagined moment. As the scene continues, {spanish} stays attached to {meaning}.";
         }
 
         private static string SafePromptText(string text)

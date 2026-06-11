@@ -2011,7 +2011,7 @@ namespace MemPalaceLLM
             generationScroll = GUILayout.BeginScrollView(generationScroll);
 
             GUILayout.Label("Step 2 of 7 - Mnemonic Preview", titleStyle);
-            GUILayout.Label("This page previews how each word has been mapped to a room anchor, a bilingual scene, and a bilingual memory link. The next step is to enter the room and inspect those cues in context.", mutedStyle);
+            GUILayout.Label("This page previews how each word has been mapped to a room anchor, an image-focused association cue, a mnemonic link, and an imagination story.", mutedStyle);
             GUILayout.Space(8);
 
             GUILayout.BeginVertical(sectionStyle);
@@ -2047,11 +2047,13 @@ namespace MemPalaceLLM
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"{item.word}  -  {item.anchorLabel}", smallTitleStyle);
                 GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
-                DrawTextSection("Overlay Cue Scene / Image Scene", item.visualCue, smallTitleStyle, labelStyle);
+                DrawTextSection("Visual Cue Scene", item.visualCue, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
-                DrawTextSection("Association Prompt / Image Association", item.associationPrompt, smallTitleStyle, labelStyle);
+                DrawTextSection("Association Image Cue", item.associationPrompt, smallTitleStyle, labelStyle);
                 GUILayout.Space(4);
-                DrawTextSection("Cue Story / Memory Link", item.mnemonic, smallTitleStyle, labelStyle);
+                DrawTextSection("Mnemonic Link", item.mnemonic, smallTitleStyle, labelStyle);
+                GUILayout.Space(4);
+                DrawTextSection("Story Cue", item.storyCue, smallTitleStyle, labelStyle);
                 GUILayout.Space(6);
                 DrawRegenerateMnemonicButton(item);
                 GUILayout.EndVertical();
@@ -2090,7 +2092,7 @@ namespace MemPalaceLLM
             authoringScroll = GUILayout.BeginScrollView(authoringScroll);
 
             GUILayout.Label("Step 2 of 7 - Self-Generated Mnemonic Authoring", titleStyle);
-            GUILayout.Label("Assign each word to an anchor and write your own scene and memory link. For the demo, you can auto-fill a starter draft and then edit it before entering the room.", mutedStyle);
+            GUILayout.Label("Assign each word to an anchor, then separate the image cue, mnemonic link, and imagination story. For the demo, you can auto-fill a starter draft and edit it before entering the room.", mutedStyle);
             GUILayout.Space(10);
 
             if (GUILayout.Button("Auto-Fill Starter Drafts", buttonStyle))
@@ -2121,12 +2123,14 @@ namespace MemPalaceLLM
                 }
                 GUILayout.EndHorizontal();
 
-                GUILayout.Label("Overlay Cue Scene (EN)", mutedStyle);
+                GUILayout.Label("Visual Cue Scene (EN)", mutedStyle);
                 item.visualCue = GUILayout.TextArea(item.visualCue ?? string.Empty, textAreaStyle, GUILayout.MinHeight(54f));
-                GUILayout.Label("Association Prompt for Image (EN)", mutedStyle);
+                GUILayout.Label("Association Image Cue (EN)", mutedStyle);
                 item.associationPrompt = GUILayout.TextArea(item.associationPrompt ?? string.Empty, textAreaStyle, GUILayout.MinHeight(42f));
-                GUILayout.Label("Cue Story (EN)", mutedStyle);
+                GUILayout.Label("Mnemonic Link (EN)", mutedStyle);
                 item.mnemonic = GUILayout.TextArea(item.mnemonic ?? string.Empty, textAreaStyle, GUILayout.MinHeight(54f));
+                GUILayout.Label("Story Cue (EN)", mutedStyle);
+                item.storyCue = GUILayout.TextArea(item.storyCue ?? string.Empty, textAreaStyle, GUILayout.MinHeight(68f));
 
                 GUILayout.EndVertical();
             }
@@ -2228,8 +2232,8 @@ namespace MemPalaceLLM
                 GUILayout.Label("What You Are Seeing", smallTitleStyle);
                 GUILayout.Label("Each marker has a stable room anchor plus an LLM-authored overlay cue: the anchor fixes the place, and the imagined cue carries the word meaning.", guideStyle);
                 GUILayout.Space(10);
-                GUILayout.Label("Why There Are Two Text Fields", smallTitleStyle);
-                GUILayout.Label("Overlay Cue Scene is the anchor plus imagined cue. Cue Story is the short explanation of why that cue points back to the target word.", guideStyle);
+                GUILayout.Label("Why There Are Separate Text Fields", smallTitleStyle);
+                GUILayout.Label("Association Image Cue is only for generated images. Mnemonic Link explains how the anchor and word help memory. Story Cue gives you a richer scene to imagine.", guideStyle);
                 GUILayout.Space(10);
                 GUILayout.Label("Tip", smallTitleStyle);
                 GUILayout.Label("For teacher demos, capture three memories first, run the mid test once, then finish the rest and trigger the final test.", guideStyle);
@@ -2246,11 +2250,13 @@ namespace MemPalaceLLM
                 GUILayout.Label(GetDisplayMeaningText(selectedStudyItem), mutedStyle);
                 GUILayout.Label($"Anchor: {selectedStudyItem.anchorLabel}", mutedStyle);
                 GUILayout.Space(10);
-                DrawTextSection("Overlay Cue Scene / Image Scene", selectedStudyItem.visualCue, smallTitleStyle, guideStyle);
+                DrawTextSection("Visual Cue Scene", selectedStudyItem.visualCue, smallTitleStyle, guideStyle);
                 GUILayout.Space(10);
-                DrawTextSection("Association Prompt / Image Association", selectedStudyItem.associationPrompt, smallTitleStyle, guideStyle);
+                DrawTextSection("Association Image Cue", selectedStudyItem.associationPrompt, smallTitleStyle, guideStyle);
                 GUILayout.Space(10);
-                DrawTextSection("Cue Story / Memory Link", selectedStudyItem.mnemonic, smallTitleStyle, guideStyle);
+                DrawTextSection("Mnemonic Link", selectedStudyItem.mnemonic, smallTitleStyle, guideStyle);
+                GUILayout.Space(10);
+                DrawTextSection("Story Cue", selectedStudyItem.storyCue, smallTitleStyle, guideStyle);
                 GUILayout.Space(8);
                 DrawRegenerateMnemonicButton(selectedStudyItem);
                 GUILayout.Space(8);
@@ -2486,11 +2492,13 @@ namespace MemPalaceLLM
             foreach (var item in currentItems)
             {
                 GUILayout.Label($"{item.word} @ {item.anchorLabel}", labelStyle);
-                DrawTextSection("Overlay Cue Scene / Image Scene", item.visualCue, smallTitleStyle, mutedStyle);
+                DrawTextSection("Visual Cue Scene", item.visualCue, smallTitleStyle, mutedStyle);
                 GUILayout.Space(4);
-                DrawTextSection("Association Prompt / Image Association", item.associationPrompt, smallTitleStyle, mutedStyle);
+                DrawTextSection("Association Image Cue", item.associationPrompt, smallTitleStyle, mutedStyle);
                 GUILayout.Space(4);
-                DrawTextSection("Cue Story / Memory Link", item.mnemonic, smallTitleStyle, mutedStyle);
+                DrawTextSection("Mnemonic Link", item.mnemonic, smallTitleStyle, mutedStyle);
+                GUILayout.Space(4);
+                DrawTextSection("Story Cue", item.storyCue, smallTitleStyle, mutedStyle);
                 GUILayout.Space(6);
             }
             GUILayout.EndVertical();
@@ -2936,7 +2944,7 @@ namespace MemPalaceLLM
             }
 
             regeneratingMnemonicWords.Add(item.word);
-            statusMessage = $"Regenerating mnemonic scene for {item.word}...";
+            statusMessage = $"Regenerating cue package for {item.word}...";
             generationError = string.Empty;
 
             var service = new OllamaLlmService();
@@ -2968,7 +2976,7 @@ namespace MemPalaceLLM
             if (!string.IsNullOrWhiteSpace(error))
             {
                 generationError = error;
-                statusMessage = $"Failed to regenerate mnemonic scene for {item.word}.";
+                statusMessage = $"Failed to regenerate cue package for {item.word}.";
                 LogInteraction("regenerate_mnemonic_failed", item.word, item.anchorId, error);
                 yield break;
             }
@@ -2991,7 +2999,7 @@ namespace MemPalaceLLM
             imageCueValidationFailures.Remove(item.word);
             imageGenerationStatus = string.Empty;
             usedLiveLlmForCurrentSession = true;
-            statusMessage = $"Regenerated mnemonic scene for {item.word}. Generate the image cue again.";
+            statusMessage = $"Regenerated cue package for {item.word}. Generate the image cue again.";
             LogInteraction("regenerate_mnemonic", item.word, item.anchorId, "Replaced weak cue scene. Reason: " + rejectionReason);
         }
 
@@ -3033,6 +3041,11 @@ namespace MemPalaceLLM
             if (!string.IsNullOrWhiteSpace(replacement.mnemonic))
             {
                 target.mnemonic = replacement.mnemonic;
+            }
+
+            if (!string.IsNullOrWhiteSpace(replacement.storyCue))
+            {
+                target.storyCue = replacement.storyCue;
             }
 
             if (!string.IsNullOrWhiteSpace(replacement.imagePrompt))
@@ -3578,8 +3591,8 @@ namespace MemPalaceLLM
                 var candidate = promptCandidates[attempt];
                 imageGenerationStatus = $"Generating image set {variantLabel}/{BuildImageCueResultLabel(variantCount - 1)} for {item.word} (inner candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
                 var prompt = candidate.fullPrompt;
-                prompt += " Mandatory two-subject frame: the assigned room object and the mnemonic cue object must both be clearly visible, close together, and dominate the image; do not show only one of them.";
-                prompt += " Independent best-of-four image set " + variantLabel + "; make this image visually distinct from other generated sets while preserving the same mnemonic scene.";
+                prompt += " Mandatory two-subject frame: the assigned room object and the association image cue object must both be clearly visible, close together, and dominate the image; do not show only one of them.";
+                prompt += " Independent best-of-four image set " + variantLabel + "; make this image visually distinct from other generated sets while preserving the same association image scene.";
                 if (!string.IsNullOrWhiteSpace(retryGuidance))
                 {
                     prompt += " Candidate correction from previous failures: " + retryGuidance;
@@ -3864,7 +3877,7 @@ namespace MemPalaceLLM
             }
 
             return
-                "You are checking whether a generated mnemonic image is usable.\n" +
+                "You are checking whether a generated association image cue is usable.\n" +
                 "Only evaluate visible image content. Be strict.\n\n" +
                 "Assigned anchor that must be visible: " + anchor + "\n" +
                 "Target vocabulary meaning: " + GetMeaningText(item) + "\n" +
@@ -4090,7 +4103,7 @@ namespace MemPalaceLLM
         {
             if (validation != null && !validation.cue_visible)
             {
-                return "Fix this failed image: " + BuildImageCueValidationFailureSummary(validation) + " The mnemonic cue object is missing or hidden. Make the cue fully exposed, separate from the room object, high contrast, and impossible to miss. Do not put it inside pockets, drawers, cushions, covers, or furniture.";
+                return "Fix this failed image: " + BuildImageCueValidationFailureSummary(validation) + " The association image cue object is missing or hidden. Make the cue fully exposed, separate from the room object, high contrast, and impossible to miss. Do not put it inside pockets, drawers, cushions, covers, or furniture.";
             }
 
             if (validation != null && !validation.no_room_overview)
@@ -4257,7 +4270,7 @@ namespace MemPalaceLLM
         {
             if (item == null)
             {
-                return "mnemonic illustration, no text, no letters, no captions";
+                return "association image cue illustration, no text, no letters, no captions";
             }
 
             if (ApplyMeaningFirstMnemonicGuardrails(item))
@@ -4338,7 +4351,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(backgroundScene))
             {
-                backgroundScene = $"a vivid mnemonic metaphor for {GetMeaningText(item)}";
+                backgroundScene = $"a vivid association image cue for {GetMeaningText(item)}";
             }
 
             if (IsAlreadyAnchorGroundedImagePrompt(promptOverride, anchor)
@@ -4351,7 +4364,7 @@ namespace MemPalaceLLM
             backgroundScene = NormalizeGeneratedImageCueText(ExtractPromptSceneDetail(backgroundScene));
             if (string.IsNullOrWhiteSpace(backgroundScene))
             {
-                backgroundScene = $"one concrete mnemonic scene for {item.word}, meaning {GetMeaningText(item)}";
+                backgroundScene = $"one concrete association image scene for {item.word}, meaning {GetMeaningText(item)}";
             }
 
             foregroundFocus = NormalizeGeneratedImageCueText(ExtractPromptSceneDetail(foregroundFocus));
@@ -4366,7 +4379,7 @@ namespace MemPalaceLLM
             var proxySafety = BuildNatureOutdoorProxyImageSafetyClause(item, anchor, backgroundScene, foregroundFocus);
             var smallCueSafety = BuildSmallCueVisibilityImageSafetyClause(item, backgroundScene, foregroundFocus, foregroundObjects);
 
-            return $"TIGHT TWO-SUBJECT MNEMONIC CLOSE-UP: {subjects}. ((room object and cue object together fill 85 percent of the frame)), ((both subjects in frame)), ((both subjects sharp and visible)), ((small surrounding room fragment only)). Main action: {foregroundFocus}. The assigned room object and the cue objects must appear together, close to each other, and neither may be cropped out. The room object should occupy about 30-45 percent of the image, and the cue object should occupy about 35-55 percent. Do not show only the room object, only the cue object, or a whole room. {proxySafety}{smallCueSafety}Scene context for accuracy: {backgroundScene}. No readable text, no captions, no logos, no watermark.";
+            return $"TIGHT TWO-SUBJECT ASSOCIATION IMAGE CLOSE-UP: {subjects}. ((room object and cue object together fill 85 percent of the frame)), ((both subjects in frame)), ((both subjects sharp and visible)), ((small surrounding room fragment only)). Main action: {foregroundFocus}. The assigned room object and the cue objects must appear together, close to each other, and neither may be cropped out. The room object should occupy about 30-45 percent of the image, and the cue object should occupy about 35-55 percent. Do not show only the room object, only the cue object, or a whole room. {proxySafety}{smallCueSafety}Scene context for accuracy: {backgroundScene}. No readable text, no captions, no logos, no watermark.";
         }
 
         private static string BuildSmallCueVisibilityImageSafetyClause(MnemonicItemData item, string backgroundScene, string foregroundFocus, string foregroundObjects)
@@ -4375,7 +4388,6 @@ namespace MemPalaceLLM
                 + (item?.meaning ?? string.Empty) + " "
                 + (item?.visualCue ?? string.Empty) + " "
                 + (item?.associationPrompt ?? string.Empty) + " "
-                + (item?.mnemonic ?? string.Empty) + " "
                 + (item?.imagePrompt ?? string.Empty) + " "
                 + (backgroundScene ?? string.Empty) + " "
                 + (foregroundFocus ?? string.Empty) + " "
@@ -4397,7 +4409,6 @@ namespace MemPalaceLLM
                 + (item?.meaning ?? string.Empty) + " "
                 + (item?.visualCue ?? string.Empty) + " "
                 + (item?.associationPrompt ?? string.Empty) + " "
-                + (item?.mnemonic ?? string.Empty) + " "
                 + (item?.imagePrompt ?? string.Empty) + " "
                 + (backgroundScene ?? string.Empty) + " "
                 + (foregroundFocus ?? string.Empty)).ToLowerInvariant();
@@ -4448,7 +4459,6 @@ namespace MemPalaceLLM
             AddKnownForegroundObjects(item.imagePrompt, labels);
             AddKnownForegroundObjects(item.associationPrompt, labels);
             AddKnownForegroundObjects(item.visualCue, labels);
-            AddKnownForegroundObjects(item.mnemonic, labels);
             if (item.imagePromptCandidates != null)
             {
                 for (int i = 0; i < item.imagePromptCandidates.Count; i++)
@@ -4718,12 +4728,7 @@ namespace MemPalaceLLM
 
             if (!string.IsNullOrWhiteSpace(item.visualCue))
             {
-                return $"foreground overlay cue/action from Scene to Imagine: {item.visualCue.Trim()}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(item.mnemonic))
-            {
-                return $"visible foreground cue for {GetMeaningText(item)}, simple anchor interaction, no teaching explanation";
+                return $"foreground visual cue/action: {item.visualCue.Trim()}";
             }
 
             if (!string.IsNullOrWhiteSpace(promptOverride))
@@ -4845,10 +4850,14 @@ namespace MemPalaceLLM
 
             var normalized = prompt.Trim().ToLowerInvariant();
             var anchorLower = anchor.ToLowerInvariant();
-            return (normalized.StartsWith("tight two-subject mnemonic close-up", StringComparison.Ordinal)
+            return (normalized.StartsWith("tight two-subject association image close-up", StringComparison.Ordinal)
+                    || normalized.StartsWith("tight two-subject mnemonic close-up", StringComparison.Ordinal)
+                    || normalized.StartsWith("((single association image subject))", StringComparison.Ordinal)
                     || normalized.StartsWith("((single mnemonic subject))", StringComparison.Ordinal)
                     || (normalized.Contains("scene to imagine only as background context")
                         && normalized.Contains("clear foreground focus"))
+                    || normalized.StartsWith($"simple indoor association image cue illustration staged at the {anchorLower}", StringComparison.Ordinal)
+                    || normalized.StartsWith($"association image cue illustration staged at the {anchorLower}", StringComparison.Ordinal)
                     || normalized.StartsWith($"simple indoor mnemonic illustration staged at the {anchorLower}", StringComparison.Ordinal)
                     || normalized.StartsWith($"mnemonic illustration staged at the {anchorLower}", StringComparison.Ordinal)
                     || normalized.StartsWith($"centered on the {anchorLower}", StringComparison.Ordinal))
@@ -4928,7 +4937,8 @@ namespace MemPalaceLLM
                 var anchor = GetAnchorDisplayName(item);
                 item.visualCue = $"At the {anchor}, a small figure chips a cherished ceramic idol with a tiny hammer.";
                 item.mnemonic = "The cracked cherished idol cues a person attacking established beliefs, the core of iconoclast.";
-                item.imagePrompt = $"Close-up indoor room-object cue mnemonic at the {anchor}: a small figure uses a tiny hammer to chip a cherished ceramic idol, with cracked fragments visible in the foreground. Keep the {anchor} visible in the background, no text, no letters, no captions, no logos, no watermark.";
+                item.storyCue = $"At the {anchor}, the little figure hesitates, then taps the idol until a crack appears. The moment feels like a challenge to old beliefs, and iconoclast becomes the name for that defiant act.";
+                item.imagePrompt = $"Close-up indoor association image cue at the {anchor}: a small figure uses a tiny hammer to chip a cherished ceramic idol, with cracked fragments visible in the foreground. Keep the {anchor} visible in the background, no text, no letters, no captions, no logos, no watermark.";
                 RefreshAssociationPromptsAfterCueRewrite(item);
                 return true;
             }
@@ -5006,7 +5016,8 @@ namespace MemPalaceLLM
             var contact = GetVisibleWalletContactPoint(anchor);
             item.visualCue = $"At the {anchor}, an open security tray on {contact} holds shoes, a passport, boarding pass, and luggage tag.";
             item.associationPrompt = $"open security tray holds shoes passport boarding pass and luggage tag on {contact}";
-            item.mnemonic = "The Spanish word for airport is aeropuerto. Imagine the security tray at an air-port, where aero feels like air and puerto feels like port.";
+            item.mnemonic = $"At the {anchor}, aeropuerto links to airport through the security tray: aero feels like air, and puerto feels like port.";
+            item.storyCue = $"At the {anchor}, the security tray feels like the start of a trip: shoes are off, papers are ready, and the air around it feels busy. The word aeropuerto lands on that air-port moment as you imagine moving toward a gate.";
             item.imagePrompt = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5023,7 +5034,8 @@ namespace MemPalaceLLM
             var contact = GetVisibleWalletContactPoint(anchor);
             item.visualCue = $"At the {anchor}, two upright books on {contact} squeeze a narrow strip into a tiny passage with a toy door.";
             item.associationPrompt = $"two upright books squeeze a narrow passage with a toy door on {contact}";
-            item.mnemonic = "The Spanish word for hallway is pasillo. Imagine squeezing through the narrow passage: pas feels like passing, and illo finishes the tiny corridor.";
+            item.mnemonic = $"At the {anchor}, pasillo links to hallway because pas feels like passing through the narrow book passage.";
+            item.storyCue = $"At the {anchor}, the tiny passage seems just wide enough for one careful step. As you imagine squeezing through it, pasillo becomes the name of that narrow hallway moment.";
             item.imagePrompt = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5039,7 +5051,8 @@ namespace MemPalaceLLM
             var contact = GetVisibleWalletContactPoint(anchor);
             item.visualCue = $"At the {anchor}, dry sand spills from a small pouch and piles into a low dune across {contact}.";
             item.associationPrompt = $"dry sand spills from pouch into low dune across {contact}";
-            item.mnemonic = "The Spanish word for desert is desierto. Imagine dry sand forming a dune while the des sound nudges you toward desert.";
+            item.mnemonic = $"At the {anchor}, desierto links to desert through the dry dune, with des nudging you toward desert.";
+            item.storyCue = $"At the {anchor}, sand keeps slipping out until the little dune feels warm, dry, and impossible to ignore. The scene grows quiet and empty, and desierto settles onto that desert feeling.";
             item.imagePrompt = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5058,7 +5071,8 @@ namespace MemPalaceLLM
             var spanish = string.IsNullOrWhiteSpace(item.word) ? "the Spanish word" : item.word.Trim();
             item.visualCue = $"At the {anchor}, a safe electric flame lantern hangs from {contact}, glowing like a compact campfire.";
             item.associationPrompt = $"safe electric flame lantern hangs from {contact} like compact campfire";
-            item.mnemonic = $"The Spanish word for fire or campfire is {spanish}. Imagine the safe flame lantern has that name while it flickers warmly.";
+            item.mnemonic = $"At the {anchor}, {spanish} links to fire through the safe flame lantern and its warm flicker.";
+            item.storyCue = $"At the {anchor}, the lantern flickers softly, making the room feel like a tiny campsite without real danger. As you imagine warming your hands near it, {spanish} becomes the name attached to that fire.";
             item.imagePrompt = item.associationPrompt;
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5074,7 +5088,7 @@ namespace MemPalaceLLM
                 return false;
             }
 
-            item.mnemonic = BuildLearnerFriendlyCueStoryFallback(item);
+            item.mnemonic = BuildMnemonicLinkFallback(item);
             return true;
         }
 
@@ -5099,32 +5113,47 @@ namespace MemPalaceLLM
 
         private string BuildLearnerFriendlyCueStoryFallback(MnemonicItemData item)
         {
+            return BuildMnemonicLinkFallback(item);
+        }
+
+        private string BuildMnemonicLinkFallback(MnemonicItemData item)
+        {
             var spanish = string.IsNullOrWhiteSpace(item?.word) ? "the Spanish word" : item.word.Trim();
             var meaning = GetMeaningText(item);
+            var anchor = GetAnchorDisplayName(item);
             var lower = spanish.ToLowerInvariant();
 
             if (lower == "aeropuerto")
             {
-                return "The Spanish word for airport is aeropuerto. Imagine the security tray at an air-port, where aero feels like air and puerto feels like port.";
+                return $"The Spanish word for airport is aeropuerto. Link it to the {anchor} cue as an air-port moment, where aero feels like air and puerto feels like port.";
             }
 
             if (lower == "pasillo")
             {
-                return "The Spanish word for hallway is pasillo. Imagine squeezing through the narrow passage: pas feels like passing, and illo finishes the tiny corridor.";
+                return $"The Spanish word for hallway is pasillo. Link it to the {anchor} cue as a narrow passage, where pas feels like passing through.";
             }
 
             if (lower == "cartera")
             {
-                return "The Spanish word for wallet is cartera. Imagine the open wallet full of cards, because carte feels close to card.";
+                return $"The Spanish word for wallet is cartera. Link it to the {anchor} cue through cards in a wallet, because carte feels close to card.";
             }
 
             if (lower == "cartel")
             {
-                return "The Spanish word for poster is cartel. Imagine the taped poster as a big card on the wall, helped by the cart sound.";
+                return $"The Spanish word for poster is cartel. Link it to the {anchor} cue as a card-like poster, helped by the cart sound.";
             }
 
             var detail = BuildCueStoryEventDetail(item);
-            return $"The Spanish word for {meaning} is {spanish}. Imagine {detail} has that name, so the name stays with the memory.";
+            return $"The Spanish word for {meaning} is {spanish}. Link that name to the {anchor} by treating {detail} as the anchor cue for that meaning.";
+        }
+
+        private string BuildStoryCueFallback(MnemonicItemData item)
+        {
+            var spanish = string.IsNullOrWhiteSpace(item?.word) ? "the Spanish word" : item.word.Trim();
+            var meaning = GetMeaningText(item);
+            var anchor = GetAnchorDisplayName(item);
+            var detail = BuildCueStoryEventDetail(item);
+            return $"At the {anchor}, {detail} pulls your attention into a small imagined moment. Let the scene continue in your mind until {spanish} feels tied to {meaning}.";
         }
 
         private static string BuildCueStoryEventDetail(MnemonicItemData item)
@@ -5163,8 +5192,9 @@ namespace MemPalaceLLM
             }
 
             item.associationPrompt = FirstNonEmptyPrompt(
-                ExtractPromptSceneDetail(item.visualCue),
-                ExtractPromptSceneDetail(item.imagePrompt));
+                ExtractPromptSceneDetail(item.associationPrompt),
+                ExtractPromptSceneDetail(item.imagePrompt),
+                ExtractPromptSceneDetail(item.visualCue));
             item.imagePromptCandidates = new List<string>();
             item.selectedImagePrompt = string.Empty;
             item.selectedImageCandidateIndex = -1;
@@ -5195,7 +5225,9 @@ namespace MemPalaceLLM
             var spanish = string.IsNullOrWhiteSpace(item.word) ? "cartera" : item.word.Trim();
 
             item.visualCue = $"At the {anchor}, an open wallet sits clearly on {contact} with cards and coins visible.";
-            item.mnemonic = $"The Spanish word for wallet is {spanish}. Imagine the open wallet full of cards, because carte feels close to card.";
+            item.associationPrompt = $"open wallet clearly visible on {contact}, cards and coins visible";
+            item.mnemonic = $"At the {anchor}, {spanish} links to wallet through the open cards, because carte feels close to card.";
+            item.storyCue = $"At the {anchor}, the open wallet looks like it was just placed there before leaving. Cards and coins catch your eye, and {spanish} becomes the name you attach to that wallet moment.";
             item.imagePrompt = $"open wallet clearly visible on {contact}, cards and coins visible";
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5320,7 +5352,9 @@ namespace MemPalaceLLM
             var contact = GetSafePosterContactPoint(anchor);
 
             item.visualCue = $"At the {anchor}, a neutral poster is fastened to {contact} with bright tape.";
-            item.mnemonic = $"The Spanish word for poster is {item.word.Trim()}. Imagine the taped poster as a big card on the wall, helped by the cart sound.";
+            item.associationPrompt = $"neutral poster fastened with bright tape to {contact}";
+            item.mnemonic = $"At the {anchor}, {item.word.Trim()} links to poster through a card-like taped sheet, helped by the cart sound.";
+            item.storyCue = $"At the {anchor}, the taped poster looks freshly put up, bright enough to pull your attention but with no readable words. As you imagine noticing it from across the room, {item.word.Trim()} becomes the poster's name.";
             item.imagePrompt = $"neutral poster fastened with bright tape to {contact}";
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5350,7 +5384,9 @@ namespace MemPalaceLLM
             var anchor = GetAnchorDisplayName(item);
             var meaning = GetMeaningText(item);
             item.visualCue = $"At the {anchor}, a neutral study-safe prop for {meaning} is fastened with colored tape.";
-            item.mnemonic = $"The Spanish word for {meaning} is {item.word.Trim()}. Imagine the taped safe prop has that name while it shows the meaning.";
+            item.associationPrompt = $"neutral study-safe prop for {meaning} fastened with colored tape at the {anchor}";
+            item.mnemonic = $"At the {anchor}, {item.word.Trim()} links to {meaning} through the taped safe prop.";
+            item.storyCue = $"At the {anchor}, the taped prop feels deliberately placed for you to notice. Let the moment expand until {item.word.Trim()} becomes the name attached to {meaning}.";
             item.imagePrompt = $"neutral study-safe prop for {meaning} with colored tape";
             item.visualObjects = new List<VisualObjectSpec>
             {
@@ -5551,7 +5587,6 @@ namespace MemPalaceLLM
 
             return ((item.visualCue ?? string.Empty) + " "
                 + (item.associationPrompt ?? string.Empty) + " "
-                + (item.mnemonic ?? string.Empty) + " "
                 + (item.imagePrompt ?? string.Empty) + " "
                 + (item.imagePromptCandidates == null ? string.Empty : string.Join(" ", item.imagePromptCandidates.ToArray()))).ToLowerInvariant();
         }
@@ -5567,8 +5602,7 @@ namespace MemPalaceLLM
             {
                 item.associationPrompt,
                 item.imagePrompt,
-                item.visualCue,
-                item.mnemonic
+                item.visualCue
             };
 
             for (int i = 0; i < candidates.Length; i++)
@@ -5595,7 +5629,11 @@ namespace MemPalaceLLM
             if (colonIndex >= 0)
             {
                 var prefix = trimmed.Substring(0, colonIndex).Trim();
-                if (prefix.StartsWith("Simple indoor mnemonic illustration", StringComparison.OrdinalIgnoreCase)
+                if (prefix.StartsWith("Simple indoor association image cue illustration", StringComparison.OrdinalIgnoreCase)
+                    || prefix.StartsWith("Association image cue illustration", StringComparison.OrdinalIgnoreCase)
+                    || prefix.StartsWith("Tight two-subject association image close-up", StringComparison.OrdinalIgnoreCase)
+                    || prefix.StartsWith("Close-up indoor association image cue", StringComparison.OrdinalIgnoreCase)
+                    || prefix.StartsWith("Simple indoor mnemonic illustration", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Simple indoor anchor-cue mnemonic illustration", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Mnemonic illustration", StringComparison.OrdinalIgnoreCase)
                     || prefix.StartsWith("Tight two-subject mnemonic close-up", StringComparison.OrdinalIgnoreCase)
@@ -5623,10 +5661,12 @@ namespace MemPalaceLLM
             {
                 ". Include the ",
                 ". Keep the ",
+                ". Show this specific association image scene:",
                 ". Show this specific mnemonic scene:",
                 ". Soft natural room lighting",
                 ", soft natural room lighting",
                 ", close-up composition",
+                ", one clear everyday association image detail",
                 ", one clear everyday mnemonic detail",
                 ", no disaster scene",
                 ", no text",
@@ -5694,7 +5734,7 @@ namespace MemPalaceLLM
             var trimmed = string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim();
             if (string.IsNullOrWhiteSpace(trimmed))
             {
-                return $"At the {anchor}, imagine a vivid mnemonic scene.";
+                return $"At the {anchor}, imagine a vivid association image scene.";
             }
 
             var normalized = trimmed.TrimStart().ToLowerInvariant();
@@ -6078,6 +6118,7 @@ namespace MemPalaceLLM
                     cue = item.visualCue,
                     associationPrompt = item.associationPrompt,
                     mnemonic = item.mnemonic,
+                    storyCue = item.storyCue,
                     imagePrompt = item.imagePrompt,
                     imagePromptCandidates = item.imagePromptCandidates == null ? new List<string>() : new List<string>(item.imagePromptCandidates),
                     selectedImagePrompt = item.selectedImagePrompt,
@@ -6579,6 +6620,7 @@ namespace MemPalaceLLM
                     visualCue = string.Empty,
                     associationPrompt = string.Empty,
                     mnemonic = string.Empty,
+                    storyCue = string.Empty,
                     imagePrompt = string.Empty,
                     imagePromptCandidates = new List<string>(),
                     selectedImageCandidateIndex = -1,
@@ -6615,6 +6657,7 @@ namespace MemPalaceLLM
                 currentItems[i].visualCue = autoFilled[i].visualCue;
                 currentItems[i].associationPrompt = autoFilled[i].associationPrompt;
                 currentItems[i].mnemonic = autoFilled[i].mnemonic;
+                currentItems[i].storyCue = autoFilled[i].storyCue;
                 currentItems[i].imagePrompt = autoFilled[i].imagePrompt;
                 currentItems[i].imagePromptCandidates = autoFilled[i].imagePromptCandidates == null
                     ? new List<string>()
@@ -6635,8 +6678,12 @@ namespace MemPalaceLLM
 
                 if (string.IsNullOrWhiteSpace(item.mnemonic))
                 {
-                    var meaning = string.IsNullOrWhiteSpace(item.meaning) ? "the target meaning" : item.meaning.Trim();
-                    item.mnemonic = $"The Spanish word for {meaning} is {item.word}. Imagine the cue object has that name, so the name stays with the meaning.";
+                    item.mnemonic = BuildMnemonicLinkFallback(item);
+                }
+
+                if (string.IsNullOrWhiteSpace(item.storyCue))
+                {
+                    item.storyCue = BuildStoryCueFallback(item);
                 }
 
                 if (string.IsNullOrWhiteSpace(item.associationPrompt))
@@ -6684,6 +6731,16 @@ namespace MemPalaceLLM
                 if (string.IsNullOrWhiteSpace(items[i].imagePrompt))
                 {
                     items[i].imagePrompt = BuildMnemonicImagePrompt(items[i]);
+                }
+
+                if (string.IsNullOrWhiteSpace(items[i].mnemonic))
+                {
+                    items[i].mnemonic = BuildMnemonicLinkFallback(items[i]);
+                }
+
+                if (string.IsNullOrWhiteSpace(items[i].storyCue))
+                {
+                    items[i].storyCue = BuildStoryCueFallback(items[i]);
                 }
 
                 if (items[i].imagePromptCandidates == null)
@@ -6742,7 +6799,7 @@ namespace MemPalaceLLM
                 return string.Empty;
             }
 
-            var text = ((item.visualCue ?? string.Empty) + " " + (item.mnemonic ?? string.Empty) + " " + (item.imagePrompt ?? string.Empty)).ToLowerInvariant();
+            var text = ((item.visualCue ?? string.Empty) + " " + (item.associationPrompt ?? string.Empty) + " " + (item.imagePrompt ?? string.Empty)).ToLowerInvariant();
             if (ContainsAny(text, "paper corner", "pinned paper", "unmoving paper", "paper stays pinned"))
             {
                 return "paper-pinned";
@@ -6780,18 +6837,21 @@ namespace MemPalaceLLM
                 case "immutable":
                     item.visualCue = $"At the {anchor}, a clear resin cube seals a metal gear that cannot turn or change.";
                     item.mnemonic = "The sealed gear cannot move or alter shape, cueing something unchangeable.";
+                    item.storyCue = $"At the {anchor}, the gear looks ready to spin, but the resin holds it perfectly still. You imagine trying to move it and failing, so immutable becomes the name for something that cannot change.";
                     item.imagePrompt = $"Close-up at the {anchor}: a transparent resin cube seals a small metal gear, with the gear visibly trapped and unable to turn. Keep the {anchor} only as background context, no text, no letters, no captions, no logos, no watermark.";
                     return true;
 
                 case "intransigent":
                     item.visualCue = $"At the {anchor}, two puzzle pieces meet while a tiny steel wedge refuses to slide into place.";
                     item.mnemonic = "The stuck wedge refuses to fit with the other piece, cueing refusal to compromise.";
+                    item.storyCue = $"At the {anchor}, the puzzle almost works, but the steel wedge refuses to move no matter how gently you press it. That stubborn refusal makes intransigent feel like a person or thing that will not compromise.";
                     item.imagePrompt = $"Close-up at the {anchor}: two puzzle pieces almost connect, but a tiny steel wedge blocks the join and refuses to slide into place. Keep the {anchor} only as background context, no text, no letters, no captions, no logos, no watermark.";
                     return true;
 
                 case "capricious":
                     item.visualCue = $"At the {anchor}, a small puppet face snaps from laughing to crying to angry without warning.";
                     item.mnemonic = "The puppet's sudden emotional flips cue capricious changes in mood or behavior.";
+                    item.storyCue = $"At the {anchor}, the puppet seems impossible to predict: one second it laughs, then it cries, then it looks furious. The sudden shifts make capricious feel like a mood that changes without warning.";
                     item.imagePrompt = $"Close-up at the {anchor}: a small puppet face flips from laughing to crying to angry, dominating the foreground. Keep the {anchor} only as background context, no text, no letters, no captions, no logos, no watermark.";
                     return true;
 
@@ -9590,7 +9650,8 @@ namespace MemPalaceLLM
             builder.Append(item?.word).Append(' ');
             builder.Append(item?.meaning).Append(' ');
             builder.Append(item?.visualCue).Append(' ');
-            builder.Append(item?.mnemonic);
+            builder.Append(item?.associationPrompt).Append(' ');
+            builder.Append(item?.imagePrompt);
 
             return builder.ToString().ToLowerInvariant();
         }
@@ -10071,7 +10132,7 @@ namespace MemPalaceLLM
             vrTitleText = CreateVrPanelText(panel.transform, "Title", 34, new Rect(26f, -96f, 708f, 58f), Color.white);
             vrMeaningText = CreateVrPanelText(panel.transform, "Meaning", 20, new Rect(26f, -152f, 708f, 44f), new Color(0.90f, 0.94f, 1f));
             vrAnchorText = CreateVrPanelText(panel.transform, "Anchor", 18, new Rect(26f, -198f, 708f, 36f), new Color(0.70f, 0.78f, 0.90f));
-            vrCueText = CreateVrPanelText(panel.transform, "Cue", 18, new Rect(26f, -282f, 708f, 82f), new Color(0.94f, 0.96f, 1f));
+            vrCueText = CreateVrPanelText(panel.transform, "Mnemonic", 18, new Rect(26f, -282f, 708f, 82f), new Color(0.94f, 0.96f, 1f));
             vrStoryText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -382f, 708f, 74f), new Color(0.94f, 0.96f, 1f));
             vrPreviewHeaderText = CreateVrPanelText(panel.transform, "PreviewHeader", 20, new Rect(26f, -462f, 708f, 28f), Color.white);
             vrPreviewImage = CreateVrPanelImage(panel.transform, "PreviewImage", new Rect(26f, -494f, 290f, 170f), new Color(0.14f, 0.16f, 0.20f, 0.98f));
@@ -10214,8 +10275,8 @@ namespace MemPalaceLLM
             vrTitleText.text = selectedStudyItem.word;
             vrMeaningText.text = GetDisplayMeaningText(selectedStudyItem);
             vrAnchorText.text = "Anchor: " + selectedStudyItem.anchorLabel;
-            vrCueText.text = BuildVrSectionText("Scene", selectedStudyItem.visualCue);
-            vrStoryText.text = BuildVrSectionText("Story", selectedStudyItem.mnemonic);
+            vrCueText.text = BuildVrSectionText("Mnemonic Link", selectedStudyItem.mnemonic);
+            vrStoryText.text = BuildVrSectionText("Story Cue", selectedStudyItem.storyCue);
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
             var hasGeneratedCue = mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null;

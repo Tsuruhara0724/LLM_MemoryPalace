@@ -73,7 +73,7 @@ Files created:
 
 - The current room and UI are generated entirely at runtime.
 - The room geometry is no longer hardcoded in the controller; it is driven by the offline room spec JSON.
-- Generated scenes and mnemonic links are now shown bilingually in English and Japanese.
+- Generated text is English-only and separated into Association Image Cue, Mnemonic Link, and Story Cue.
 - Generated mnemonic items can now include small Unity primitive visual props, so the study scene is no longer text-only.
 - The study flow is now `setup -> preview -> study + snapshot capture -> mid image test -> final image test -> questionnaire -> export`.
 - A non-blocking Burst warning may still appear in the Unity log; the experiment scripts themselves compiled successfully in the editor log.

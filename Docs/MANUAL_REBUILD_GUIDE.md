@@ -16,8 +16,8 @@
 2. 选择 `LLM Generated` 或 `Self Generated`。
 3. 选择或随机抽取西语词汇。
 4. 使用或编辑一个带家具 anchor 的房间。
-5. LLM 条件下，用 Ollama 生成 visual cue、association prompt、image prompt、Cue Story。
-6. Self 条件下，让用户手动写 cue 和 story。
+5. LLM 条件下，用 Ollama 生成 visual cue、association image cue、image prompt、Mnemonic Link、Story Cue。
+6. Self 条件下，让用户手动分开写 image cue、mnemonic link 和 story cue。
 7. 进入 study room，点击每个 anchor 的 mnemonic object 查看信息。
 8. 用 Stable Diffusion 生成 image cue，每个显示结果都由 4 张原始候选经 Ollama Vision 自检打分后选出。
 9. 第一个最优结果 A 完成后立刻展示，同时后台继续准备 B/C/D 三个最优结果，用来隐藏等待时间。
@@ -136,6 +136,7 @@ anchorLabel
 visualCue
 associationPrompt
 mnemonic
+storyCue
 imagePrompt
 imagePromptCandidates
 selectedImagePrompt
@@ -399,7 +400,7 @@ MnemonicItemData Data
 
 点击 mnemonic object 后：
 - 设置 `selectedStudyItem`。
-- 在 UI 或 VR panel 显示 visual cue、association prompt、Cue Story、图片 cue。
+- 在 UI 或 VR panel 显示 visual cue、association image cue、Mnemonic Link、Story Cue、图片 cue。
 
 ## 10. 第七步：写 Mock Generator
 
@@ -422,6 +423,7 @@ Assets/Scripts/Services/MockMnemonicGenerator.cs
 - `visualCue`
 - `associationPrompt`
 - `mnemonic`
+- `storyCue`
 - `imagePrompt`
 - `imagePromptCandidates`
 - `visualObjects`
@@ -455,10 +457,12 @@ Assets/Scripts/Services/OllamaLlmService.cs
 1. 取 3 个词一组。
 2. 调用 Call 1 生成 visual cue 和 image prompts。
 3. 对齐 word。
-4. 调用 Call 2 生成 Cue Story。
+4. 调用 Call 2 生成 Mnemonic Link。
 5. 对齐 word。
-6. `MergeVisualCueAndCueStory`。
-7. `BuildMnemonicItemData`。
+6. 调用 Call 3 生成 Story Cue。
+7. 对齐 word。
+8. `MergeGeneratedMnemonicFields`。
+9. `BuildMnemonicItemData`。
 
 ## 12. 第九步：写 Prompt
 
@@ -485,7 +489,7 @@ visual_objects
 ```
 
 Call 1 规则：
-- 只生成画面，不生成 mnemonic。
+- 只生成画面，不生成 mnemonic 或 story。
 - meaning-first。
 - 不用西语读音、拼写、pun。
 - cue 和 anchor 必须物理交互。
@@ -497,16 +501,14 @@ Call 1 规则：
 Call 2 prompt 函数：
 
 ```text
-BuildCueStoryPrompt
-BuildSingleCueStoryPrompt
+BuildMnemonicLinkPrompt
+BuildSingleMnemonicLinkPrompt
 ```
 
 Call 2 输入：
 - word
 - meaning
-- visual cue
-- association prompt
-- visual objects
+- anchor
 
 Call 2 输出：
 
@@ -515,12 +517,13 @@ mnemonic_en
 ```
 
 Call 2 规则：
-- Cue Story 是 learner-friendly micro-story。
-- 帮助记 meaning 和 Spanish word form。
+- Mnemonic Link 是紧凑的助记解释，不是 image prompt，也不是故事。
+- 连接 assigned anchor、Spanish word form、meaning 三个要素。
+- 只基于 word form、meaning、anchor；不要读取或假设 image cue / association prompt / image prompt / 3D proxy。
 - 西语词在 `mnemonic_en` 出现一次。
-- 1 到 2 句，18 到 45 words。
-- 不引入新物体。
-- 不复述 image scene。
+- 1 到 2 句，18 到 42 words。
+- 不写 camera / composition / prompt 语言。
+- 不展开成 Story Cue。
 - 不说 repeat the word。
 
 推荐 few-shot：
@@ -528,8 +531,38 @@ Call 2 规则：
 ```text
 word: playa
 meaning: beach
-mnemonic_en: "The Spanish word for beach is playa. Imagine you are happy to play at the beach, so the sound links to play."
+anchor_label: Door
+mnemonic_en: "At the Door, playa links to beach because it sounds like play, so the doorway becomes the place where beach-play begins."
 ```
+
+Call 3 prompt 函数：
+
+```text
+BuildStoryCuePrompt
+BuildSingleStoryCuePrompt
+```
+
+Call 3 输入：
+- word
+- meaning
+- anchor
+- visual cue
+- association prompt
+- mnemonic_en
+
+Call 3 输出：
+
+```text
+story_cue_en
+```
+
+Call 3 规则：
+- Story Cue 是给用户想象的故事，不是 image prompt，也不是 Mnemonic Link。
+- 可以从 anchor 和 image cue 出发，加入感官、动作、后果和更多情境。
+- 可以超出生成图片和 3D proxy 能表现的可见信息。
+- 西语词在 `story_cue_en` 出现一次。
+- 2 到 3 句，35 到 80 words。
+- 不写 camera / image quality / prompt syntax，不加入文字标签或危险内容。
 
 ## 13. 第十步：写 RAG Helper
 
@@ -694,7 +727,7 @@ JSON 需要包含：
 - viewed/memorized count
 - mid/final test score
 - questionnaire
-- 每个 item 的 cue、prompt、mnemonic、selected image info
+- 每个 item 的 cue、association image cue、mnemonic link、story cue、selected image info
 - interaction logs
 
 CSV 可以简化，但至少要能用于统计。
@@ -758,7 +791,7 @@ Desktop 控制也要保留：
 10. Recall/snapshot test。
 11. Export。
 12. Ollama mnemonic generation。
-13. Call 1 / Call 2 prompt 分离。
+13. Call 1 / Call 2 / Call 3 prompt 分离。
 14. Stable Diffusion image generation。
 15. Ollama Vision validation 和 best-of-4 selection。
 16. Latency hiding：A 先显示，B/C/D 后台准备，UI 可切换。
@@ -779,7 +812,7 @@ Desktop 控制也要保留：
 - LLM Generated 能调用 Ollama 并解析 JSON。
 - Self Generated 不依赖 Ollama 也能跑。
 - Study room 显示 anchor 和 mnemonic object。
-- 点击 item 能看到 visual cue、association prompt、Cue Story。
+- 点击 item 能看到 visual cue、association image cue、Mnemonic Link、Story Cue。
 - 图片生成能产生 A/B/C/D 四个显示结果。
 - 每个显示结果都来自一轮 4 张原始图的 vision best-of-4 选择。
 - A 完成后能先显示，B/C/D 能继续在后台准备。
@@ -798,9 +831,9 @@ Ollama JSON 解析失败：
 - 加 JSON repair pass。
 - 输出字段名必须和 C# 一致。
 
-三个字段互相复制：
-- 强化 Call 1/Call 2 分离。
-- 不让 Cue Story 改写 image prompt。
+字段互相复制：
+- 强化 Call 1 / Call 2 / Call 3 分离。
+- 不让 Mnemonic Link 或 Story Cue 进入 image prompt。
 - 必要时引入内部 `cue_blueprint`。
 
 图片只出现房间或只出现 cue：
@@ -810,7 +843,7 @@ Ollama JSON 解析失败：
 
 旧日语字段误留：
 - 当前项目是英语-only。
-- 不要再加入 `meaningJa`、`visualCueJa`、`associationPromptJa`、`mnemonicJa`、`imagePromptJa`。
+- 不要再加入 `meaningJa`、`visualCueJa`、`associationPromptJa`、`mnemonicJa`、`storyCueJa`、`imagePromptJa`。
 - 资源 JSON、模型、prompt schema、UI、导出字段都保持英文。
 
 Git 误提交 build：
@@ -823,8 +856,10 @@ Git 误提交 build：
 改 prompt：
 - `Assets/Scripts/Services/OllamaLlmService.cs`
 - `BuildVisualCuePrompt`
-- `BuildCueStoryPrompt`
-- `BuildSingleCueStoryPrompt`
+- `BuildMnemonicLinkPrompt`
+- `BuildSingleMnemonicLinkPrompt`
+- `BuildStoryCuePrompt`
+- `BuildSingleStoryCuePrompt`
 
 改数据字段：
 - `Assets/Scripts/Data/ExperimentModels.cs`

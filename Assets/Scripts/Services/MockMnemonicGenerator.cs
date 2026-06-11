@@ -34,7 +34,8 @@ namespace MemPalaceLLM
                 var meaning = string.IsNullOrWhiteSpace(word.meaning) ? "the target meaning" : word.meaning.Trim();
                 var cue = $"At the {anchor.label}, an exaggerated scene dramatizes '{word.meaning}' with bright motion and oversized props.";
                 var association = $"oversized prop for {word.meaning} physically interacting with the {anchor.label}";
-                var mnemonic = $"The Spanish word for {meaning} is {word.word}. Imagine the cue object has that name, so the name stays with the meaning.";
+                var mnemonic = $"The Spanish word for {meaning} is {word.word}. Link that name to the {anchor.label} by treating the anchor cue as the {meaning} clue.";
+                var storyCue = $"At the {anchor.label}, the cue catches your attention first, then the name {word.word} follows it in your mind as the moment grows into a small memory about {meaning}.";
 
                 results.Add(new MnemonicItemData
                 {
@@ -45,6 +46,7 @@ namespace MemPalaceLLM
                     visualCue = cue,
                     associationPrompt = association,
                     mnemonic = mnemonic,
+                    storyCue = storyCue,
                     imagePrompt = association,
                     imagePromptCandidates = new List<string>
                     {
@@ -93,6 +95,7 @@ namespace MemPalaceLLM
                     visualCue = sample.visualCue,
                     associationPrompt = string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt,
                     mnemonic = sample.mnemonic,
+                    storyCue = sample.storyCue,
                     imagePrompt = sample.imagePrompt,
                     imagePromptCandidates = sample.imagePromptCandidates == null ? new List<string>() : new List<string>(sample.imagePromptCandidates),
                     objectShape = string.IsNullOrWhiteSpace(sample.objectShape) ? Shapes[i % Shapes.Length] : sample.objectShape,
