@@ -34,8 +34,7 @@ namespace MemPalaceLLM
                 var meaning = string.IsNullOrWhiteSpace(word.meaning) ? "the target meaning" : word.meaning.Trim();
                 var cue = $"At the {anchor.label}, an exaggerated scene dramatizes '{word.meaning}' with bright motion and oversized props.";
                 var association = $"oversized prop for {word.meaning} physically interacting with the {anchor.label}";
-                var mnemonic = $"The Spanish word for {meaning} is {word.word}. Link that name to the {anchor.label} by treating the anchor cue as the {meaning} clue.";
-                var storyCue = $"At the {anchor.label}, the cue catches your attention first, then the name {word.word} follows it in your mind as the moment grows into a small memory about {meaning}.";
+                var mnemonic = $"At the {anchor.label}, the cue grows into a small {meaning} moment with clear motion and oversized props. As the scene settles, {word.word} becomes the name attached to it.";
 
                 results.Add(new MnemonicItemData
                 {
@@ -46,7 +45,12 @@ namespace MemPalaceLLM
                     visualCue = cue,
                     associationPrompt = association,
                     mnemonic = mnemonic,
-                    storyCue = storyCue,
+                    mnemonicMode = "STORY_ONLY",
+                    hookAccepted = false,
+                    hookScore = 0,
+                    hookReason = "Fallback generator uses story-only mnemonics unless a curated hook is provided.",
+                    mnemonicHook = string.Empty,
+                    storyCue = string.Empty,
                     imagePrompt = association,
                     imagePromptCandidates = new List<string>
                     {
@@ -95,7 +99,12 @@ namespace MemPalaceLLM
                     visualCue = sample.visualCue,
                     associationPrompt = string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt,
                     mnemonic = sample.mnemonic,
-                    storyCue = sample.storyCue,
+                    mnemonicMode = string.IsNullOrWhiteSpace(sample.mnemonicMode) ? "STORY_ONLY" : sample.mnemonicMode,
+                    hookAccepted = sample.hookAccepted,
+                    hookScore = sample.hookScore,
+                    hookReason = sample.hookReason,
+                    mnemonicHook = sample.mnemonicHook,
+                    storyCue = string.Empty,
                     imagePrompt = sample.imagePrompt,
                     imagePromptCandidates = sample.imagePromptCandidates == null ? new List<string>() : new List<string>(sample.imagePromptCandidates),
                     objectShape = string.IsNullOrWhiteSpace(sample.objectShape) ? Shapes[i % Shapes.Length] : sample.objectShape,

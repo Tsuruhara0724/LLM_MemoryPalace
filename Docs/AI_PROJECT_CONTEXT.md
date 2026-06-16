@@ -1,12 +1,12 @@
 # AI Project Context - LLM Memory Palace
 
-Last verified: 2026-06-11
+Last verified: 2026-06-12
 
 Current development base:
 - Branch: `restore/baseline-5bf3069`
 - Baseline before current change: `4acd327`, tag `cue-story-microstory-20260605`
-- Current save label: `分离 Association Image Cue / Mnemonic Link / Story Cue`
-- Meaning of current state: Japanese translation fields were removed; mnemonic/image prompts are English-only; image cue generation uses latency hiding via background best-of-4 pre-generation; text generation now separates image-focused association cues, compact mnemonic links, and learner-facing story cues.
+- Current save label: `Association Image Cue + dynamic Mnemonic`
+- Meaning of current state: Japanese translation fields were removed; mnemonic/image prompts are English-only; image cue generation uses latency hiding via background best-of-2 pre-generation; text generation now separates machine-facing Association Image Cue from the final learner-facing Mnemonic. Mnemonic dynamically becomes either `HOOK_PLUS_STORY` or `STORY_ONLY`.
 - Failed checkpoint saved for reference: remote branch/tag `checkpoint/failed-halfdone-before-progress-20260605` / `failed-halfdone-before-progress-20260605`, commit `a9912ef`. It contains a half-finished cue-blueprint attempt. Do not restore it blindly.
 
 Maintenance rule:
@@ -16,14 +16,14 @@ Maintenance rule:
 
 ## 1. Project Summary
 
-This is a Unity VR/Desktop experiment app for Spanish vocabulary learning in a memory palace. The system assigns Spanish words to fixed room anchors, uses a local LLM to generate image-focused association cues, compact mnemonic links, and learner-facing story cues, generates multiple image candidates through Stable Diffusion from the image cue fields only, then uses an Ollama vision model to score and select the clearest anchor-plus-cue image. After the first selected image is displayed, the app continues preparing additional selected image sets in the background to hide regeneration latency. Participants study in the room, capture memory snapshots, complete mid/final image-choice tests, answer a questionnaire, and export JSON/CSV research data.
+This is a Unity VR/Desktop experiment app for Spanish vocabulary learning in a memory palace. The system assigns Spanish words to fixed room anchors, uses a local LLM to generate image-focused association cues and one final learner-facing mnemonic, generates multiple image candidates through Stable Diffusion from the image cue fields only, then uses an Ollama vision model to score and select the clearest anchor-plus-cue image. After the first selected image is displayed, the app continues preparing additional selected image sets in the background to hide regeneration latency. Participants study in the room, capture memory snapshots, complete mid/final image-choice tests, answer a questionnaire, and export JSON/CSV research data.
 
 ## 2. Research Intent
 
 The project combines:
 - Memory palace: each vocabulary item is placed at a fixed room anchor.
-- Keyword/mnemonic method: Mnemonic Link should connect anchor, Spanish word form, and target meaning.
-- Story Cue should support richer learner imagination and may go beyond the generated image/3D proxy, but it is not used for image generation.
+- Keyword/mnemonic method: Mnemonic should be the final learner-facing study text. It uses a hook only when the hook is strong enough to beat a story-only mnemonic.
+- If no strong hook exists, Mnemonic is a single story-only paragraph anchored in the room. Do not force weak spelling overlap or weak sound-alikes into the learner text.
 - Text-to-image support: drawable association scenes become visual cue images.
 - Experiment workflow: compare `LLM Generated` and `Self Generated` conditions.
 
@@ -34,10 +34,12 @@ Paper-derived design principles:
   - `associationPrompt`: the core drawable visual relationship for image generation.
   - `imagePrompt`: a shorter foreground-focused prompt.
   - `imagePromptCandidates`: 4 diverse composition variants.
-  - `mnemonic`: a compact Mnemonic Link explaining how the anchor, Spanish word form, and meaning connect.
-  - `storyCue`: a learner-facing Story Cue for richer imagination, not used for image generation.
+  - `mnemonic`: final learner-facing text. `HOOK_PLUS_STORY` has two short paragraphs; `STORY_ONLY` has one story paragraph.
+  - `mnemonicMode`, `hookAccepted`, `hookScore`, `hookReason`, `mnemonicHook`: internal/export metadata for hook quality.
+  - `storyCue`: legacy compatibility field; no longer generated or displayed.
 - Image quality should prioritize clarity, simplicity, familiar objects, target-meaning specificity, anchor interaction, a novel but physically possible relation, and no irrelevant whole-room overview.
-- Runtime image generation uses asynchronous speculative pre-generation / latency hiding: each displayed result A-D is independently chosen by best-of-4 reranking, and B-D are prepared after A is shown.
+- Runtime image generation uses asynchronous speculative pre-generation / latency hiding: each displayed result A-D is independently chosen by best-of-2 reranking, and B-D are prepared after A is shown.
+- User-facing UI hides `visualCue` / Visual Cue Scene. It shows Association Image Cue and Mnemonic only. Internally these map to `associationPrompt` and `mnemonic`.
 - The current prompt/data schema is English-only. Japanese translation fields were removed from models, resources, UI display, and exports.
 
 Important current-state note:
@@ -132,7 +134,7 @@ Controller flow:
 
 Important defaults in `MemoryPalaceExperimentController.cs`:
 - `MidTestTriggerCount = 3`
-- `RequiredImagePromptCandidateCount = 4`
+- `RequiredImagePromptCandidateCount = 2`
 - `BufferedImageCueResultCount = 4`
 - `ollamaBaseUrl = "http://localhost:11434/api/generate"`
 - `ollamaModel = "qwen3:8b"`
@@ -141,7 +143,7 @@ Important defaults in `MemoryPalaceExperimentController.cs`:
 
 ## 5. Mnemonic Generation Architecture
 
-Current generation uses three LLM calls.
+Current generation uses two LLM calls. Call 1 generates machine-facing image cue fields. Call 2 generates the final learner-facing Mnemonic plus hook quality metadata.
 
 ### Call 1: Image Scene / Visual Cue
 
@@ -169,10 +171,11 @@ Call 1 rules:
 - Build a target-meaning event, not a target-object display.
 - The cue should physically interact with the assigned anchor.
 - For nature/place/large-environment nouns, use indoor proxy events instead of full outdoor scenes.
+- `association_prompt_en`, `image_prompt_en`, and `image_prompt_candidates_en` must avoid process words such as candidate, version, best-of-four, selected image, story, mnemonic, learner, remember, and Spanish word.
 - Do not output `mnemonic_en` or `story_cue_en`.
 - Generate exactly 4 diverse image prompt candidates.
 
-### Call 2: Mnemonic Link
+### Call 2: Dynamic Mnemonic
 
 Prompt builders:
 - `BuildMnemonicLinkPrompt`
@@ -188,40 +191,27 @@ Output fields:
 
 ```text
 mnemonic_en
+mnemonic_mode
+hook_judge.accepted
+hook_judge.score
+hook_judge.reason
+hook_judge.best_hook
 ```
 
 Call 2 rules:
-- Mnemonic Link is a compact memory explanation, not an image prompt or story cue.
-- It should connect the assigned anchor, Spanish word form, and target meaning.
-- It should be generated from word form, target meaning, and anchor only; do not depend on the image cue branch.
-- It should explain why the word sticks through a familiar word, sound, action, or anchor relation.
-- Prefer natural hooks like `playa -> play at the beach`.
-- The Spanish word should appear exactly once in `mnemonic_en`.
-- `mnemonic_en` should be 1 or 2 sentences, 18 to 42 words.
-- Do not write camera framing, image prompt language, or story expansion.
+- `mnemonic_en` is the only learner-facing study text.
+- First generate possible hooks, then judge whether the best hook adds real value beyond a story-only mnemonic.
+- Accept a hook only when it creates a memorable intermediate cue, phrase, image, or action that helps retrieve the Spanish word form.
+- Reject weak hooks based only on partial spelling overlap, weak sound-alikes, circular explanation, forced puns, or generic relation wording.
+- `mnemonic_mode = HOOK_PLUS_STORY` only when `hook_judge.accepted = true` and `hook_judge.score >= 7`.
+- `HOOK_PLUS_STORY`: exactly two short paragraphs. Paragraph 1 explains the accepted hook; paragraph 2 tells an anchor-based story.
+- `STORY_ONLY`: exactly one short anchor-based story paragraph. Do not mention that no hook was found.
+- Example rejection: `isla -> isl -> island` must use `STORY_ONLY`.
+- Example acceptance: `carretera -> carry the road` may use `HOOK_PLUS_STORY`.
+- Do not write camera framing, image prompt language, or separate story fields.
 - Do not mention or assume generated images, visual cue props, association prompts, image prompts, or 3D proxy props.
-- Avoid meta phrases: `visible cue`, `points to`, `retrieves`, `bind syllables`, `action rhythm`, `same scene`.
+- Avoid meta phrases: `visible cue`, `points to`, `retrieves`, `bind syllables`, `action rhythm`, `same scene`, `links to`, `is associated with`.
 - Do not merely say "repeat the word."
-
-### Call 3: Story Cue / Imagination Story
-
-Prompt builders:
-- `BuildStoryCuePrompt`
-- `BuildSingleStoryCuePrompt`
-
-Output fields:
-
-```text
-story_cue_en
-```
-
-Call 3 rules:
-- Story Cue is learner-facing imaginative prose, not an image prompt and not the compact mnemonic link.
-- It starts from the assigned anchor and image cue, then expands into a small memorable moment.
-- It may include sensory details, motion, consequence, and context beyond what the generated image or 3D proxy can show.
-- The Spanish word should appear exactly once in `story_cue_en`.
-- `story_cue_en` should be 2 or 3 sentences, 35 to 80 words.
-- Do not describe camera framing, image quality, prompt syntax, written labels, signs, logos, or unsafe imagery.
 
 Merge:
 - `MergeGeneratedMnemonicFields`
@@ -237,18 +227,19 @@ Pipeline:
 1. Outer displayed-result pool
    - `BufferedImageCueResultCount = 4`.
    - The UI-visible results are A/B/C/D.
-   - Each of A/B/C/D is itself produced by a full best-of-4 image generation and VLM scoring pass.
+   - Each of A/B/C/D is itself produced by a full best-of-2 image generation and VLM scoring pass.
    - A is displayed as soon as it is ready; B/C/D continue in the same coroutine while the UI remains responsive.
    - Desktop UI arrows call `TryCycleDisplayedImageCueCandidate` to switch among prepared A-D results.
    - `Regenerate Image Cue Set` clears the old pool and starts a fresh A-D run.
-2. Inner best-of-4 generation
+2. Inner best-of-2 generation
    - `GenerateBestImageCueVariantRoutine`
-   - Generates `RequiredImagePromptCandidateCount = 4` raw images for one displayed result.
+   - Generates `RequiredImagePromptCandidateCount = 2` raw images for one displayed result.
    - Scores each raw candidate with the vision judge.
    - Keeps only the best raw candidate as the displayed result.
 3. `BuildMnemonicImagePromptCandidates`
    - Uses `imagePromptCandidates`, `imagePrompt`, `associationPrompt`, and `visualCue`.
-   - Adds composition variants:
+   - Re-wraps each raw prompt as one machine-facing single-image layout before Stable Diffusion sees it.
+   - Adds camera-safe layout variants without sending candidate/best-of-two/process words to the image model:
      - `object-on-anchor`
      - `action-focused`
      - `novel-possible`
@@ -259,10 +250,14 @@ Pipeline:
    - 28 steps
    - CFG 8.5
    - sampler `DPM++ 2M`
+   - `batch_size = 1`, `n_iter = 1`, `tiling = false`, `do_not_save_grid = true`.
+   - Final prompt is logged as `FINAL_IMAGE_PROMPT_SENT_TO_MODEL`.
+   - Negative prompt rejects split-screen, collage, contact sheets, grids, image sequences, side-by-side views, and multi-panel layouts.
 5. Ollama Vision validation
    - `ValidateImageCueSubjectsRoutine`
    - Prompt builder: `BuildImageCueValidationPrompt`
    - Default model: `gemma3:12b`
+   - Rejects collage/split-screen/contact-sheet output via `single_continuous_image` and `no_split_screen_or_collage`.
 6. Scoring
    - `ScoreImageCueValidation`
    - Rewards anchor visible, cue visible, focus, meaning specificity, foreground clarity, anchor interaction, simplicity, familiar objects, novel possible relation, and no room overview.
@@ -354,14 +349,10 @@ Visual cue prompt:
 - `BuildSingleVisualCueRegenerationPrompt`
 - `BuildCompactVisualCueRetryPrompt`
 
-Mnemonic Link prompt:
+Dynamic Mnemonic prompt:
 - `BuildMnemonicLinkPrompt`
 - `BuildSingleMnemonicLinkPrompt`
-
-Story Cue prompt:
-- `BuildStoryCuePrompt`
-- `BuildSingleStoryCuePrompt`
-- Also check fallback/hardcoded guardrail text in `MemoryPalaceExperimentController.cs` if user-facing story behavior changes.
+- Also check fallback/hardcoded guardrail text in `MemoryPalaceExperimentController.cs` if learner-facing mnemonic behavior changes.
 
 Image candidate logic:
 - Generated fields are in `OllamaLlmService`.
@@ -370,6 +361,7 @@ Image candidate logic:
   - `BuildImagePromptCandidateLabel`
   - `BuildImagePromptCandidateComposition`
   - `GenerateBestImageCueVariantRoutine`
+  - `BuildFinalStableDiffusionPrompt`
   - `BuildImageCueResultLabel`
   - `BuildImageCueCandidateDisplaySummary`
   - `TryCycleDisplayedImageCueCandidate`
@@ -382,8 +374,8 @@ Vision judge:
 
 Important principle:
 - Do not keep stacking rules forever.
-- If `visualCue`, `associationPrompt`, `mnemonic`, and `storyCue` start copying each other again, change the generation structure instead of adding only another sentence to the prompt.
-- Image generation must not read from `mnemonic` or `storyCue`; it should use `imagePromptCandidates`, `imagePrompt`, `associationPrompt`, and only then `visualCue` as a fallback.
+- If `visualCue`, `associationPrompt`, and `mnemonic` start copying each other again, change the generation structure instead of adding only another sentence to the prompt.
+- Image generation must not read from `mnemonic`; it should use `imagePromptCandidates`, `imagePrompt`, `associationPrompt`, and only then `visualCue` as a fallback.
 
 ## 10. Future Cue Blueprint Plan
 
@@ -391,8 +383,7 @@ Problem to solve:
 - Fields can collapse into repetition:
   - `visualCue` becomes target object on anchor.
   - `associationPrompt` becomes a shorter duplicate.
-  - `mnemonic` becomes a story instead of a compact anchor-word-meaning link.
-  - `storyCue` copies the image prompt instead of expanding learner imagination.
+  - `mnemonic` forces a weak hook instead of using story-only mode.
 
 Recommended future structure:
 
@@ -400,8 +391,7 @@ Recommended future structure:
 Word + Meaning + Anchor
 -> internal cue_blueprint
 -> Association/Image prompt branch
--> Mnemonic Link branch
--> Story Cue branch
+-> Dynamic Mnemonic branch
 -> validation/regeneration
 ```
 
@@ -414,12 +404,11 @@ Suggested `cue_blueprint` fields:
 - `mainActionOrState`
 - `visibleObjects`
 - `mnemonicHookNote`
-- `storyExpansionNote`
+- `mnemonicMode`
 
 Rule:
 - Association Prompt paints the cue.
-- Mnemonic Link teaches why the anchor, word form, and meaning connect.
-- Story Cue gives a richer learner imagination scene and is not used for image generation.
+- Mnemonic is the final learner-facing text. If the hook is strong, it teaches the hook then tells the story; otherwise it is a clean story-only mnemonic.
 - All branches can come from the blueprint, but none should copy the others.
 
 Warning:
@@ -428,8 +417,8 @@ Warning:
 ## 11. Known Issues
 
 High priority:
-- Mnemonic Link is separated from Story Cue, but hard words may still lack a natural word-form hook.
-- Story Cue may still copy the image cue too closely if the model ignores Call 3 role separation.
+- Dynamic Mnemonic may still accept borderline hooks unless hook scoring stays strict.
+- Hard words may still need story-only mnemonics because no natural word-form hook exists.
 - Some visual cues may still become target-object displays.
 - Stable Diffusion may produce room overview images, miss the anchor, or miss the cue.
 - VLM judge can choose the best available image, but cannot guarantee a truly good image.
@@ -455,8 +444,7 @@ Prompt/mnemonic:
   - `cartera`
   - `desierto`
   - `barrio`
-- Add Mnemonic Link validation that detects missing word-form hooks.
-- Add Story Cue validation that detects image-prompt restatement.
+- Add validation/regression examples for weak hook rejection, especially `isla -> isl -> island`.
 - Rebuild cue blueprint architecture on a clean branch.
 - Reduce prompt-rule pileup by moving constraints into structure.
 
@@ -508,7 +496,7 @@ Before committing:
 ## 14. Fast Search Commands
 
 ```powershell
-rg -n "BuildVisualCuePrompt|BuildMnemonicLinkPrompt|BuildStoryCuePrompt|BuildSingleStoryCuePrompt" Assets/Scripts/Services/OllamaLlmService.cs
+rg -n "BuildVisualCuePrompt|BuildMnemonicLinkPrompt|BuildSingleMnemonicLinkPrompt" Assets/Scripts/Services/OllamaLlmService.cs
 rg -n "GenerateMnemonicImageCueRoutine|ValidateImageCueSubjectsRoutine|ScoreImageCueValidation" Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs
 rg -n "BuildExportPayload|WriteExportFiles|BuildRecallCsv" Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs
 rg -n "MnemonicItemData|ExportWordEntry|ExperimentSessionExport" Assets/Scripts/Data/ExperimentModels.cs

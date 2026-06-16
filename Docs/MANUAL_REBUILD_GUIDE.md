@@ -1,6 +1,6 @@
 # 手工重建教程 - LLM Memory Palace
 
-最后核对日期：2026-06-11
+最后核对日期：2026-06-12
 
 用途：
 - 让项目所有者不借助 AI，也能理解并手工重新搭建当前项目。
@@ -16,8 +16,8 @@
 2. 选择 `LLM Generated` 或 `Self Generated`。
 3. 选择或随机抽取西语词汇。
 4. 使用或编辑一个带家具 anchor 的房间。
-5. LLM 条件下，用 Ollama 生成 visual cue、association image cue、image prompt、Mnemonic Link、Story Cue。
-6. Self 条件下，让用户手动分开写 image cue、mnemonic link 和 story cue。
+5. LLM 条件下，用 Ollama 生成 visual cue、association image cue、image prompt、最终 Mnemonic，以及 hook 判定元数据。
+6. Self 条件下，让用户手动分开写 image cue 和最终 Mnemonic。没有好 hook 时，Mnemonic 直接写 story-only。
 7. 进入 study room，点击每个 anchor 的 mnemonic object 查看信息。
 8. 用 Stable Diffusion 生成 image cue，每个显示结果都由 4 张原始候选经 Ollama Vision 自检打分后选出。
 9. 第一个最优结果 A 完成后立刻展示，同时后台继续准备 B/C/D 三个最优结果，用来隐藏等待时间。
@@ -136,6 +136,11 @@ anchorLabel
 visualCue
 associationPrompt
 mnemonic
+mnemonicMode
+hookAccepted
+hookScore
+hookReason
+mnemonicHook
 storyCue
 imagePrompt
 imagePromptCandidates
@@ -400,7 +405,7 @@ MnemonicItemData Data
 
 点击 mnemonic object 后：
 - 设置 `selectedStudyItem`。
-- 在 UI 或 VR panel 显示 visual cue、association image cue、Mnemonic Link、Story Cue、图片 cue。
+- 在 UI 或 VR panel 显示 association image cue、Mnemonic、图片 cue；不要显示 Visual Cue Scene，也不要单独显示 Imagination。
 
 ## 10. 第七步：写 Mock Generator
 
@@ -423,7 +428,12 @@ Assets/Scripts/Services/MockMnemonicGenerator.cs
 - `visualCue`
 - `associationPrompt`
 - `mnemonic`
-- `storyCue`
+- `mnemonicMode`
+- `hookAccepted`
+- `hookScore`
+- `hookReason`
+- `mnemonicHook`
+- `storyCue` 只作为 legacy 兼容字段，不再生成或显示
 - `imagePrompt`
 - `imagePromptCandidates`
 - `visualObjects`
@@ -457,12 +467,11 @@ Assets/Scripts/Services/OllamaLlmService.cs
 1. 取 3 个词一组。
 2. 调用 Call 1 生成 visual cue 和 image prompts。
 3. 对齐 word。
-4. 调用 Call 2 生成 Mnemonic Link。
+4. 调用 Call 2 生成最终 Mnemonic 和 hook judge。
 5. 对齐 word。
-6. 调用 Call 3 生成 Story Cue。
-7. 对齐 word。
-8. `MergeGeneratedMnemonicFields`。
-9. `BuildMnemonicItemData`。
+6. `MergeGeneratedMnemonicFields`。
+7. `BuildMnemonicItemData`。
+8. 如果 chunk JSON 失败或缺 item，不走本地降级；改为同一 Call 逐词重试，仍由 Ollama 生成。
 
 ## 12. 第九步：写 Prompt
 
@@ -496,6 +505,9 @@ Call 1 规则：
 - 避免 target object display。
 - 避免 whole room overview。
 - 避免文字、标签、logo、箭头、危险内容。
+- `association_prompt_en` 是给图片模型看的单图布局指令，不是给人看的短摘要。
+- `association_prompt_en` 必须以 `Single close-up image,` 开头，并写清 anchor、cue object、相对大小、相对位置、接触/支撑关系、动作/状态。
+- image prompt 字段里不要写 candidate、version、best-of-four、selected image、story、mnemonic、learner、remember、Spanish word 等过程/学习词。
 - 生成 4 个 image prompt candidates。
 
 Call 2 prompt 函数：
@@ -514,55 +526,31 @@ Call 2 输出：
 
 ```text
 mnemonic_en
+mnemonic_mode
+hook_judge
 ```
 
 Call 2 规则：
-- Mnemonic Link 是紧凑的助记解释，不是 image prompt，也不是故事。
-- 连接 assigned anchor、Spanish word form、meaning 三个要素。
-- 只基于 word form、meaning、anchor；不要读取或假设 image cue / association prompt / image prompt / 3D proxy。
-- 西语词在 `mnemonic_en` 出现一次。
-- 1 到 2 句，18 到 42 words。
+- `mnemonic_en` 是唯一给学习者看的文本，不再单独生成 Story Cue。
+- 先生成候选 hook，再判断最好的 hook 是否真的比 story-only 更有记忆价值。
+- 只有 `hook_judge.accepted = true` 且 `hook_judge.score >= 7` 才用 `HOOK_PLUS_STORY`。
+- `HOOK_PLUS_STORY`：两小段。第一段解释高质量 hook，第二段讲 anchor-based story。
+- `STORY_ONLY`：一小段 anchor-based story。不要提“没有找到 hook”。
+- 拒绝只靠几个字母相似、弱谐音、循环解释、牵强 pun 的 hook。
+- `isla -> isl -> island` 应该拒绝，走 `STORY_ONLY`。
+- `carretera -> carry the road` 可以接受，走 `HOOK_PLUS_STORY`。
 - 不写 camera / composition / prompt 语言。
-- 不展开成 Story Cue。
-- 不说 repeat the word。
+- 不说 repeat the word，不用 `links to` / `is associated with` 这种泛泛解释。
 
 推荐 few-shot：
 
 ```text
-word: playa
-meaning: beach
+word: isla
+meaning: island
 anchor_label: Door
-mnemonic_en: "At the Door, playa links to beach because it sounds like play, so the doorway becomes the place where beach-play begins."
+mnemonic_mode: STORY_ONLY
+mnemonic_en: "At the Door, it opens onto a tiny island instead of another room. Sand and seawater spill across the threshold, and isla becomes the island waiting behind it."
 ```
-
-Call 3 prompt 函数：
-
-```text
-BuildStoryCuePrompt
-BuildSingleStoryCuePrompt
-```
-
-Call 3 输入：
-- word
-- meaning
-- anchor
-- visual cue
-- association prompt
-- mnemonic_en
-
-Call 3 输出：
-
-```text
-story_cue_en
-```
-
-Call 3 规则：
-- Story Cue 是给用户想象的故事，不是 image prompt，也不是 Mnemonic Link。
-- 可以从 anchor 和 image cue 出发，加入感官、动作、后果和更多情境。
-- 可以超出生成图片和 3D proxy 能表现的可见信息。
-- 西语词在 `story_cue_en` 出现一次。
-- 2 到 3 句，35 到 80 words。
-- 不写 camera / image quality / prompt syntax，不加入文字标签或危险内容。
 
 ## 13. 第十步：写 RAG Helper
 
@@ -608,7 +596,8 @@ GenerateMnemonicImageCueRoutine
 4. `GenerateBestImageCueVariantRoutine` 调 `BuildMnemonicImagePromptCandidates`。
    - 从 `imagePromptCandidates` 开始。
    - 不够时用 `imagePrompt`、`associationPrompt`、`visualCue` 补。
-   - 给每个 candidate 加构图说明。
+   - 把每个 raw prompt 重包成 `Single close-up image` 单图布局。
+   - 不把 candidate / best-of-4 / image set 等过程词发给 Stable Diffusion。
 5. 对 4 个原始 candidate 分别调 Stable Diffusion txt2img。
 6. 把 base64 image 转成 `Texture2D`。
 7. 调 `ValidateImageCueSubjectsRoutine`。
@@ -628,6 +617,10 @@ height = 512
 steps = 28
 cfg_scale = 8.5
 sampler_name = "DPM++ 2M"
+batch_size = 1
+n_iter = 1
+tiling = false
+do_not_save_grid = true
 ```
 
 Vision validation JSON 需要：
@@ -644,6 +637,8 @@ simple_scene
 familiar_objects
 novel_possible_relation
 no_room_overview
+single_continuous_image
+no_split_screen_or_collage
 caption
 reason
 missing_or_wrong
@@ -791,7 +786,7 @@ Desktop 控制也要保留：
 10. Recall/snapshot test。
 11. Export。
 12. Ollama mnemonic generation。
-13. Call 1 / Call 2 / Call 3 prompt 分离。
+13. Call 1 / Call 2 prompt 分离：图像 cue 和最终 Mnemonic 分开。
 14. Stable Diffusion image generation。
 15. Ollama Vision validation 和 best-of-4 selection。
 16. Latency hiding：A 先显示，B/C/D 后台准备，UI 可切换。
@@ -812,7 +807,7 @@ Desktop 控制也要保留：
 - LLM Generated 能调用 Ollama 并解析 JSON。
 - Self Generated 不依赖 Ollama 也能跑。
 - Study room 显示 anchor 和 mnemonic object。
-- 点击 item 能看到 visual cue、association image cue、Mnemonic Link、Story Cue。
+- 点击 item 能看到 association image cue、Mnemonic；不要显示 Visual Cue Scene 或 Imagination。
 - 图片生成能产生 A/B/C/D 四个显示结果。
 - 每个显示结果都来自一轮 4 张原始图的 vision best-of-4 选择。
 - A 完成后能先显示，B/C/D 能继续在后台准备。
@@ -832,8 +827,9 @@ Ollama JSON 解析失败：
 - 输出字段名必须和 C# 一致。
 
 字段互相复制：
-- 强化 Call 1 / Call 2 / Call 3 分离。
-- 不让 Mnemonic Link 或 Story Cue 进入 image prompt。
+- 强化 Call 1 / Call 2 分离。
+- 不让 Mnemonic 进入 image prompt。
+- 不要为了填 Mnemonic 强行生成弱 hook；弱 hook 走 `STORY_ONLY`。
 - 必要时引入内部 `cue_blueprint`。
 
 图片只出现房间或只出现 cue：
@@ -858,8 +854,6 @@ Git 误提交 build：
 - `BuildVisualCuePrompt`
 - `BuildMnemonicLinkPrompt`
 - `BuildSingleMnemonicLinkPrompt`
-- `BuildStoryCuePrompt`
-- `BuildSingleStoryCuePrompt`
 
 改数据字段：
 - `Assets/Scripts/Data/ExperimentModels.cs`
