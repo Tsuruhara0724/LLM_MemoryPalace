@@ -56,6 +56,13 @@ namespace MemPalaceLLM
 
     public static class RoomSpecCatalog
     {
+        public const float DefaultShellWallHeight = 2.8f;
+        public const float DefaultShellMinimumWallHeight = 2.2f;
+        public const float DefaultShellCeilingThickness = 0.1f;
+        public const float DefaultShellCeilingCenterY = DefaultShellWallHeight + DefaultShellCeilingThickness * 0.5f;
+
+        private const string DefaultShellCeilingColor = "#F3F0E8";
+
         private static RoomSpecDefinition currentRoom;
 
         public static RoomSpecDefinition CurrentRoom
@@ -203,17 +210,25 @@ namespace MemPalaceLLM
 
             for (int i = 0; i < room.environmentPrimitives.Count; i++)
             {
-                room.environmentPrimitives[i].primitiveShape = string.IsNullOrWhiteSpace(room.environmentPrimitives[i].primitiveShape)
-                    ? "Cube"
-                    : room.environmentPrimitives[i].primitiveShape;
-                room.environmentPrimitives[i].colorHex = string.IsNullOrWhiteSpace(room.environmentPrimitives[i].colorHex)
-                    ? "#FFFFFF"
-                    : room.environmentPrimitives[i].colorHex;
-                if (room.environmentPrimitives[i].labelHeight <= 0f)
+                var primitive = room.environmentPrimitives[i];
+                if (primitive == null)
                 {
-                    room.environmentPrimitives[i].labelHeight = 0.8f;
+                    continue;
+                }
+
+                primitive.primitiveShape = string.IsNullOrWhiteSpace(primitive.primitiveShape)
+                    ? "Cube"
+                    : primitive.primitiveShape;
+                primitive.colorHex = string.IsNullOrWhiteSpace(primitive.colorHex)
+                    ? "#FFFFFF"
+                    : primitive.colorHex;
+                if (primitive.labelHeight <= 0f)
+                {
+                    primitive.labelHeight = 0.8f;
                 }
             }
+
+            EnsureShellStructure(room);
 
             for (int i = 0; i < room.anchors.Count; i++)
             {
@@ -234,6 +249,264 @@ namespace MemPalaceLLM
                     room.anchors[i].labelHeight = 0.85f;
                 }
             }
+        }
+
+        private static void EnsureShellStructure(RoomSpecDefinition room)
+        {
+            if (room?.environmentPrimitives == null)
+            {
+                return;
+            }
+
+            var primitives = room.environmentPrimitives;
+            for (int i = 0; i < primitives.Count; i++)
+            {
+                var primitive = primitives[i];
+                if (primitive == null)
+                {
+                    continue;
+                }
+
+                if (IsShellWallPrimitive(primitive) && primitive.scale.y < DefaultShellMinimumWallHeight)
+                {
+                    primitive.position = new Vector3(primitive.position.x, DefaultShellWallHeight * 0.5f, primitive.position.z);
+                    primitive.scale = new Vector3(primitive.scale.x, DefaultShellWallHeight, primitive.scale.z);
+                    primitive.labelHeight = Mathf.Max(primitive.labelHeight, 1.15f);
+                }
+            }
+
+            AlignWallCaps(room);
+            EnsureCeilingPrimitives(room);
+        }
+
+        private static void AlignWallCaps(RoomSpecDefinition room)
+        {
+            var primitives = room.environmentPrimitives;
+            for (int i = 0; i < primitives.Count; i++)
+            {
+                var cap = primitives[i];
+                if (cap == null || string.IsNullOrWhiteSpace(cap.id) || !cap.id.StartsWith("cap_", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var wall = FindPrimitiveById(room, cap.id.Substring("cap_".Length));
+                if (wall == null)
+                {
+                    continue;
+                }
+
+                cap.position = new Vector3(
+                    wall.position.x,
+                    wall.position.y + wall.scale.y * 0.5f + Mathf.Max(0.035f, cap.scale.y * 0.5f),
+                    wall.position.z);
+                cap.scale = new Vector3(
+                    Mathf.Max(wall.scale.x + 0.08f, wall.scale.x),
+                    Mathf.Max(cap.scale.y, 0.045f),
+                    Mathf.Max(wall.scale.z + 0.08f, wall.scale.z));
+                cap.rotationEuler = wall.rotationEuler;
+                cap.showLabel = false;
+            }
+        }
+
+        private static void EnsureCeilingPrimitives(RoomSpecDefinition room)
+        {
+            var primitives = room.environmentPrimitives;
+            var hasManualCeiling = false;
+            var hasGeneratedCeiling = false;
+            for (int i = 0; i < primitives.Count; i++)
+            {
+                var primitive = primitives[i];
+                if (!IsCeilingPrimitive(primitive))
+                {
+                    continue;
+                }
+
+                NormalizeCeilingPrimitive(primitive);
+                if (IsGeneratedCeilingId(primitive.id))
+                {
+                    hasGeneratedCeiling = true;
+                }
+                else
+                {
+                    hasManualCeiling = true;
+                }
+            }
+
+            if (hasManualCeiling && !hasGeneratedCeiling)
+            {
+                return;
+            }
+
+            var originalCount = primitives.Count;
+            for (int i = 0; i < originalCount; i++)
+            {
+                var floor = primitives[i];
+                if (!IsShellFloorSurfacePrimitive(floor))
+                {
+                    continue;
+                }
+
+                var ceilingId = BuildGeneratedCeilingId(floor, i);
+                var ceiling = FindPrimitiveById(room, ceilingId);
+                if (ceiling == null)
+                {
+                    primitives.Add(new RoomPrimitiveDefinition
+                    {
+                        id = ceilingId,
+                        label = "Ceiling",
+                        primitiveShape = "Cube",
+                        colorHex = DefaultShellCeilingColor,
+                        position = new Vector3(floor.position.x, DefaultShellCeilingCenterY, floor.position.z),
+                        scale = new Vector3(floor.scale.x, DefaultShellCeilingThickness, floor.scale.z),
+                        rotationEuler = floor.rotationEuler,
+                        showLabel = false,
+                        labelHeight = 0.8f
+                    });
+                    continue;
+                }
+
+                ceiling.label = string.IsNullOrWhiteSpace(ceiling.label) ? "Ceiling" : ceiling.label;
+                ceiling.primitiveShape = "Cube";
+                ceiling.colorHex = string.IsNullOrWhiteSpace(ceiling.colorHex) ? DefaultShellCeilingColor : ceiling.colorHex;
+                ceiling.position = new Vector3(floor.position.x, DefaultShellCeilingCenterY, floor.position.z);
+                ceiling.scale = new Vector3(floor.scale.x, DefaultShellCeilingThickness, floor.scale.z);
+                ceiling.rotationEuler = floor.rotationEuler;
+                ceiling.showLabel = false;
+            }
+        }
+
+        private static void NormalizeCeilingPrimitive(RoomPrimitiveDefinition primitive)
+        {
+            if (primitive == null)
+            {
+                return;
+            }
+
+            primitive.primitiveShape = string.IsNullOrWhiteSpace(primitive.primitiveShape) ? "Cube" : primitive.primitiveShape;
+            primitive.colorHex = string.IsNullOrWhiteSpace(primitive.colorHex) ? DefaultShellCeilingColor : primitive.colorHex;
+            primitive.position = new Vector3(primitive.position.x, Mathf.Max(primitive.position.y, DefaultShellCeilingCenterY), primitive.position.z);
+            primitive.scale = new Vector3(primitive.scale.x, Mathf.Max(primitive.scale.y, DefaultShellCeilingThickness), primitive.scale.z);
+            primitive.showLabel = false;
+        }
+
+        private static bool IsShellWallPrimitive(RoomPrimitiveDefinition primitive)
+        {
+            if (primitive == null || primitive.scale.y <= 0.45f)
+            {
+                return false;
+            }
+
+            var text = CombinedPrimitiveText(primitive);
+            if (ContainsAny(text, "art", "glass", "window", "rug", "border", "floor", "zone", "trim", "cap", "ceiling", "roof", "door"))
+            {
+                return false;
+            }
+
+            return ContainsAny(text, "wall", "divider", "partition");
+        }
+
+        private static bool IsCeilingPrimitive(RoomPrimitiveDefinition primitive)
+        {
+            if (primitive == null)
+            {
+                return false;
+            }
+
+            var text = CombinedPrimitiveText(primitive);
+            return ContainsAny(text, "ceiling", "roof", "top cover", "lid")
+                && primitive.position.y >= 1.6f
+                && primitive.scale.y <= 0.4f
+                && primitive.scale.x >= 0.6f
+                && primitive.scale.z >= 0.6f;
+        }
+
+        private static bool IsShellFloorSurfacePrimitive(RoomPrimitiveDefinition primitive)
+        {
+            if (primitive == null || primitive.scale.x < 0.65f || primitive.scale.z < 0.65f || primitive.scale.y > 0.35f)
+            {
+                return false;
+            }
+
+            var text = CombinedPrimitiveText(primitive);
+            return ContainsAny(text, "floor", "patch", "slab")
+                && !ContainsAny(text, "border", "rug", "carpet", "zone", "trim", "inlay", "tile", "bathroom", "ceiling", "roof");
+        }
+
+        private static RoomPrimitiveDefinition FindPrimitiveById(RoomSpecDefinition room, string id)
+        {
+            if (room?.environmentPrimitives == null || string.IsNullOrWhiteSpace(id))
+            {
+                return null;
+            }
+
+            for (int i = 0; i < room.environmentPrimitives.Count; i++)
+            {
+                var primitive = room.environmentPrimitives[i];
+                if (primitive != null && string.Equals(primitive.id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    return primitive;
+                }
+            }
+
+            return null;
+        }
+
+        private static string BuildGeneratedCeilingId(RoomPrimitiveDefinition floor, int index)
+        {
+            var source = !string.IsNullOrWhiteSpace(floor?.id)
+                ? floor.id
+                : !string.IsNullOrWhiteSpace(floor?.label)
+                    ? floor.label
+                    : "floor_" + index;
+            return "ceiling_" + SanitizeIdPart(source);
+        }
+
+        private static bool IsGeneratedCeilingId(string id)
+        {
+            return !string.IsNullOrWhiteSpace(id)
+                && id.StartsWith("ceiling_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string SanitizeIdPart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "floor";
+            }
+
+            var builder = new System.Text.StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                var c = char.ToLowerInvariant(value[i]);
+                builder.Append(char.IsLetterOrDigit(c) ? c : '_');
+            }
+
+            var sanitized = builder.ToString().Trim('_');
+            return string.IsNullOrWhiteSpace(sanitized) ? "floor" : sanitized;
+        }
+
+        private static string CombinedPrimitiveText(RoomPrimitiveDefinition primitive)
+        {
+            return ((primitive.id ?? string.Empty) + " " + (primitive.label ?? string.Empty)).ToLowerInvariant();
+        }
+
+        private static bool ContainsAny(string text, params string[] terms)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < terms.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(terms[i]) && text.Contains(terms[i].ToLowerInvariant()))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static RoomSpecDefinition CreateFallbackRoom()

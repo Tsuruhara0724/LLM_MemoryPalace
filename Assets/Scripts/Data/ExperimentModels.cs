@@ -62,6 +62,8 @@ namespace MemPalaceLLM
     {
         public string word;
         public string anchorId;
+        public string anchorType;
+        public string mnemonicSource;
         public string visualCue;
         public string mainCueObject;
         public string associationPrompt;
@@ -101,6 +103,8 @@ namespace MemPalaceLLM
         public string meaning;
         public string anchorId;
         public string anchorLabel;
+        public string anchorType;
+        public string mnemonicSource;
         public string visualCue;
         public string mainCueObject;
         public string associationPrompt;
@@ -176,6 +180,8 @@ namespace MemPalaceLLM
         public string word;
         public string meaning;
         public string anchorId;
+        public string anchorType;
+        public string mnemonicSource;
         public string cue;
         public string mainCueObject;
         public string associationPrompt;

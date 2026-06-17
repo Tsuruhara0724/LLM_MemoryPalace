@@ -819,7 +819,7 @@ namespace MemPalaceLLM
             roomBuilderScroll = GUILayout.BeginScrollView(roomBuilderScroll, false, true);
 
             GUILayout.Label("Room Builder", titleStyle);
-            GUILayout.Label("Create a clean open-roof room preview first. Advanced gizmo editing is available only if you expand the manual editor.", mutedStyle);
+            GUILayout.Label("Create a clean covered room preview first. Advanced gizmo editing is available only if you expand the manual editor.", mutedStyle);
             GUILayout.Space(8);
 
             DrawGuidedRoomBuilderWizard();
@@ -1131,7 +1131,7 @@ namespace MemPalaceLLM
                 GenerateGuidedMainFurniture();
                 builderWizardStep = BuilderWizardStep.TopDownConfirm;
                 MoveCameraToPlanView();
-                statusMessage = "Generated a furnished open-roof room preview. If it matches the participant's room, continue to entrance view.";
+                statusMessage = "Generated a furnished room preview with raised walls and a ceiling. If it matches the participant's room, continue to entrance view.";
             }
 
             GUILayout.BeginHorizontal();
@@ -1330,7 +1330,7 @@ namespace MemPalaceLLM
                 }
             };
 
-            var wallHeight = 1.05f;
+            var wallHeight = RoomSpecCatalog.DefaultShellWallHeight;
             var wallY = wallHeight * 0.5f;
             var doorCenterX = 0f;
             var doorGap = 1.1f;
@@ -8196,7 +8196,8 @@ namespace MemPalaceLLM
 
         private void AddWallSegmentPrimitive()
         {
-            AddRoomShellPrimitive("Wall Segment", "Cube", "#F7F4EC", new Vector3(0f, 0.60f, 0f), new Vector3(1.4f, 1.20f, 0.09f));
+            var wallHeight = RoomSpecCatalog.DefaultShellWallHeight;
+            AddRoomShellPrimitive("Wall Segment", "Cube", "#F7F4EC", new Vector3(0f, wallHeight * 0.5f, 0f), new Vector3(1.4f, wallHeight, 0.09f));
             BeginWallSegmentPlacement(selectedRoomPrimitiveIndex, true);
         }
 
@@ -8381,6 +8382,7 @@ namespace MemPalaceLLM
             AddMergedAutoEdges(horizontalEdges, true, grid, ref wallIndex);
             AddMergedAutoEdges(verticalEdges, false, grid, ref wallIndex);
             AddDollhouseWallCaps(room);
+            RoomSpecCatalog.EnsureDefaults(room);
 
             void AddEdgeUnit(Dictionary<string, List<int>> edges, int fixedCoord, int outwardSign, int startCoord)
             {
@@ -8442,7 +8444,10 @@ namespace MemPalaceLLM
 
             var id = (primitive.id ?? string.Empty).ToLowerInvariant();
             var label = (primitive.label ?? string.Empty).ToLowerInvariant();
-            if (id.StartsWith("auto_wall_", StringComparison.Ordinal)
+            if (id == "ceiling"
+                || id.StartsWith("ceiling_", StringComparison.Ordinal)
+                || id.StartsWith("auto_ceiling_", StringComparison.Ordinal)
+                || id.StartsWith("auto_wall_", StringComparison.Ordinal)
                 || id.StartsWith("auto_floor_border_", StringComparison.Ordinal)
                 || id.StartsWith("cap_", StringComparison.Ordinal)
                 || id.StartsWith("floor_border_", StringComparison.Ordinal)
@@ -8510,7 +8515,7 @@ namespace MemPalaceLLM
             var room = RoomSpecCatalog.CurrentRoom;
             var length = xMax - xMin;
             var centerX = (xMin + xMax) * 0.5f;
-            var wallHeight = 1.35f;
+            var wallHeight = RoomSpecCatalog.DefaultShellWallHeight;
             var wallThickness = 0.18f;
             var offsetZ = z + outwardSign * 0.06f;
 
@@ -8537,7 +8542,7 @@ namespace MemPalaceLLM
             var room = RoomSpecCatalog.CurrentRoom;
             var length = zMax - zMin;
             var centerZ = (zMin + zMax) * 0.5f;
-            var wallHeight = 1.35f;
+            var wallHeight = RoomSpecCatalog.DefaultShellWallHeight;
             var wallThickness = 0.18f;
             var offsetX = x + outwardSign * 0.06f;
 
@@ -8658,7 +8663,7 @@ namespace MemPalaceLLM
             delta.y = 0f;
             var length = Mathf.Max(0.24f, delta.magnitude);
             var midpoint = (start + end) * 0.5f;
-            midpoint.y = 0.82f;
+            midpoint.y = RoomSpecCatalog.DefaultShellWallHeight * 0.5f;
 
             var yaw = delta.sqrMagnitude > 0.0001f
                 ? Mathf.Atan2(-delta.normalized.z, delta.normalized.x) * Mathf.Rad2Deg
@@ -8671,7 +8676,7 @@ namespace MemPalaceLLM
                 primitiveShape = "Cube",
                 colorHex = colorHex,
                 position = midpoint,
-                scale = new Vector3(length, 1.65f, 0.12f),
+                scale = new Vector3(length, RoomSpecCatalog.DefaultShellWallHeight, 0.12f),
                 rotationEuler = new Vector3(0f, yaw, 0f),
                 showLabel = false,
                 labelHeight = 1.2f
@@ -8773,7 +8778,7 @@ namespace MemPalaceLLM
             }
 
             var snapped = SnapShellPointToGrid(candidate);
-            var wallHeight = Mathf.Clamp(Mathf.Max(wall.scale.y, 1.25f), 0.75f, 2.6f);
+            var wallHeight = Mathf.Clamp(Mathf.Max(wall.scale.y, RoomSpecCatalog.DefaultShellWallHeight), 1.25f, 3.8f);
             var wallThickness = Mathf.Clamp(Mathf.Min(wall.scale.x, wall.scale.z, 0.18f), 0.08f, 0.22f);
             var defaultLength = Mathf.Clamp(Mathf.Max(wall.scale.x, wall.scale.z, 1.2f), 0.65f, 5.8f);
             var prefersVertical = Mathf.Abs(Mathf.DeltaAngle(wall.rotationEuler.y, 90f)) < 45f || wall.scale.z > wall.scale.x;
@@ -9631,6 +9636,7 @@ namespace MemPalaceLLM
 
         private void SaveCurrentRoomSpec()
         {
+            RoomSpecCatalog.EnsureDefaults(RoomSpecCatalog.CurrentRoom);
             var exportFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "GeneratedRooms"));
             Directory.CreateDirectory(exportFolder);
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -9920,6 +9926,7 @@ namespace MemPalaceLLM
             roomRoot = new GameObject("StudyRoomRuntime").transform;
             studyItemTargets.Clear();
             var roomSpec = RoomSpecCatalog.CurrentRoom;
+            RoomSpecCatalog.EnsureDefaults(roomSpec);
 
             for (int i = 0; i < roomSpec.environmentPrimitives.Count; i++)
             {

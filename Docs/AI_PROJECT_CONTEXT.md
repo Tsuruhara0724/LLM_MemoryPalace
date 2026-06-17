@@ -118,6 +118,7 @@ Controller flow:
   - Participant ID, condition, Ollama endpoint/model, image endpoint, vision model, word set, optional room builder.
 - RoomBuilder
   - Edits room shell and anchor furniture.
+  - Room shells normalize to raised walls plus generated ceiling slabs; builder previews hide ceilings so top-down editing stays readable.
 - Generation
   - Calls `OllamaLlmService.GenerateMnemonics`.
   - Displays generated preview and allows regeneration.
