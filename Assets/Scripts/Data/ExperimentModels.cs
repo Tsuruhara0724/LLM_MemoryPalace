@@ -24,7 +24,8 @@ namespace MemPalaceLLM
 
     public enum LlmProviderMode
     {
-        OllamaLocal
+        OllamaLocal,
+        GeminiOnline
     }
 
     [Serializable]
@@ -76,6 +77,7 @@ namespace MemPalaceLLM
         public string storyCue;
         public string imagePrompt;
         public List<string> imagePromptCandidates = new();
+        public CueBlueprintData cueBlueprint;
         public string selectedImagePrompt;
         public int selectedImageCandidateIndex = -1;
         public string imageSelectionReason;
@@ -94,6 +96,20 @@ namespace MemPalaceLLM
         public Vector3 localPosition;
         public Vector3 scale;
         public string effect;
+    }
+
+    [Serializable]
+    public class CueBlueprintData
+    {
+        public string targetMeaning;
+        public string visualSceneCore;
+        public string mainObject;
+        public string anchorRelation;
+        public string relativeSize;
+        public string mainActionOrState;
+        public List<string> visibleObjects = new();
+        public string mnemonicHookNote;
+        public string mnemonicMode;
     }
 
     [Serializable]
@@ -117,6 +133,7 @@ namespace MemPalaceLLM
         public string storyCue;
         public string imagePrompt;
         public List<string> imagePromptCandidates = new();
+        public CueBlueprintData cueBlueprint;
         public string selectedImagePrompt;
         public int selectedImageCandidateIndex = -1;
         public string imageSelectionReason;
@@ -194,11 +211,70 @@ namespace MemPalaceLLM
         public string storyCue;
         public string imagePrompt;
         public List<string> imagePromptCandidates = new();
+        public CueBlueprintData cueBlueprint;
         public string selectedImagePrompt;
         public int selectedImageCandidateIndex = -1;
         public string imageSelectionReason;
         public string imageCuePath;
+        public List<ImageCueResultExport> imageCueResults = new();
         public List<VisualObjectSpec> visualObjects = new();
+    }
+
+    [Serializable]
+    public class ImageCueResultExport
+    {
+        public int listIndex;
+        public string resultLabel;
+        public int selectedInnerCandidateIndex;
+        public string selectedInnerLabel;
+        public string selectedRawPrompt;
+        public string selectedFullPrompt;
+        public string selectedImagePath;
+        public int score;
+        public bool pass;
+        public bool validationComplete;
+        public string reason;
+        public List<ImageCueInnerCandidateExport> innerCandidates = new();
+    }
+
+    [Serializable]
+    public class ImageCueInnerCandidateExport
+    {
+        public int index;
+        public string label;
+        public string rawPrompt;
+        public string fullPrompt;
+        public string imagePath;
+        public int score;
+        public bool pass;
+        public bool validationComplete;
+        public string reason;
+        public ImageCueValidationExport validation;
+    }
+
+    [Serializable]
+    public class ImageCueValidationExport
+    {
+        public bool pass;
+        public bool anchorVisible;
+        public bool cueVisible;
+        public bool focusOk;
+        public bool meaningSpecific;
+        public bool foregroundClear;
+        public bool anchorInteraction;
+        public bool simpleScene;
+        public bool familiarObjects;
+        public bool novelPossibleRelation;
+        public bool noRoomOverview;
+        public bool singleContinuousImage;
+        public bool noSplitScreenOrCollage;
+        public bool abstractOrIconic;
+        public string caption;
+        public string reason;
+        public string anchorEvidence;
+        public string cueEvidence;
+        public string contactEvidence;
+        public List<string> missingOrWrong = new();
     }
 
     [Serializable]
@@ -216,6 +292,10 @@ namespace MemPalaceLLM
         public string llmProvider;
         public string llmModel;
         public string llmStatus;
+        public int preGeneratedMnemonicCount;
+        public int liveGeneratedMnemonicCount;
+        public int localFallbackMnemonicCount;
+        public bool usedLocalFallback;
         public ExperimentCondition condition;
         public float studyDurationSeconds;
         public int viewedCount;

@@ -560,6 +560,42 @@ mnemonic_en: "At the Door, it opens onto a tiny island instead of another room. 
 Assets/Scripts/Services/MnemonicCueFrameRag.cs
 ```
 
+Pre-generated mnemonic catalog current note:
+- Add `Assets/Scripts/Services/PreGeneratedMnemonicCatalog.cs`.
+- Add `Assets/Resources/PreGeneratedMnemonics.json`.
+- Lookup key is normalized `word` plus normalized `anchorType`.
+- In `MemoryPalaceExperimentController`, LLM Generated first checks the catalog, optionally randomizes anchor assignment, optionally tries the selected live provider for missing combinations, then fills remaining gaps with local `STORY_ONLY` fallback items when `useLocalFallbackForMissingPreGenerated` is enabled.
+- `allowLiveLlmForMissingPreGenerated` only controls whether Gemini/Ollama is tried to improve missing catalog pairs before local fallback.
+- Export `anchorType` and `mnemonicSource` through `ExportWordEntry`.
+- Export session-level counts: `preGeneratedMnemonicCount`, `liveGeneratedMnemonicCount`, `localFallbackMnemonicCount`, and `usedLocalFallback`.
+- Add Setup QA actions: `Check Catalog Coverage` and `Validate Catalog`.
+- Coverage should list missing `word x anchorType` combinations before an experiment run.
+- Diagnostics should reject duplicate keys, empty required fields, invalid `mnemonicMode`, too few image prompt candidates, and inconsistent hook metadata.
+
+Gemini quality-provider note:
+- Add `GeminiOnline` to `LlmProviderMode`.
+- Keep Gemini API keys out of files and git. Read them from the runtime password field, `GEMINI_API_KEY`, or `GOOGLE_API_KEY`.
+- Use Gemini only for mnemonic text/cue packages unless room/image systems are intentionally refactored.
+- Add a small `Test Gemini Connection` setup action before full mnemonic generation.
+- Preserve `mnemonicSource` values such as `pre_generated`, `ollama_live`, `gemini_live`, and `self_authored`.
+
+Pre-study image cue generation note:
+- Add an `Image Cue Preparation` section to Step 2 before Study.
+- Add `Assets/Scripts/Services/PreGeneratedImageCueCatalog.cs`.
+- Add `Assets/Resources/PreGeneratedImageCueCatalog.json`.
+- Formal sessions should load A-D images from `PreGeneratedImageCueCatalog`; runtime Stable Diffusion should be a researcher-only fallback.
+- The formal image asset target is 12 words x 10 fixed anchor types x 4 reviewed images = 480 images.
+- Fixed formal anchor types: `door`, `bed`, `desk`, `chair`, `table`, `sofa`, `wardrobe`, `bookshelf`, `air_conditioner`, `television`.
+- When pre-generated image catalog mode is enabled, anchor assignment should be constrained to those fixed types.
+- `Load Missing Image Cues From Catalog` should call a batch routine such as `PrepareImageCuesBeforeStudyRoutine`, which loads each missing item from catalog first.
+- `Reload All Image Cues From Catalog` should clear existing image cue pools and reload them before Study.
+- `EnterStudyRoom` should refuse to proceed until every current item has a prepared `mnemonicImageCues` texture and at least one `imageCueCandidateResults` entry.
+- In Self-authoring, editing association/mnemonic text or changing anchors should clear the affected word's generated image cue so stale images cannot enter Study.
+- Add an `Image Catalog Builder` setup section.
+- Builder buttons: `Generate Next Missing Pair`, `Generate Missing Matrix`, and `Cancel Builder`.
+- Builder output PNGs should be saved under `Assets/Resources/PreGeneratedImageCues/<word>/<anchorType>/`.
+- Builder should update `Assets/Resources/PreGeneratedImageCueCatalog.json` after each completed pair.
+
 它不是向量 RAG，只是轻量 keyword retrieval。
 
 需要实现：

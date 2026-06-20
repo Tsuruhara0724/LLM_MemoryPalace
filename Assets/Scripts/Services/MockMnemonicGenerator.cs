@@ -42,6 +42,8 @@ namespace MemPalaceLLM
                     meaning = word.meaning,
                     anchorId = anchor.id,
                     anchorLabel = anchor.label,
+                    anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor),
+                    mnemonicSource = "mock_fallback",
                     visualCue = cue,
                     associationPrompt = association,
                     mnemonic = mnemonic,
@@ -58,6 +60,18 @@ namespace MemPalaceLLM
                         association + ", action-focused close-up",
                         association + ", unusual but physically possible relation",
                         association + ", simplest literal foreground cue"
+                    },
+                    cueBlueprint = new CueBlueprintData
+                    {
+                        targetMeaning = meaning,
+                        visualSceneCore = association,
+                        mainObject = "oversized meaning prop",
+                        anchorRelation = "physically interacting with " + anchor.label,
+                        relativeSize = "large foreground cue",
+                        mainActionOrState = "bright motion",
+                        visibleObjects = new List<string> { "oversized meaning prop" },
+                        mnemonicHookNote = string.Empty,
+                        mnemonicMode = "STORY_ONLY"
                     },
                     objectShape = Shapes[i % Shapes.Length],
                     colorHex = Colors[i % Colors.Length]
@@ -89,6 +103,9 @@ namespace MemPalaceLLM
                 var sample = sampleSet.items[i];
                 var word = wordSet.words[i];
                 var anchor = RoomSpecCatalog.GetAnchor(sample.anchorId);
+                var anchorType = string.IsNullOrWhiteSpace(sample.anchorType)
+                    ? PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor)
+                    : sample.anchorType;
 
                 merged.Add(new MnemonicItemData
                 {
@@ -96,6 +113,8 @@ namespace MemPalaceLLM
                     meaning = word.meaning,
                     anchorId = sample.anchorId,
                     anchorLabel = anchor.label,
+                    anchorType = anchorType,
+                    mnemonicSource = string.IsNullOrWhiteSpace(sample.mnemonicSource) ? "sample_data" : sample.mnemonicSource,
                     visualCue = sample.visualCue,
                     associationPrompt = string.IsNullOrWhiteSpace(sample.associationPrompt) ? sample.imagePrompt : sample.associationPrompt,
                     mnemonic = sample.mnemonic,
@@ -107,6 +126,7 @@ namespace MemPalaceLLM
                     storyCue = string.Empty,
                     imagePrompt = sample.imagePrompt,
                     imagePromptCandidates = sample.imagePromptCandidates == null ? new List<string>() : new List<string>(sample.imagePromptCandidates),
+                    cueBlueprint = sample.cueBlueprint,
                     objectShape = string.IsNullOrWhiteSpace(sample.objectShape) ? Shapes[i % Shapes.Length] : sample.objectShape,
                     colorHex = string.IsNullOrWhiteSpace(sample.colorHex) ? Colors[i % Colors.Length] : sample.colorHex
                 });

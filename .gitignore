@@ -31,3 +31,12 @@ Thumbs.db
 # Local experiment outputs
 ExperimentExports/
 GeneratedRooms/
+
+# Local build/debug artifacts
+.codex_tmp/
+.utmp/
+Assets/_Recovery/
+Assets/_Recovery.meta
+*_BackUpThisFolder_ButDontShipItWithYourGame/
+*_BurstDebugInformation_DoNotShip/
+*.apk

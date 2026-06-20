@@ -13,7 +13,12 @@ namespace MemPalaceLLM
         private const int ErrorPreviewLength = 800;
         private const int RequestTimeoutSeconds = 360;
         private const int MnemonicChunkSize = 3;
+        private const int GeminiMnemonicChunkSize = 1;
+        private const int GeminiServerAttemptCount = 2;
         private const int ImagePromptCandidateCount = 4;
+        private readonly List<string> geminiModelsUsed = new List<string>();
+
+        public string GeminiModelsUsedSummary => string.Join(", ", geminiModelsUsed);
 
         [Serializable]
         private class OllamaRequestOptions
@@ -44,6 +49,63 @@ namespace MemPalaceLLM
         }
 
         [Serializable]
+        private class GeminiGenerateRequest
+        {
+            public GeminiContent[] contents;
+            public GeminiSystemInstruction systemInstruction;
+            public GeminiGenerationConfig generationConfig;
+        }
+
+        [Serializable]
+        private class GeminiGenerationConfig
+        {
+            public float temperature;
+            public int maxOutputTokens;
+            public string responseMimeType;
+        }
+
+        [Serializable]
+        private class GeminiContent
+        {
+            public string role;
+            public GeminiPart[] parts;
+        }
+
+        [Serializable]
+        private class GeminiSystemInstruction
+        {
+            public GeminiPart[] parts;
+        }
+
+        [Serializable]
+        private class GeminiPart
+        {
+            public string text;
+        }
+
+        [Serializable]
+        private class GeminiGenerateResponse
+        {
+            public GeminiCandidate[] candidates;
+            public GeminiError error;
+        }
+
+        [Serializable]
+        private class GeminiCandidate
+        {
+            public GeminiContent content;
+            public string finishReason;
+        }
+
+        [Serializable]
+        private class GeminiError
+        {
+            public int code;
+            public string message;
+            public string status;
+        }
+
+        [Serializable]
         private class GeneratedMnemonicEnvelope
         {
             public GeneratedMnemonicItem[] items;
@@ -54,6 +116,7 @@ namespace MemPalaceLLM
         {
             public string word;
             public string anchor;
+            public GeneratedCueBlueprint cue_blueprint;
             public string visual_cue_en;
             public string association_prompt_en;
             public string mnemonic_en;
@@ -63,6 +126,20 @@ namespace MemPalaceLLM
             public string image_prompt_en;
             public string[] image_prompt_candidates_en;
             public VisualObjectSpec[] visual_objects;
+        }
+
+        [Serializable]
+        private class GeneratedCueBlueprint
+        {
+            public string targetMeaning;
+            public string visualSceneCore;
+            public string mainObject;
+            public string anchorRelation;
+            public string relativeSize;
+            public string mainActionOrState;
+            public string[] visibleObjects;
+            public string mnemonicHookNote;
+            public string mnemonicMode;
         }
 
         [Serializable]
@@ -462,7 +539,8 @@ namespace MemPalaceLLM
             string model,
             List<WordEntry> words,
             Action<List<MnemonicItemData>> onSuccess,
-            Action<string> onError)
+            Action<string> onError,
+            List<AnchorDefinition> assignedAnchors = null)
         {
             if (string.IsNullOrWhiteSpace(endpoint))
             {
@@ -484,6 +562,9 @@ namespace MemPalaceLLM
             {
                 var chunkCount = Math.Min(MnemonicChunkSize, totalWords - offset);
                 var chunkWords = words.GetRange(offset, chunkCount);
+                var chunkAnchors = assignedAnchors != null && assignedAnchors.Count >= offset + chunkCount
+                    ? assignedAnchors.GetRange(offset, chunkCount)
+                    : null;
                 List<MnemonicItemData> chunkItems = null;
                 string chunkError = null;
 
@@ -491,6 +572,7 @@ namespace MemPalaceLLM
                     normalizedEndpoint,
                     normalizedModel,
                     chunkWords,
+                    chunkAnchors,
                     offset,
                     totalWords,
                     generatedItems => chunkItems = generatedItems,
@@ -512,6 +594,114 @@ namespace MemPalaceLLM
             }
 
             onSuccess?.Invoke(items);
+        }
+
+        public IEnumerator GenerateGeminiMnemonics(
+            string apiKey,
+            string model,
+            List<WordEntry> words,
+            Action<List<MnemonicItemData>> onSuccess,
+            Action<string> onError,
+            List<AnchorDefinition> assignedAnchors = null)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                onError?.Invoke("Gemini API key is empty.");
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                onError?.Invoke("Gemini model is empty.");
+                yield break;
+            }
+
+            var items = new List<MnemonicItemData>();
+            var normalizedApiKey = apiKey.Trim();
+            var normalizedModel = model.Trim();
+            var totalWords = words == null ? 0 : words.Count;
+            for (int offset = 0; offset < totalWords; offset += GeminiMnemonicChunkSize)
+            {
+                var chunkCount = Math.Min(GeminiMnemonicChunkSize, totalWords - offset);
+                var chunkWords = words.GetRange(offset, chunkCount);
+                var chunkAnchors = assignedAnchors != null && assignedAnchors.Count >= offset + chunkCount
+                    ? assignedAnchors.GetRange(offset, chunkCount)
+                    : null;
+                List<MnemonicItemData> chunkItems = null;
+                string chunkError = null;
+
+                yield return GenerateGeminiMnemonicChunk(
+                    normalizedApiKey,
+                    normalizedModel,
+                    chunkWords,
+                    chunkAnchors,
+                    offset,
+                    totalWords,
+                    generatedItems => chunkItems = generatedItems,
+                    error => chunkError = error);
+
+                if (!string.IsNullOrWhiteSpace(chunkError))
+                {
+                    onError?.Invoke($"Gemini request failed for words {offset + 1}-{offset + chunkCount}: {chunkError}");
+                    yield break;
+                }
+
+                if (chunkItems == null || chunkItems.Count == 0)
+                {
+                    onError?.Invoke($"Gemini returned empty mnemonic data for words {offset + 1}-{offset + chunkCount}.");
+                    yield break;
+                }
+
+                items.AddRange(chunkItems);
+            }
+
+            onSuccess?.Invoke(items);
+        }
+
+        public IEnumerator TestGeminiConnection(
+            string apiKey,
+            string model,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                onError?.Invoke("Gemini API key is empty.");
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                onError?.Invoke("Gemini model is empty.");
+                yield break;
+            }
+
+            string response = null;
+            string error = null;
+            yield return SendGeminiGenerateRequest(
+                apiKey.Trim(),
+                model.Trim(),
+                "Return exactly this JSON object and no extra fields: {\"ok\":true,\"message\":\"ready\"}",
+                "You are a JSON connectivity test endpoint. Return valid compact JSON only.",
+                0f,
+                64,
+                text => response = text,
+                err => error = err);
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                onError?.Invoke(error);
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(response)
+                || response.IndexOf("\"ok\"", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                onError?.Invoke("Gemini returned a response, but it did not match the JSON test shape.");
+                yield break;
+            }
+
+            onSuccess?.Invoke("Gemini connection test succeeded.");
         }
 
         public IEnumerator RegenerateMnemonicItem(
@@ -597,7 +787,7 @@ namespace MemPalaceLLM
             yield return RequestMnemonicEnvelope(
                 normalizedEndpoint,
                 normalizedModel,
-                BuildSingleMnemonicLinkPrompt(word, resolvedAnchorId, resolvedAnchorLabel),
+                BuildSingleMnemonicLinkPrompt(word, resolvedAnchorId, resolvedAnchorLabel, visualCue),
                 "You write JSON for Call 2 of a Unity memory-palace app. Return only the final learner-facing mnemonic_en plus mnemonic_mode and hook_judge. Use STORY_ONLY when the hook is weak. No markdown or commentary.",
                 0.38f,
                 1200,
@@ -626,10 +816,124 @@ namespace MemPalaceLLM
             onSuccess?.Invoke(replacement);
         }
 
+        public IEnumerator RegenerateGeminiMnemonicItem(
+            string apiKey,
+            string model,
+            WordEntry word,
+            int itemIndex,
+            int totalWords,
+            string anchorId,
+            string anchorLabel,
+            string rejectedVisualCue,
+            string rejectedMnemonic,
+            string rejectedImagePrompt,
+            string rejectionReason,
+            Action<MnemonicItemData> onSuccess,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                onError?.Invoke("Gemini API key is empty.");
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                onError?.Invoke("Gemini model is empty.");
+                yield break;
+            }
+
+            if (word == null || string.IsNullOrWhiteSpace(word.word))
+            {
+                onError?.Invoke("Target word is empty.");
+                yield break;
+            }
+
+            var normalizedApiKey = apiKey.Trim();
+            var normalizedModel = model.Trim();
+            var fallbackAnchor = RoomSpecCatalog.TryGetAnchor(anchorId, out var existingAnchor)
+                ? existingAnchor
+                : RoomSpecCatalog.GetAssignmentAnchor(itemIndex, Mathf.Max(1, totalWords));
+            var resolvedAnchorId = string.IsNullOrWhiteSpace(anchorId) ? fallbackAnchor.id : anchorId;
+            var resolvedAnchorLabel = string.IsNullOrWhiteSpace(anchorLabel) ? fallbackAnchor.label : anchorLabel;
+
+            GeneratedMnemonicEnvelope visualCueEnvelope = null;
+            string visualCueError = null;
+            yield return RequestGeminiMnemonicEnvelope(
+                normalizedApiKey,
+                normalizedModel,
+                BuildSingleVisualCueRegenerationPrompt(
+                    word,
+                    itemIndex,
+                    totalWords,
+                    resolvedAnchorId,
+                    resolvedAnchorLabel,
+                    rejectedVisualCue,
+                    rejectedMnemonic,
+                    rejectedImagePrompt,
+                    rejectionReason),
+                "You write JSON for Call 1 of a Unity memory-palace app. Return one replacement image-focused visual cue scene with association prompts and exactly four image prompt candidates. Do not generate mnemonic or story text. No markdown or commentary.",
+                0.42f,
+                2200,
+                "replacement visual cue",
+                null,
+                parsed => visualCueEnvelope = parsed,
+                error => visualCueError = error);
+
+            if (!string.IsNullOrWhiteSpace(visualCueError))
+            {
+                onError?.Invoke(visualCueError);
+                yield break;
+            }
+
+            var visualItems = AlignGeneratedItemsToWords(new List<WordEntry> { word }, visualCueEnvelope?.items);
+            var visualCue = visualItems.Count > 0 ? visualItems[0] : null;
+            if (visualCue == null)
+            {
+                onError?.Invoke("Gemini returned empty replacement visual cue data.");
+                yield break;
+            }
+
+            GeneratedMnemonicEnvelope mnemonicLinkEnvelope = null;
+            string mnemonicLinkError = null;
+            yield return RequestGeminiMnemonicEnvelope(
+                normalizedApiKey,
+                normalizedModel,
+                BuildSingleMnemonicLinkPrompt(word, resolvedAnchorId, resolvedAnchorLabel, visualCue),
+                "You write JSON for Call 2 of a Unity memory-palace app. Return only the final learner-facing mnemonic_en plus mnemonic_mode and hook_judge. Use STORY_ONLY when the hook is weak. No markdown or commentary.",
+                0.34f,
+                1800,
+                "replacement final mnemonic",
+                null,
+                parsed => mnemonicLinkEnvelope = parsed,
+                error => mnemonicLinkError = error);
+
+            if (!string.IsNullOrWhiteSpace(mnemonicLinkError))
+            {
+                onError?.Invoke(mnemonicLinkError);
+                yield break;
+            }
+
+            var mnemonicItems = AlignGeneratedItemsToWords(new List<WordEntry> { word }, mnemonicLinkEnvelope?.items);
+            var mnemonicLink = mnemonicItems.Count > 0 ? mnemonicItems[0] : null;
+            var generated = MergeGeneratedMnemonicFields(word, visualCue, mnemonicLink);
+
+            var replacement = BuildMnemonicItemData(
+                word,
+                generated,
+                itemIndex,
+                resolvedAnchorId,
+                resolvedAnchorLabel,
+                "gemini_live");
+
+            onSuccess?.Invoke(replacement);
+        }
+
         private IEnumerator GenerateMnemonicChunk(
             string endpoint,
             string model,
             List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
             int globalOffset,
             int totalWords,
             Action<List<MnemonicItemData>> onSuccess,
@@ -640,12 +944,12 @@ namespace MemPalaceLLM
             yield return RequestMnemonicEnvelope(
                 endpoint,
                 model,
-                BuildVisualCuePrompt(words, globalOffset, totalWords),
+                BuildVisualCuePrompt(words, globalOffset, totalWords, assignedAnchors),
                 "You write JSON for Call 1 of a Unity memory-palace app. Return image-focused visual cue scene fields, association prompts, and exactly four image prompt candidates per item. Do not generate mnemonic or story text. Return exactly one JSON object with top-level items. No markdown or commentary.",
                 0.42f,
                 Mathf.Clamp(words.Count * 560 + 520, 1400, 2600),
                 "visual cue",
-                BuildCompactVisualCueRetryPrompt(words, globalOffset, totalWords),
+                BuildCompactVisualCueRetryPrompt(words, globalOffset, totalWords, assignedAnchors),
                 parsed => visualCueEnvelope = parsed,
                 error => visualCueError = error);
 
@@ -667,7 +971,7 @@ namespace MemPalaceLLM
             yield return RequestMnemonicEnvelope(
                 endpoint,
                 model,
-                BuildMnemonicLinkPrompt(words, globalOffset, totalWords),
+                BuildMnemonicLinkPrompt(words, globalOffset, totalWords, assignedAnchors, alignedVisualCueItems),
                 "You write JSON for Call 2 of a Unity memory-palace app. Return only final learner-facing mnemonic_en plus mnemonic_mode and hook_judge for each item. Use STORY_ONLY when the hook is weak. No markdown or commentary.",
                 0.38f,
                 Mathf.Clamp(words.Count * 420 + 480, 1200, 2400),
@@ -695,11 +999,91 @@ namespace MemPalaceLLM
                 }
 
                 var globalIndex = globalOffset + i;
-                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                var anchor = ResolveAssignedAnchor(assignedAnchors, i, globalIndex, totalWords);
                 var mnemonicLink = i < alignedMnemonicLinkItems.Count ? alignedMnemonicLinkItems[i] : null;
                 var merged = MergeGeneratedMnemonicFields(sourceWord, visualCue, mnemonicLink);
 
                 items.Add(BuildMnemonicItemData(sourceWord, merged, globalIndex, anchor.id, anchor.label));
+            }
+
+            onSuccess?.Invoke(items);
+        }
+
+        private IEnumerator GenerateGeminiMnemonicChunk(
+            string apiKey,
+            string model,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            int globalOffset,
+            int totalWords,
+            Action<List<MnemonicItemData>> onSuccess,
+            Action<string> onError)
+        {
+            GeneratedMnemonicEnvelope visualCueEnvelope = null;
+            string visualCueError = null;
+            yield return RequestGeminiMnemonicEnvelope(
+                apiKey,
+                model,
+                BuildVisualCuePrompt(words, globalOffset, totalWords, assignedAnchors),
+                "You write JSON for Call 1 of a Unity memory-palace app. Return image-focused visual cue scene fields, association prompts, and exactly four image prompt candidates per item. Do not generate mnemonic or story text. Return exactly one JSON object with top-level items. No markdown or commentary.",
+                0.34f,
+                Mathf.Clamp(words.Count * 640 + 720, 1800, 3200),
+                "visual cue",
+                BuildCompactVisualCueRetryPrompt(words, globalOffset, totalWords, assignedAnchors),
+                parsed => visualCueEnvelope = parsed,
+                error => visualCueError = error);
+
+            if (!string.IsNullOrWhiteSpace(visualCueError))
+            {
+                onError?.Invoke(visualCueError);
+                yield break;
+            }
+
+            var alignedVisualCueItems = AlignGeneratedItemsToWords(words, visualCueEnvelope?.items);
+            if (alignedVisualCueItems.Count == 0)
+            {
+                onError?.Invoke("Gemini returned empty visual cue data.");
+                yield break;
+            }
+
+            GeneratedMnemonicEnvelope mnemonicLinkEnvelope = null;
+            string mnemonicLinkError = null;
+            yield return RequestGeminiMnemonicEnvelope(
+                apiKey,
+                model,
+                BuildMnemonicLinkPrompt(words, globalOffset, totalWords, assignedAnchors, alignedVisualCueItems),
+                "You write JSON for Call 2 of a Unity memory-palace app. Return only final learner-facing mnemonic_en plus mnemonic_mode and hook_judge for each item. Use STORY_ONLY when the hook is weak. No markdown or commentary.",
+                0.3f,
+                Mathf.Clamp(words.Count * 520 + 720, 1600, 3200),
+                "final mnemonic",
+                null,
+                parsed => mnemonicLinkEnvelope = parsed,
+                error => mnemonicLinkError = error);
+
+            if (!string.IsNullOrWhiteSpace(mnemonicLinkError))
+            {
+                onError?.Invoke(mnemonicLinkError);
+                yield break;
+            }
+
+            var alignedMnemonicLinkItems = AlignGeneratedItemsToWords(words, mnemonicLinkEnvelope?.items);
+            var items = new List<MnemonicItemData>();
+
+            for (int i = 0; i < alignedVisualCueItems.Count && i < words.Count; i++)
+            {
+                var sourceWord = words[i];
+                var visualCue = alignedVisualCueItems[i];
+                if (visualCue == null)
+                {
+                    continue;
+                }
+
+                var globalIndex = globalOffset + i;
+                var anchor = ResolveAssignedAnchor(assignedAnchors, i, globalIndex, totalWords);
+                var mnemonicLink = i < alignedMnemonicLinkItems.Count ? alignedMnemonicLinkItems[i] : null;
+                var merged = MergeGeneratedMnemonicFields(sourceWord, visualCue, mnemonicLink);
+
+                items.Add(BuildMnemonicItemData(sourceWord, merged, globalIndex, anchor.id, anchor.label, "gemini_live"));
             }
 
             onSuccess?.Invoke(items);
@@ -834,12 +1218,122 @@ namespace MemPalaceLLM
             onSuccess?.Invoke(parsedEnvelope);
         }
 
+        private IEnumerator RequestGeminiMnemonicEnvelope(
+            string apiKey,
+            string model,
+            string prompt,
+            string system,
+            float temperature,
+            int maxOutputTokens,
+            string responseLabel,
+            string retryPrompt,
+            Action<GeneratedMnemonicEnvelope> onSuccess,
+            Action<string> onError)
+        {
+            string rawResponse = null;
+            string requestError = null;
+            yield return SendGeminiGenerateRequest(
+                apiKey,
+                model,
+                prompt,
+                system,
+                temperature,
+                maxOutputTokens,
+                responseText => rawResponse = responseText,
+                error => requestError = error);
+
+            if (!string.IsNullOrWhiteSpace(requestError))
+            {
+                onError?.Invoke(requestError);
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(rawResponse))
+            {
+                onError?.Invoke("Gemini response did not contain " + responseLabel + " JSON.");
+                yield break;
+            }
+
+            var responseForError = rawResponse;
+            if (!TryParseMnemonicEnvelope(rawResponse, out var parsedEnvelope, out var parseError))
+            {
+                if (!string.IsNullOrWhiteSpace(retryPrompt) && ShouldRetryMnemonicResponse(rawResponse))
+                {
+                    string retryResponse = null;
+                    string retryError = null;
+                    yield return SendGeminiGenerateRequest(
+                        apiKey,
+                        model,
+                        retryPrompt,
+                        system,
+                        0.2f,
+                        maxOutputTokens,
+                        responseText => retryResponse = responseText,
+                        error => retryError = error);
+
+                    if (!string.IsNullOrWhiteSpace(retryResponse)
+                        && TryParseMnemonicEnvelope(retryResponse, out parsedEnvelope, out parseError))
+                    {
+                        responseForError = retryResponse;
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrWhiteSpace(retryError))
+                        {
+                            parseError += $"\nRetry request failed: {retryError}";
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(retryResponse))
+                        {
+                            responseForError = retryResponse;
+                            parseError += "\nRetry response preview:\n" + BuildPreview(retryResponse);
+                        }
+                    }
+                }
+
+                if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
+                {
+                    string repairedPayload = null;
+                    string repairFailure = null;
+
+                    yield return RepairGeminiMnemonicJson(
+                        apiKey,
+                        model,
+                        responseForError,
+                        repairedJson => repairedPayload = repairedJson,
+                        repairError => repairFailure = repairError);
+
+                    if (!string.IsNullOrWhiteSpace(repairedPayload))
+                    {
+                        TryParseMnemonicEnvelope(repairedPayload, out parsedEnvelope, out parseError);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(repairFailure))
+                    {
+                        parseError += $"\nRepair attempt failed: {repairFailure}";
+                    }
+
+                    if (parsedEnvelope == null || parsedEnvelope.items == null || parsedEnvelope.items.Length == 0)
+                    {
+                        onError?.Invoke(
+                            "Failed to parse Gemini " + responseLabel + " JSON.\n" +
+                            parseError + "\n\n" +
+                            "Raw response preview:\n" + BuildPreview(responseForError));
+                        yield break;
+                    }
+                }
+            }
+
+            onSuccess?.Invoke(parsedEnvelope);
+        }
+
         private static MnemonicItemData BuildMnemonicItemData(
             WordEntry sourceWord,
             GeneratedMnemonicItem generated,
             int itemIndex,
             string anchorId,
-            string anchorLabel)
+            string anchorLabel,
+            string mnemonicSource = "ollama_live")
         {
             return new MnemonicItemData
             {
@@ -847,6 +1341,8 @@ namespace MemPalaceLLM
                 meaning = sourceWord.meaning,
                 anchorId = anchorId,
                 anchorLabel = anchorLabel,
+                anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchorId, anchorLabel),
+                mnemonicSource = mnemonicSource,
                 visualCue = generated.visual_cue_en,
                 associationPrompt = FirstNonEmpty(generated.association_prompt_en, generated.image_prompt_en, generated.visual_cue_en),
                 mnemonic = generated.mnemonic_en,
@@ -858,10 +1354,45 @@ namespace MemPalaceLLM
                 storyCue = string.Empty,
                 imagePrompt = generated.image_prompt_en,
                 imagePromptCandidates = NormalizeImagePromptCandidates(generated),
+                cueBlueprint = ConvertCueBlueprint(generated?.cue_blueprint),
                 objectShape = PickShape(itemIndex),
                 colorHex = PickColor(itemIndex),
                 visualObjects = NormalizeVisualObjects(generated.visual_objects, itemIndex)
             };
+        }
+
+        private static CueBlueprintData ConvertCueBlueprint(GeneratedCueBlueprint source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            var result = new CueBlueprintData
+            {
+                targetMeaning = source.targetMeaning,
+                visualSceneCore = source.visualSceneCore,
+                mainObject = source.mainObject,
+                anchorRelation = source.anchorRelation,
+                relativeSize = source.relativeSize,
+                mainActionOrState = source.mainActionOrState,
+                mnemonicHookNote = source.mnemonicHookNote,
+                mnemonicMode = source.mnemonicMode,
+                visibleObjects = new List<string>()
+            };
+
+            if (source.visibleObjects != null)
+            {
+                for (int i = 0; i < source.visibleObjects.Length; i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(source.visibleObjects[i]))
+                    {
+                        result.visibleObjects.Add(source.visibleObjects[i].Trim());
+                    }
+                }
+            }
+
+            return result;
         }
 
         private static string NormalizeMnemonicMode(GeneratedMnemonicItem generated)
@@ -1023,6 +1554,303 @@ namespace MemPalaceLLM
             }
         }
 
+        private IEnumerator SendGeminiGenerateRequest(
+            string apiKey,
+            string model,
+            string prompt,
+            string system,
+            float temperature,
+            int maxOutputTokens,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
+            var requestBody = new GeminiGenerateRequest
+            {
+                systemInstruction = new GeminiSystemInstruction
+                {
+                    parts = new[]
+                    {
+                        new GeminiPart { text = system }
+                    }
+                },
+                contents = new[]
+                {
+                    new GeminiContent
+                    {
+                        role = "user",
+                        parts = new[]
+                        {
+                            new GeminiPart { text = prompt }
+                        }
+                    }
+                },
+                generationConfig = new GeminiGenerationConfig
+                {
+                    temperature = temperature,
+                    maxOutputTokens = maxOutputTokens,
+                    responseMimeType = "application/json"
+                }
+            };
+
+            var json = JsonUtility.ToJson(requestBody);
+            var modelAttempts = BuildGeminiModelAttempts(model);
+            string lastRetryableError = null;
+            for (int modelIndex = 0; modelIndex < modelAttempts.Count; modelIndex++)
+            {
+                var attemptModel = modelAttempts[modelIndex];
+                var url = BuildGeminiGenerateUrl(attemptModel);
+                for (int attemptIndex = 0; attemptIndex < GeminiServerAttemptCount; attemptIndex++)
+                {
+                    using (var request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST))
+                    {
+                        var bodyRaw = Encoding.UTF8.GetBytes(json);
+                        request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                        request.downloadHandler = new DownloadHandlerBuffer();
+                        request.timeout = RequestTimeoutSeconds;
+                        request.SetRequestHeader("Content-Type", "application/json");
+                        request.SetRequestHeader("x-goog-api-key", apiKey);
+
+                        yield return request.SendWebRequest();
+
+                        var responseText = request.downloadHandler == null ? string.Empty : request.downloadHandler.text;
+                        if (request.result != UnityWebRequest.Result.Success)
+                        {
+                            var requestError = BuildGeminiRequestError(request.error, responseText, attemptModel);
+                            if (IsGeminiRetryableServerError(request.error, responseText))
+                            {
+                                lastRetryableError = requestError;
+                                yield return WaitBeforeNextGeminiAttempt(modelIndex, attemptIndex, modelAttempts.Count);
+                                continue;
+                            }
+
+                            onError?.Invoke(requestError);
+                            yield break;
+                        }
+
+                        GeminiGenerateResponse response;
+                        try
+                        {
+                            response = JsonUtility.FromJson<GeminiGenerateResponse>(responseText);
+                        }
+                        catch (Exception ex)
+                        {
+                            onError?.Invoke($"Failed to parse Gemini response envelope: {ex.Message}");
+                            yield break;
+                        }
+
+                        if (response == null)
+                        {
+                            onError?.Invoke("Gemini response was empty.");
+                            yield break;
+                        }
+
+                        if (response.error != null && !string.IsNullOrWhiteSpace(response.error.message))
+                        {
+                            var responseError = BuildGeminiResponseError(response.error, attemptModel);
+                            if (IsGeminiRetryableServerError(responseError, responseText))
+                            {
+                                lastRetryableError = responseError;
+                                yield return WaitBeforeNextGeminiAttempt(modelIndex, attemptIndex, modelAttempts.Count);
+                                continue;
+                            }
+
+                            onError?.Invoke(responseError);
+                            yield break;
+                        }
+
+                        var text = ExtractGeminiResponseText(response);
+                        if (string.IsNullOrWhiteSpace(text))
+                        {
+                            onError?.Invoke("Gemini response did not contain JSON.");
+                            yield break;
+                        }
+
+                        RecordGeminiModelUsed(attemptModel);
+                        onSuccess?.Invoke(text);
+                        yield break;
+                    }
+                }
+            }
+
+            onError?.Invoke(BuildGeminiAllAttemptsFailedError(lastRetryableError, modelAttempts));
+        }
+
+        private static string BuildGeminiGenerateUrl(string model)
+        {
+            var normalizedModel = NormalizeGeminiModelName(model);
+
+            return "https://generativelanguage.googleapis.com/v1beta/models/"
+                   + UnityWebRequest.EscapeURL(normalizedModel)
+                   + ":generateContent";
+        }
+
+        private static string NormalizeGeminiModelName(string model)
+        {
+            var normalizedModel = string.IsNullOrWhiteSpace(model) ? "gemini-2.5-flash" : model.Trim();
+            if (normalizedModel.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
+            {
+                normalizedModel = normalizedModel.Substring("models/".Length);
+            }
+
+            return normalizedModel;
+        }
+
+        private static List<string> BuildGeminiModelAttempts(string model)
+        {
+            var attempts = new List<string>();
+            var normalizedModel = NormalizeGeminiModelName(model);
+            AddGeminiModelAttempt(attempts, normalizedModel);
+
+            if (normalizedModel.IndexOf("pro", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                AddGeminiModelAttempt(attempts, "gemini-2.5-flash");
+            }
+
+            AddGeminiModelAttempt(attempts, "gemini-2.5-flash-lite");
+            return attempts;
+        }
+
+        private static void AddGeminiModelAttempt(List<string> attempts, string model)
+        {
+            if (attempts == null || string.IsNullOrWhiteSpace(model))
+            {
+                return;
+            }
+
+            var normalizedModel = NormalizeGeminiModelName(model);
+            for (int i = 0; i < attempts.Count; i++)
+            {
+                if (string.Equals(attempts[i], normalizedModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            attempts.Add(normalizedModel);
+        }
+
+        private void RecordGeminiModelUsed(string model)
+        {
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                return;
+            }
+
+            var normalizedModel = NormalizeGeminiModelName(model);
+            for (int i = 0; i < geminiModelsUsed.Count; i++)
+            {
+                if (string.Equals(geminiModelsUsed[i], normalizedModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            geminiModelsUsed.Add(normalizedModel);
+        }
+
+        private static IEnumerator WaitBeforeNextGeminiAttempt(int modelIndex, int attemptIndex, int modelCount)
+        {
+            var isLastAttempt = modelIndex >= modelCount - 1 && attemptIndex >= GeminiServerAttemptCount - 1;
+            if (isLastAttempt)
+            {
+                yield break;
+            }
+
+            var delaySeconds = 0.8f + (modelIndex * 0.6f) + (attemptIndex * 0.5f);
+            yield return new WaitForSecondsRealtime(delaySeconds);
+        }
+
+        private static string ExtractGeminiResponseText(GeminiGenerateResponse response)
+        {
+            if (response?.candidates == null || response.candidates.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder();
+            for (int i = 0; i < response.candidates.Length; i++)
+            {
+                var parts = response.candidates[i]?.content?.parts;
+                if (parts == null)
+                {
+                    continue;
+                }
+
+                for (int j = 0; j < parts.Length; j++)
+                {
+                    if (!string.IsNullOrWhiteSpace(parts[j]?.text))
+                    {
+                        builder.Append(parts[j].text);
+                    }
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        private static string BuildGeminiResponseError(GeminiError error, string model)
+        {
+            if (error == null)
+            {
+                return "Gemini returned an error.";
+            }
+
+            var modelLabel = string.IsNullOrWhiteSpace(model) ? "selected model" : model;
+            var details = $"Gemini returned an error from {modelLabel}: {error.code} {error.status} {error.message}".Trim();
+            return details;
+        }
+
+        private static bool IsGeminiRetryableServerError(string requestError, string responseText)
+        {
+            var combined = ((requestError ?? string.Empty) + "\n" + (responseText ?? string.Empty)).ToLowerInvariant();
+            return combined.Contains("429")
+                   || combined.Contains("503")
+                   || combined.Contains("too many requests")
+                   || combined.Contains("quota")
+                   || combined.Contains("unavailable")
+                   || combined.Contains("high demand")
+                   || combined.Contains("rate limit");
+        }
+
+        private static string BuildGeminiAllAttemptsFailedError(string lastRetryableError, List<string> modelAttempts)
+        {
+            var models = modelAttempts == null || modelAttempts.Count == 0
+                ? "selected model"
+                : string.Join(" -> ", modelAttempts);
+            var hint = "Gemini is rate-limited or temporarily unavailable after retries and fallback (" + models + "). Try again later, or use the pre-generated catalog for covered word-anchor pairs.";
+            return string.IsNullOrWhiteSpace(lastRetryableError)
+                ? hint
+                : hint + "\nLast error:\n" + lastRetryableError;
+        }
+
+        private static string BuildGeminiRequestError(string requestError, string responseText, string model = null)
+        {
+            var preview = BuildPreview(responseText);
+            var combined = ((requestError ?? string.Empty) + "\n" + (responseText ?? string.Empty)).ToLowerInvariant();
+            var modelLabel = string.IsNullOrWhiteSpace(model) ? "selected model" : model.Trim();
+            if (combined.Contains("429")
+                || combined.Contains("too many requests")
+                || combined.Contains("quota"))
+            {
+                var hint = "Gemini quota/rate limit was reached on " + modelLabel + ". For a free API key, use gemini-2.5-flash or gemini-2.5-flash-lite; gemini-2.5-pro may require billing or have zero free-tier quota for this key.";
+                return string.IsNullOrWhiteSpace(preview)
+                    ? hint
+                    : hint + "\n" + preview;
+            }
+
+            if (combined.Contains("503")
+                || combined.Contains("unavailable")
+                || combined.Contains("high demand"))
+            {
+                var hint = "Gemini is temporarily unavailable or under high demand on " + modelLabel + ". The app retries and falls back to gemini-2.5-flash-lite for this request.";
+                return string.IsNullOrWhiteSpace(preview)
+                    ? hint
+                    : hint + "\n" + preview;
+            }
+
+            return $"Gemini request failed on {modelLabel}: {requestError}\n{preview}";
+        }
+
         private static List<GeneratedMnemonicItem> AlignGeneratedItemsToWords(List<WordEntry> requestedWords, GeneratedMnemonicItem[] generatedItems)
         {
             var alignedItems = new List<GeneratedMnemonicItem>();
@@ -1092,11 +1920,11 @@ namespace MemPalaceLLM
                 : word.Trim().ToLowerInvariant();
         }
 
-        private static string BuildVisualCuePrompt(List<WordEntry> words, int globalOffset, int totalWords)
+        private static string BuildVisualCuePrompt(List<WordEntry> words, int globalOffset, int totalWords, List<AnchorDefinition> assignedAnchors = null)
         {
             var wordLines = BuildMnemonicWordLines(words, globalOffset);
-            var anchorLines = BuildMnemonicAnchorLines(words, globalOffset, totalWords);
-            var ragGuidance = MnemonicCueFrameRag.BuildBatchGuidance(words, globalOffset, totalWords);
+            var anchorLines = BuildMnemonicAnchorLines(words, globalOffset, totalWords, assignedAnchors);
+            var ragGuidance = MnemonicCueFrameRag.BuildBatchGuidance(words, globalOffset, totalWords, assignedAnchors);
             var academicSafetyRules = BuildAcademicSafetyRules();
             var hiddenCueRules = BuildHiddenCueRejectionRules();
 
@@ -1138,6 +1966,8 @@ namespace MemPalaceLLM
                 "- Bad: a fire pit burns across a door frame. Good: a safe electric flame lantern hangs from the door handle, glowing like a campfire.\n\n" +
                 "Image generation preparation:\n" +
                 "- Do not use mnemonic_en as an image prompt.\n" +
+                "- First create cue_blueprint internally, then derive visual_cue_en, association_prompt_en, image_prompt_en, and visual_objects from it.\n" +
+                "- cue_blueprint separates meaning, main object, anchor relation, and action/state so fields do not collapse into duplicates.\n" +
                 "- First create association_prompt_en: a short concrete visual description of the association scene.\n" +
                 "- association_prompt_en must include only visible objects, actions, and physical relations.\n" +
                 "- association_prompt_en must not include explanations, learning instructions, translations, word meanings, or phrases such as \"helps recall\".\n" +
@@ -1155,6 +1985,9 @@ namespace MemPalaceLLM
                 "- association_prompt_en should be 6 to 18 words, English, drawable, and free of teaching/explanation language.\n" +
                 "- image_prompt_en should be 6 to 16 words and name only the foreground cue/action plus its anchor contact point.\n" +
                 "- image_prompt_candidates_en must contain exactly 4 short English prompts, each focused on foreground cue clarity and anchor interaction.\n" +
+                "- cue_blueprint.targetMeaning must be the English meaning only, not a Spanish-word hook.\n" +
+                "- cue_blueprint.visualSceneCore must summarize the visible event in one short phrase.\n" +
+                "- cue_blueprint.mnemonicMode should be STORY_ONLY unless there is an obviously strong natural word-form hook candidate.\n" +
                 "- visual_objects must list every concrete foreground object used for meaning retrieval.\n" +
                 "- Do not include the anchor itself in visual_objects unless the anchor is also part of the foreground cue.\n" +
                 "- Do not include abstract ideas, emotions, meanings, or invisible sound hints in visual_objects.\n" +
@@ -1172,6 +2005,17 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"the word\",\n" +
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
+                "      \"cue_blueprint\": {\n" +
+                "        \"targetMeaning\": \"English target meaning\",\n" +
+                "        \"visualSceneCore\": \"short event summary\",\n" +
+                "        \"mainObject\": \"main concrete cue object\",\n" +
+                "        \"anchorRelation\": \"visible physical relation to anchor\",\n" +
+                "        \"relativeSize\": \"small / medium / large foreground cue\",\n" +
+                "        \"mainActionOrState\": \"action or state\",\n" +
+                "        \"visibleObjects\": [\"concrete object 1\"],\n" +
+                "        \"mnemonicHookNote\": \"strong hook candidate or empty\",\n" +
+                "        \"mnemonicMode\": \"STORY_ONLY\"\n" +
+                "      },\n" +
                 "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground cue action.\",\n" +
                 "      \"association_prompt_en\": \"short drawable association scene, no explanation\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action and anchor contact point only\",\n" +
@@ -1196,10 +2040,10 @@ namespace MemPalaceLLM
                 "}";
         }
 
-        private static string BuildCompactVisualCueRetryPrompt(List<WordEntry> words, int globalOffset, int totalWords)
+        private static string BuildCompactVisualCueRetryPrompt(List<WordEntry> words, int globalOffset, int totalWords, List<AnchorDefinition> assignedAnchors = null)
         {
-            var assignmentLines = BuildMnemonicAssignmentLines(words, globalOffset, totalWords);
-            var ragGuidance = MnemonicCueFrameRag.BuildBatchGuidance(words, globalOffset, totalWords);
+            var assignmentLines = BuildMnemonicAssignmentLines(words, globalOffset, totalWords, assignedAnchors);
+            var ragGuidance = MnemonicCueFrameRag.BuildBatchGuidance(words, globalOffset, totalWords, assignedAnchors);
             var academicSafetyRules = BuildAcademicSafetyRules();
             var hiddenCueRules = BuildHiddenCueRejectionRules();
 
@@ -1211,6 +2055,7 @@ namespace MemPalaceLLM
                 "\nReturn exactly " + words.Count + " items in one JSON object whose top-level key is items.\n" +
                 "Use each anchor_id and anchor_label exactly.\n" +
                 "Generate only visual_cue_en, association_prompt_en, image_prompt_en, image_prompt_candidates_en, and visual_objects.\n" +
+                "Also include cue_blueprint for each item; build every visual field from that blueprint.\n" +
                 "Do not output mnemonic_en or story_cue_en. Do not consider Spanish sound, spelling, cognates, or puns.\n" +
                 "The visual cue must retrieve the meaning first through a realistic target-meaning event at the assigned anchor.\n" +
                 "Do not make target-object displays: no model/miniature/toy simply sitting, resting, perched, balanced, or displayed on furniture.\n" +
@@ -1225,6 +2070,7 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"the word\",\n" +
                 "      \"anchor\": \"the assigned anchor_id\",\n" +
+                "      \"cue_blueprint\": { \"targetMeaning\": \"meaning\", \"visualSceneCore\": \"event\", \"mainObject\": \"object\", \"anchorRelation\": \"relation\", \"relativeSize\": \"foreground\", \"mainActionOrState\": \"action\", \"visibleObjects\": [\"object\"], \"mnemonicHookNote\": \"\", \"mnemonicMode\": \"STORY_ONLY\" },\n" +
                 "      \"visual_cue_en\": \"At the assigned AnchorLabel, concrete foreground cue action.\",\n" +
                 "      \"association_prompt_en\": \"short drawable association scene, no explanation\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action and anchor contact point only\",\n" +
@@ -1235,10 +2081,41 @@ namespace MemPalaceLLM
                 "}";
         }
 
+        private static string BuildVisualBlueprintPromptLine(List<GeneratedMnemonicItem> visualCueItems, int index)
+        {
+            if (visualCueItems == null || index < 0 || index >= visualCueItems.Count || visualCueItems[index] == null)
+            {
+                return "none";
+            }
+
+            var item = visualCueItems[index];
+            var blueprint = item.cue_blueprint;
+            var parts = new List<string>();
+            AddBlueprintPromptPart(parts, "visualSceneCore", blueprint?.visualSceneCore);
+            AddBlueprintPromptPart(parts, "mainObject", blueprint?.mainObject);
+            AddBlueprintPromptPart(parts, "anchorRelation", blueprint?.anchorRelation);
+            AddBlueprintPromptPart(parts, "mainActionOrState", blueprint?.mainActionOrState);
+            AddBlueprintPromptPart(parts, "mnemonicMode", blueprint?.mnemonicMode);
+            AddBlueprintPromptPart(parts, "visualCue", item.visual_cue_en);
+            return parts.Count == 0 ? "none" : string.Join(" | ", parts);
+        }
+
+        private static void AddBlueprintPromptPart(List<string> parts, string label, string value)
+        {
+            if (parts == null || string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            parts.Add(label + "=" + CompactPromptLine(value));
+        }
+
         private static string BuildMnemonicLinkPrompt(
             List<WordEntry> words,
             int globalOffset,
-            int totalWords)
+            int totalWords,
+            List<AnchorDefinition> assignedAnchors = null,
+            List<GeneratedMnemonicItem> visualCueItems = null)
         {
             var linkLines = new StringBuilder();
             for (int i = 0; i < words.Count; i++)
@@ -1246,12 +2123,13 @@ namespace MemPalaceLLM
                 var word = words[i];
                 var globalIndex = globalOffset + i;
                 var wordNumber = globalIndex + 1;
-                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                var anchor = ResolveAssignedAnchor(assignedAnchors, i, globalIndex, totalWords);
                 linkLines.Append(wordNumber)
                     .Append(". word=").Append(SafePromptText(word.word))
                     .Append("; meaning=").Append(SafePromptText(word.meaning))
                     .Append("; anchor_id=").Append(anchor.id)
                     .Append("; anchor_label=").Append(anchor.label)
+                    .Append("; scene_blueprint=").Append(BuildVisualBlueprintPromptLine(visualCueItems, i))
                     .AppendLine();
             }
 
@@ -1263,6 +2141,8 @@ namespace MemPalaceLLM
                 "\n" + academicSafetyRules +
                 "Goal for Call 2:\n" +
                 "- mnemonic_en is the only learner-facing study text.\n" +
+                "- Use scene_blueprint only as the story basis, so the final mnemonic and image cue point to the same memory event.\n" +
+                "- Do not copy image_prompt or association_prompt wording; rewrite the story naturally for a learner.\n" +
                 "- First, silently generate possible mnemonic hooks from the Spanish word form.\n" +
                 "- Judge whether the best hook adds real memory value beyond a story-only mnemonic.\n" +
                 "- Use a hook only when it creates a memorable intermediate cue, phrase, image, or action that helps the learner retrieve the Spanish word form.\n" +
@@ -1270,7 +2150,7 @@ namespace MemPalaceLLM
                 "Hook acceptance rules:\n" +
                 "- Accept a hook only if it is easy to notice from the Spanish word, produces a concrete phrase/image/action/object, connects naturally to the assigned anchor, helps retrieve the word form, and is better than a story-only mnemonic.\n" +
                 "- Reject hooks that only share a few letters with the English meaning, only say \"sounds like\" without a memorable phrase or image, repeat the meaning, feel forced, create confusion, or make the mnemonic less clear.\n" +
-                "- Examples: reject isla -> isl -> island because shared letters are too weak; accept carretera -> carry the road because it creates a clear action image.\n" +
+                "- Examples: reject isla -> isl -> island because shared letters are too weak; reject aeropuerto -> airport because it is just the English meaning, not a cue for the Spanish form; reject pasillo -> pass because it is too broad unless it creates a vivid passage action; accept cascada -> cascade because the near-cognate gives a clear falling-water cue; reject cartera -> car tear a and barrio -> bar/rio when they distract from wallet or neighborhood; accept carretera -> carry the road because it creates a clear action image.\n" +
                 "- score >= 7 and accepted = true means HOOK_PLUS_STORY. Anything else means STORY_ONLY.\n\n" +
                 "Final mnemonic_en rules:\n" +
                 "- If mnemonic_mode is HOOK_PLUS_STORY, write exactly two short paragraphs separated by a blank line: paragraph 1 explains the accepted hook; paragraph 2 tells a vivid anchor-based story using the target meaning.\n" +
@@ -1290,6 +2170,10 @@ namespace MemPalaceLLM
                 "mnemonic_mode: HOOK_PLUS_STORY\n" +
                 "hook_judge: {\"accepted\":true,\"score\":8,\"reason\":\"Carry the road is easy to hear from carretera and creates a clear action image.\",\"best_hook\":\"carry the road\"}\n" +
                 "mnemonic_en: \"Carretera can become carry the road: the sound turns into someone carrying a road.\\n\\nAt the Chair, a long highway lies across the seat and armrests like something being carried on your lap.\"\n\n" +
+                "word: cartera; meaning: wallet; anchor_label: Wardrobe\n" +
+                "mnemonic_mode: STORY_ONLY\n" +
+                "hook_judge: {\"accepted\":false,\"score\":3,\"reason\":\"Car tear a is forced and distracts from wallet, so a story-only cue is cleaner.\",\"best_hook\":\"car tear a\"}\n" +
+                "mnemonic_en: \"At the Wardrobe, a wallet drops from a coat pocket and opens on the shelf, cards sliding out in a neat fan. That small wallet is the cartera.\"\n\n" +
                 "Hard constraints:\n" +
                 "- mnemonic_en is not used for image generation, so do not optimize it for drawing.\n" +
                 "- Keep the link neutral and participant-safe for academic research.\n\n" +
@@ -1353,6 +2237,7 @@ namespace MemPalaceLLM
                 "rejection_reason=" + CompactPromptLine(reason) + "\n\n" +
                 "Goal for Call 1:\n" +
                 "- Generate only a new realistic visual cue that specifically retrieves the target meaning.\n" +
+                "- First create cue_blueprint, then derive visual_cue_en, association_prompt_en, image_prompt_en, image_prompt_candidates_en, and visual_objects from it.\n" +
                 "- Do not generate mnemonic_en or story_cue_en yet.\n" +
                 "- Do not consider the Spanish word form, pronunciation, spelling, cognates, puns, or sound similarity.\n" +
                 "- Treat the Spanish word only as an item identifier; plan the scene from the meaning and assigned anchor only.\n" +
@@ -1372,6 +2257,7 @@ namespace MemPalaceLLM
                 "Field rules:\n" +
                 "- visual_cue_en should be 12 to 24 words and start naturally with \"At the " + resolvedAnchorLabel + ", ...\".\n" +
                 "- visual_cue_en describes only the visible scene.\n" +
+                "- cue_blueprint must separate target meaning, visual scene core, main object, anchor relation, action/state, visible objects, hook note, and mode.\n" +
                 "- association_prompt_en should be 6 to 18 English words: visible objects, action, and physical relation only; no teaching explanation.\n" +
                 "- image_prompt_en should be 6 to 16 words, naming only the foreground cue/action plus its anchor contact point.\n" +
                 "- image_prompt_candidates_en must contain exactly 4 diverse English prompts: object-on-anchor close-up, action-focused, unusual-but-realistic relation, and simplest literal.\n" +
@@ -1382,6 +2268,7 @@ namespace MemPalaceLLM
                 "    {\n" +
                 "      \"word\": \"" + word.word.Trim() + "\",\n" +
                 "      \"anchor\": \"" + resolvedAnchorId + "\",\n" +
+                "      \"cue_blueprint\": { \"targetMeaning\": \"" + (word.meaning ?? string.Empty).Trim() + "\", \"visualSceneCore\": \"event\", \"mainObject\": \"object\", \"anchorRelation\": \"relation\", \"relativeSize\": \"foreground\", \"mainActionOrState\": \"action\", \"visibleObjects\": [\"object\"], \"mnemonicHookNote\": \"\", \"mnemonicMode\": \"STORY_ONLY\" },\n" +
                 "      \"visual_cue_en\": \"At the " + resolvedAnchorLabel + ", concrete foreground cue action.\",\n" +
                 "      \"association_prompt_en\": \"short drawable association scene, no explanation\",\n" +
                 "      \"image_prompt_en\": \"foreground cue/action and anchor contact point only\",\n" +
@@ -1395,9 +2282,13 @@ namespace MemPalaceLLM
         private static string BuildSingleMnemonicLinkPrompt(
             WordEntry word,
             string anchorId,
-            string anchorLabel)
+            string anchorLabel,
+            GeneratedMnemonicItem visualCue = null)
         {
             var academicSafetyRules = BuildAcademicSafetyRules();
+            var sceneBlueprint = BuildVisualBlueprintPromptLine(
+                visualCue == null ? null : new List<GeneratedMnemonicItem> { visualCue },
+                0);
 
             return
                 "CALL 2 of 2: Generate the final learner-facing Mnemonic for memory-palace vocabulary learning.\n\n" +
@@ -1406,9 +2297,12 @@ namespace MemPalaceLLM
                 "meaning=" + (word.meaning ?? string.Empty).Trim() + "\n" +
                 "anchor_id=" + anchorId + "\n" +
                 "anchor_label=" + anchorLabel + "\n\n" +
+                "scene_blueprint=" + sceneBlueprint + "\n\n" +
                 academicSafetyRules +
                 "Goal for Call 2:\n" +
                 "- mnemonic_en is the only learner-facing study text.\n" +
+                "- Use scene_blueprint only as the story basis, so the final mnemonic and image cue point to the same memory event.\n" +
+                "- Do not copy image_prompt or association_prompt wording; rewrite the story naturally for a learner.\n" +
                 "- First, silently generate possible mnemonic hooks from the Spanish word form.\n" +
                 "- Judge whether the best hook adds real memory value beyond a story-only mnemonic.\n" +
                 "- Use a hook only when it creates a memorable intermediate cue, phrase, image, or action that helps the learner retrieve the Spanish word form.\n" +
@@ -1416,7 +2310,7 @@ namespace MemPalaceLLM
                 "Hook acceptance rules:\n" +
                 "- Accept a hook only if it is easy to notice from the Spanish word, produces a concrete phrase/image/action/object, connects naturally to the assigned anchor, helps retrieve the word form, and is better than a story-only mnemonic.\n" +
                 "- Reject hooks that only share a few letters with the English meaning, only say \"sounds like\" without a memorable phrase or image, repeat the meaning, feel forced, create confusion, or make the mnemonic less clear.\n" +
-                "- Examples: reject isla -> isl -> island because shared letters are too weak; accept carretera -> carry the road because it creates a clear action image.\n" +
+                "- Examples: reject isla -> isl -> island because shared letters are too weak; reject aeropuerto -> airport because it is just the English meaning, not a cue for the Spanish form; reject pasillo -> pass because it is too broad unless it creates a vivid passage action; accept cascada -> cascade because the near-cognate gives a clear falling-water cue; reject cartera -> car tear a and barrio -> bar/rio when they distract from wallet or neighborhood; accept carretera -> carry the road because it creates a clear action image.\n" +
                 "- score >= 7 and accepted = true means HOOK_PLUS_STORY. Anything else means STORY_ONLY.\n\n" +
                 "Final mnemonic_en rules:\n" +
                 "- If mnemonic_mode is HOOK_PLUS_STORY, write exactly two short paragraphs separated by a blank line: paragraph 1 explains the accepted hook; paragraph 2 tells a vivid anchor-based story using the target meaning.\n" +
@@ -1465,28 +2359,28 @@ namespace MemPalaceLLM
             return wordLines.ToString();
         }
 
-        private static string BuildMnemonicAnchorLines(List<WordEntry> words, int globalOffset, int totalWords)
+        private static string BuildMnemonicAnchorLines(List<WordEntry> words, int globalOffset, int totalWords, List<AnchorDefinition> assignedAnchors = null)
         {
             var anchorLines = new StringBuilder();
             for (int i = 0; i < words.Count; i++)
             {
                 var globalIndex = globalOffset + i;
                 var wordNumber = globalIndex + 1;
-                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                var anchor = ResolveAssignedAnchor(assignedAnchors, i, globalIndex, totalWords);
                 anchorLines.Append("- word ").Append(wordNumber).Append(" -> ").Append(anchor.id).Append(": ").Append(anchor.label).AppendLine();
             }
 
             return anchorLines.ToString();
         }
 
-        private static string BuildMnemonicAssignmentLines(List<WordEntry> words, int globalOffset, int totalWords)
+        private static string BuildMnemonicAssignmentLines(List<WordEntry> words, int globalOffset, int totalWords, List<AnchorDefinition> assignedAnchors = null)
         {
             var assignmentLines = new StringBuilder();
             for (int i = 0; i < words.Count; i++)
             {
                 var globalIndex = globalOffset + i;
                 var wordNumber = globalIndex + 1;
-                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                var anchor = ResolveAssignedAnchor(assignedAnchors, i, globalIndex, totalWords);
                 assignmentLines.Append(wordNumber)
                     .Append(". word=").Append(words[i].word)
                     .Append("; meaning=").Append(words[i].meaning)
@@ -1498,6 +2392,19 @@ namespace MemPalaceLLM
             return assignmentLines.ToString();
         }
 
+        private static AnchorDefinition ResolveAssignedAnchor(List<AnchorDefinition> assignedAnchors, int localIndex, int globalIndex, int totalWords)
+        {
+            if (assignedAnchors != null
+                && localIndex >= 0
+                && localIndex < assignedAnchors.Count
+                && assignedAnchors[localIndex] != null)
+            {
+                return assignedAnchors[localIndex];
+            }
+
+            return RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+        }
+
         private static GeneratedMnemonicItem MergeGeneratedMnemonicFields(
             WordEntry sourceWord,
             GeneratedMnemonicItem visualCue,
@@ -1507,6 +2414,7 @@ namespace MemPalaceLLM
             {
                 word = string.IsNullOrWhiteSpace(visualCue?.word) ? sourceWord.word : visualCue.word,
                 anchor = string.IsNullOrWhiteSpace(visualCue?.anchor) ? mnemonicLink?.anchor : visualCue.anchor,
+                cue_blueprint = visualCue?.cue_blueprint,
                 visual_cue_en = visualCue?.visual_cue_en,
                 association_prompt_en = visualCue?.association_prompt_en,
                 image_prompt_en = visualCue?.image_prompt_en,
@@ -1796,6 +2704,28 @@ namespace MemPalaceLLM
             }
         }
 
+        private IEnumerator RepairGeminiMnemonicJson(
+            string apiKey,
+            string model,
+            string brokenJson,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
+            yield return SendGeminiGenerateRequest(
+                apiKey,
+                model,
+                "Repair the malformed JSON below so that it becomes one valid JSON object only.\n" +
+                "Do not change the intended content unless needed for valid JSON.\n" +
+                "If a visual_objects field is malformed, incomplete, or too complex, replace that field with an empty array [].\n" +
+                "Return only the repaired JSON object.\n\n" +
+                brokenJson,
+                "You repair malformed JSON. Return exactly one valid JSON object. No markdown. No explanation.",
+                0f,
+                2400,
+                onSuccess,
+                onError);
+        }
+
         private static bool TryParseMnemonicEnvelope(string rawText, out GeneratedMnemonicEnvelope envelope, out string error)
         {
             envelope = null;
@@ -1803,7 +2733,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(rawText))
             {
-                error = "Ollama response text was empty.";
+                error = "LLM response text was empty.";
                 return false;
             }
 

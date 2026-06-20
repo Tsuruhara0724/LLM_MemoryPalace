@@ -37,7 +37,7 @@ namespace MemPalaceLLM
             public int Score;
         }
 
-        public static string BuildBatchGuidance(List<WordEntry> words, int globalOffset, int totalWords)
+        public static string BuildBatchGuidance(List<WordEntry> words, int globalOffset, int totalWords, List<AnchorDefinition> assignedAnchors = null)
         {
             if (words == null || words.Count == 0)
             {
@@ -48,7 +48,9 @@ namespace MemPalaceLLM
             for (int i = 0; i < words.Count; i++)
             {
                 var globalIndex = globalOffset + i;
-                var anchor = RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
+                var anchor = assignedAnchors != null && i < assignedAnchors.Count && assignedAnchors[i] != null
+                    ? assignedAnchors[i]
+                    : RoomSpecCatalog.GetAssignmentAnchor(globalIndex, totalWords);
                 AppendGuidanceForWord(builder, words[i], globalIndex + 1, anchor.id, anchor.label);
             }
 

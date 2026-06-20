@@ -31,6 +31,25 @@
       ]
     },
     {
+      "setId": "formal_12_pool",
+      "displayName": "Formal 12-Word Pool",
+      "description": "Fixed 12-word pool for formal runs; each participant can sample 8 words while assets are pre-generated for 12 words x 10 furniture types.",
+      "words": [
+        { "word": "aeropuerto", "meaning": "airport" },
+        { "word": "almohada", "meaning": "pillow" },
+        { "word": "anillo", "meaning": "ring" },
+        { "word": "armario", "meaning": "wardrobe" },
+        { "word": "botella", "meaning": "bottle" },
+        { "word": "cartera", "meaning": "wallet" },
+        { "word": "cartel", "meaning": "poster" },
+        { "word": "cortina", "meaning": "curtain" },
+        { "word": "escalera", "meaning": "staircase" },
+        { "word": "isla", "meaning": "island" },
+        { "word": "manta", "meaning": "blanket" },
+        { "word": "martillo", "meaning": "hammer" }
+      ]
+    },
+    {
       "setId": "advanced_pool",
       "displayName": "Spanish Noun Pool",
       "description": "Hidden source pool used for random Spanish noun sampling with concrete mnemonic potential.",

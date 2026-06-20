@@ -21,8 +21,9 @@ namespace MemPalaceLLM
         private const float ContentTop = 86f;
         private const float BottomMargin = 18f;
         private const int MidTestTriggerCount = 3;
-        private const int RandomAdvancedWordCount = 4;
+        private const int RandomAdvancedWordCount = 8;
         private const string AdvancedPoolSetId = "advanced_pool";
+        private const string FormalWordPoolSetId = "formal_12_pool";
         private const float BuilderAxisDragScale = 0.012f;
         private const float BuilderRotateDragScale = 0.45f;
         private const float BuilderScaleDragScale = 0.01f;
@@ -31,7 +32,7 @@ namespace MemPalaceLLM
         private const float VrActionCooldownSeconds = 0.35f;
         private const float StudyDetailMaxDistance = 2.85f;
         private const float StudyDetailFacingDotThreshold = 0.5f;
-        private const int RequiredImagePromptCandidateCount = 2;
+        private const int RequiredImagePromptCandidateCount = 4;
         private const int BufferedImageCueResultCount = 4;
 
         private enum BuilderToolMode
@@ -49,6 +50,13 @@ namespace MemPalaceLLM
             CustomFurniture,
             TopDownConfirm,
             EntrancePreview
+        }
+
+        private enum MnemonicReviewExportScope
+        {
+            MissingOnly,
+            MissingOrUnreviewed,
+            Full
         }
 
         private static readonly string[] RoomLayoutOptions =
@@ -134,6 +142,8 @@ namespace MemPalaceLLM
         private RawImage vrPreviewImage;
         private Text vrPreviewInfoText;
         private VrPanelButtonInteractable vrGenerateButton;
+        private VrPanelButtonInteractable vrPreviousImageButton;
+        private VrPanelButtonInteractable vrNextImageButton;
         private VrPanelButtonInteractable vrCaptureButton;
         private VrPanelButtonInteractable vrAdvanceButton;
         private Font labelFont;
@@ -155,6 +165,7 @@ namespace MemPalaceLLM
         private readonly List<string> recognitionQueue = new();
         private readonly List<string> recognitionOptions = new();
         private readonly System.Random randomAdvancedWordSampler = new(Guid.NewGuid().GetHashCode());
+        private readonly System.Random mnemonicAnchorRandom = new(Guid.NewGuid().GetHashCode());
         private readonly List<string> previousRandomAdvancedSampleWords = new();
 
         private GUIStyle titleStyle;
@@ -217,11 +228,19 @@ namespace MemPalaceLLM
         private string participantId = "P001";
         private string ollamaBaseUrl = "http://localhost:11434/api/generate";
         private string ollamaModel = "qwen3:8b";
+        private string geminiModel = "gemini-2.5-flash";
+        private string geminiApiKey = string.Empty;
         private string imageGenerationEndpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img";
         private string imageGenerationCheckpoint = string.Empty;
         private string imageCueValidationModel = "gemma3:12b";
         private bool enableVrStudyMode = true;
         private bool showAbstractMnemonicProps = false;
+        private bool preferPreGeneratedMnemonics = true;
+        private bool allowLiveLlmForMissingPreGenerated = false;
+        private bool useLocalFallbackForMissingPreGenerated = true;
+        private bool usePreGeneratedImageCueCatalog = true;
+        private bool allowRuntimeImageCueGenerationForMissing = false;
+        private bool randomizeMnemonicAnchors = false;
         private bool showLegacyRoomGenerator = false;
         private bool showAdvancedRoomEditing = false;
         private string customFurnitureName = "Toilet";
@@ -244,6 +263,12 @@ namespace MemPalaceLLM
         private string generationError = string.Empty;
         private string roomGenerationError = string.Empty;
         private string imageGenerationStatus = string.Empty;
+        private string preStudyImageCueStatus = string.Empty;
+        private string geminiProviderStatus = string.Empty;
+        private string preGeneratedCatalogStatus = string.Empty;
+        private string preGeneratedImageCueCatalogStatus = string.Empty;
+        private string mnemonicReviewBuilderStatus = string.Empty;
+        private string mnemonicReviewJsonText = string.Empty;
         private string exportMessage = string.Empty;
         private string customCsvText = string.Empty;
         private bool useCustomCsv;
@@ -251,8 +276,32 @@ namespace MemPalaceLLM
         private bool isGeneratingRoom;
         private bool isGeneratingFurniture;
         private bool isGeneratingGuidedFurnitureLayout;
+        private bool isTestingGeminiProvider;
+        private bool isPreparingImageCuesBeforeStudy;
+        private bool isBuildingImageCueCatalog;
+        private bool showImageCueCatalogBuilder;
+        private bool showMnemonicCatalogReviewBuilder;
+        private int preStudyImageCueFailureCount;
+        private int imageCueCatalogBuilderCompletedCount;
+        private int imageCueCatalogBuilderTargetCount;
+        private Coroutine preStudyImageCueCoroutine;
+        private Coroutine imageCueCatalogBuilderCoroutine;
         private bool usedLiveLlmForCurrentSession;
+        private bool usedPreGeneratedForCurrentSession;
+        private bool usedLocalFallbackForCurrentSession;
+        private int preGeneratedMnemonicHitCount;
+        private int liveGeneratedMnemonicCount;
+        private int localFallbackMnemonicCount;
+        private string liveMnemonicProviderLabelForCurrentSession = string.Empty;
+        private string liveMnemonicModelForCurrentSession = string.Empty;
+        private string liveMnemonicSourceForCurrentSession = string.Empty;
+        private string imageCueCatalogBuilderStatus = string.Empty;
+        private string imageCueCatalogTargetWord = "aeropuerto";
+        private string imageCueCatalogTargetAnchorType = "bed";
+        private bool imageCueCatalogSkipVisionScoring = true;
         private bool usingRandomAdvancedWordSet;
+        private readonly List<string> preGeneratedCatalogDetails = new();
+        private readonly List<string> preGeneratedImageCueCatalogDetails = new();
 
         private WordSetDefinition activeWordSet;
         private List<MnemonicItemData> currentItems = new();
@@ -699,15 +748,112 @@ namespace MemPalaceLLM
 
             if (condition == ExperimentCondition.LlmGenerated)
             {
-                providerMode = LlmProviderMode.OllamaLocal;
-                ollamaBaseUrl = DrawLabeledTextField("Ollama Endpoint", ollamaBaseUrl);
-                ollamaModel = DrawLabeledTextField("Mnemonic Text Model", ollamaModel);
+                providerMode = (LlmProviderMode)GUILayout.Toolbar((int)providerMode, new[] { "Ollama", "Gemini" });
+                if (providerMode == LlmProviderMode.GeminiOnline)
+                {
+                    geminiModel = DrawLabeledTextField("Gemini Mnemonic Model", geminiModel);
+                    GUILayout.BeginHorizontal();
+                    if (GUILayout.Button("Use Flash Free", buttonStyle))
+                    {
+                        geminiModel = "gemini-2.5-flash";
+                    }
+
+                    if (GUILayout.Button("Use Flash-Lite Free", buttonStyle))
+                    {
+                        geminiModel = "gemini-2.5-flash-lite";
+                    }
+
+                    if (GUILayout.Button("Use Pro Paid", buttonStyle))
+                    {
+                        geminiModel = "gemini-2.5-pro";
+                    }
+                    GUILayout.EndHorizontal();
+                    geminiApiKey = DrawLabeledTextField("Gemini API Key", geminiApiKey, true);
+                    GUILayout.Label("Free keys should use Flash or Flash-Lite; Pro usually requires billing. If the key field is blank, the app uses GEMINI_API_KEY or GOOGLE_API_KEY from the environment.", mutedStyle);
+                    GUI.enabled = !isTestingGeminiProvider;
+                    if (GUILayout.Button(isTestingGeminiProvider ? "Testing Gemini..." : "Test Gemini Connection", buttonStyle))
+                    {
+                        StartCoroutine(TestGeminiProviderRoutine());
+                    }
+                    GUI.enabled = true;
+                    if (!string.IsNullOrWhiteSpace(geminiProviderStatus))
+                    {
+                        GUILayout.Label(geminiProviderStatus, mutedStyle);
+                    }
+                }
+                else
+                {
+                    ollamaBaseUrl = DrawLabeledTextField("Ollama Endpoint", ollamaBaseUrl);
+                    ollamaModel = DrawLabeledTextField("Mnemonic Text Model", ollamaModel);
+                }
+
                 imageGenerationEndpoint = DrawLabeledTextField("Image Endpoint", imageGenerationEndpoint);
                 imageGenerationCheckpoint = DrawLabeledTextField("Image Checkpoint", imageGenerationCheckpoint);
                 imageCueValidationModel = DrawLabeledTextField("Image Cue Validation Model", imageCueValidationModel);
-                GUILayout.Label("Image cue generation: each displayed result is selected from 4 generated candidates, and the app prepares 4 best results (A-D).", mutedStyle);
+                usePreGeneratedImageCueCatalog = GUILayout.Toggle(usePreGeneratedImageCueCatalog, $"Use pre-generated image cue catalog ({PreGeneratedImageCueCatalog.EntryCount} word x furniture entries)");
+                allowRuntimeImageCueGenerationForMissing = GUILayout.Toggle(allowRuntimeImageCueGenerationForMissing, "Researcher mode: allow slow local SD generation for missing image cues");
+                GUILayout.Label("Formal sessions should load pre-generated image cues. Runtime SD generation is slow and should be used only while preparing the catalog.", mutedStyle);
+                preferPreGeneratedMnemonics = GUILayout.Toggle(preferPreGeneratedMnemonics, $"Prefer pre-generated word x furniture mnemonics ({PreGeneratedMnemonicCatalog.EntryCount} loaded)");
+                GUI.enabled = preferPreGeneratedMnemonics;
+                randomizeMnemonicAnchors = GUILayout.Toggle(randomizeMnemonicAnchors, "Randomize furniture anchors before mnemonic lookup");
+                useLocalFallbackForMissingPreGenerated = GUILayout.Toggle(useLocalFallbackForMissingPreGenerated, "Use local story-only fallback for missing catalog combinations");
+                allowLiveLlmForMissingPreGenerated = GUILayout.Toggle(allowLiveLlmForMissingPreGenerated, $"Try {GetSelectedLiveMnemonicProviderLabel()} to improve missing combinations when available");
+                GUI.enabled = true;
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("Check Catalog Coverage", buttonStyle))
+                {
+                    RefreshPreGeneratedCatalogCoverage();
+                }
+
+                if (GUILayout.Button("Check 12 x 10 Mnemonic Matrix", buttonStyle))
+                {
+                    RefreshFullMnemonicMatrixCoverage();
+                }
+
+                if (GUILayout.Button("Validate Catalog", buttonStyle))
+                {
+                    ValidatePreGeneratedCatalog();
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("Check Image Catalog Coverage", buttonStyle))
+                {
+                    RefreshPreGeneratedImageCueCatalogCoverage();
+                }
+
+                if (GUILayout.Button("Check 12 x 10 Image Matrix", buttonStyle))
+                {
+                    RefreshFullImageCueMatrixCoverage();
+                }
+
+                if (GUILayout.Button("Validate Image Catalog", buttonStyle))
+                {
+                    ValidatePreGeneratedImageCueCatalog();
+                }
+                GUILayout.EndHorizontal();
+                if (!string.IsNullOrWhiteSpace(preGeneratedCatalogStatus))
+                {
+                    GUILayout.Label(preGeneratedCatalogStatus, mutedStyle);
+                    for (int i = 0; i < preGeneratedCatalogDetails.Count; i++)
+                    {
+                        GUILayout.Label(preGeneratedCatalogDetails[i], mutedStyle);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(preGeneratedImageCueCatalogStatus))
+                {
+                    GUILayout.Label(preGeneratedImageCueCatalogStatus, mutedStyle);
+                    for (int i = 0; i < preGeneratedImageCueCatalogDetails.Count; i++)
+                    {
+                        GUILayout.Label(preGeneratedImageCueCatalogDetails[i], mutedStyle);
+                    }
+                }
+
+                DrawMnemonicCatalogReviewBuilderPanel();
+                DrawImageCueCatalogBuilderPanel();
+
                 showAbstractMnemonicProps = GUILayout.Toggle(showAbstractMnemonicProps, "Show experimental 3D proxy props in the room");
-                GUILayout.Label("Mnemonic text uses the text model. Cue images generate multiple prompt candidates with Stable Diffusion, then Ollama Vision scores and selects the clearest anchor-cue image.", mutedStyle);
+                GUILayout.Label("Mnemonic text uses pre-generated catalog hits first. Missing text uses local story-only fallback by default. Cue images should be pre-generated and loaded from catalog for formal sessions.", mutedStyle);
             }
             else
             {
@@ -739,7 +885,7 @@ namespace MemPalaceLLM
             GUILayout.Space(6);
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Random Spanish Nouns {Mathf.Min(RandomAdvancedWordCount, RoomSpecCatalog.AnchorCount)}", buttonStyle))
+            if (GUILayout.Button($"Sample {Mathf.Min(RandomAdvancedWordCount, RoomSpecCatalog.AnchorCount)} Words", buttonStyle))
             {
                 GenerateRandomAdvancedWordSet();
             }
@@ -1995,6 +2141,8 @@ namespace MemPalaceLLM
         {
             StopAllCoroutines();
             isGenerating = false;
+            isPreparingImageCuesBeforeStudy = false;
+            preStudyImageCueCoroutine = null;
             generatingImageCueWords.Clear();
             regeneratingMnemonicWords.Clear();
             generationError = "Mnemonic generation was cancelled.";
@@ -2011,14 +2159,14 @@ namespace MemPalaceLLM
             generationScroll = GUILayout.BeginScrollView(generationScroll);
 
             GUILayout.Label("Step 2 of 7 - Mnemonic Preview", titleStyle);
-            GUILayout.Label("This page previews how each word has been mapped to a room anchor, an image-focused association cue, and a final learner-facing mnemonic.", mutedStyle);
+            GUILayout.Label("This page previews each word-anchor mnemonic and prepares the generated image cues before the study room begins.", mutedStyle);
             GUILayout.Space(8);
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Current Session", smallTitleStyle);
             GUILayout.Label($"Condition: {GetConditionDisplayName()}", labelStyle);
             GUILayout.Label($"Mnemonic Source: {ResolveProviderLabel()}", labelStyle);
-            GUILayout.Label($"Ollama Request Used: {(isGenerating ? "In progress" : (IsUsingLiveLlm() ? "Yes" : "No"))}", labelStyle);
+            GUILayout.Label($"Live LLM Request Used: {(isGenerating ? "In progress" : (IsUsingLiveLlm() ? "Yes" : "No"))}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
             GUILayout.Label($"Mnemonic Items: {currentItems.Count}", labelStyle);
             GUILayout.Label(statusMessage, mutedStyle);
@@ -2051,22 +2199,38 @@ namespace MemPalaceLLM
                 GUILayout.Space(4);
                 DrawTextSection("Mnemonic", item.mnemonic, smallTitleStyle, labelStyle);
                 GUILayout.Space(6);
+                var previousEnabled = GUI.enabled;
+                GUI.enabled = previousEnabled && !isPreparingImageCuesBeforeStudy;
                 DrawRegenerateMnemonicButton(item);
+                GUI.enabled = previousEnabled;
                 GUILayout.EndVertical();
             }
 
             GUILayout.Space(12);
-            GUI.enabled = !isGenerating && currentItems.Count > 0;
+            DrawPreStudyImageCuePreparationPanel(false);
+
+            GUILayout.Space(12);
+            var imageCuesReady = AreAllCurrentImageCuesReady();
+            GUI.enabled = !isGenerating
+                          && !isPreparingImageCuesBeforeStudy
+                          && currentItems.Count > 0
+                          && (imageCuesReady || usePreGeneratedImageCueCatalog);
             if (GUILayout.Button("Next: Enter Study Room", buttonStyle))
             {
                 EnterStudyRoom();
             }
             GUI.enabled = true;
+            if (currentItems.Count > 0 && !imageCuesReady)
+            {
+                GUILayout.Label("Generate all image cues before entering the study room.", mutedStyle);
+            }
 
             if (GUILayout.Button("Back to Setup", buttonStyle))
             {
                 StopAllCoroutines();
                 isGenerating = false;
+                isPreparingImageCuesBeforeStudy = false;
+                preStudyImageCueCoroutine = null;
                 generatingImageCueWords.Clear();
                 regeneratingMnemonicWords.Clear();
                 stage = ExperimentStage.Setup;
@@ -2088,12 +2252,18 @@ namespace MemPalaceLLM
             authoringScroll = GUILayout.BeginScrollView(authoringScroll);
 
             GUILayout.Label("Step 2 of 7 - Self-Generated Mnemonic Authoring", titleStyle);
-            GUILayout.Label("Assign each word to an anchor, then write an image cue and one final learner-facing mnemonic. If the hook is weak, make Mnemonic a clean story only.", mutedStyle);
+            GUILayout.Label("Assign each word to an anchor, write the cue text, then prepare the generated image cues before the study room begins.", mutedStyle);
             GUILayout.Space(10);
 
+            GUI.enabled = !isPreparingImageCuesBeforeStudy;
             if (GUILayout.Button("Auto-Fill Starter Drafts", buttonStyle))
             {
                 AutoFillSelfDrafts();
+            }
+            GUI.enabled = true;
+            if (isPreparingImageCuesBeforeStudy)
+            {
+                GUILayout.Label("Draft editing is locked while image cues are being prepared.", mutedStyle);
             }
 
             GUILayout.Space(10);
@@ -2106,44 +2276,459 @@ namespace MemPalaceLLM
                 GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
 
                 GUILayout.BeginHorizontal();
+                var previousEnabled = GUI.enabled;
+                GUI.enabled = previousEnabled && !isPreparingImageCuesBeforeStudy;
                 if (GUILayout.Button("< Anchor", GUILayout.Width(100f), GUILayout.Height(28f)))
                 {
                     CycleAnchor(item, -1);
                 }
 
+                GUI.enabled = previousEnabled;
                 GUILayout.Label($"Anchor: {item.anchorLabel}", labelStyle, GUILayout.Width(220f));
 
+                GUI.enabled = previousEnabled && !isPreparingImageCuesBeforeStudy;
                 if (GUILayout.Button("Anchor >", GUILayout.Width(100f), GUILayout.Height(28f)))
                 {
                     CycleAnchor(item, 1);
                 }
+                GUI.enabled = previousEnabled;
                 GUILayout.EndHorizontal();
 
                 GUILayout.Label("Association Image Cue (EN)", mutedStyle);
+                var previousAssociationPrompt = item.associationPrompt ?? string.Empty;
+                GUI.enabled = previousEnabled && !isPreparingImageCuesBeforeStudy;
                 item.associationPrompt = GUILayout.TextArea(item.associationPrompt ?? string.Empty, textAreaStyle, GUILayout.MinHeight(42f));
+                GUI.enabled = previousEnabled;
                 GUILayout.Label("Mnemonic (EN)", mutedStyle);
+                var previousMnemonic = item.mnemonic ?? string.Empty;
+                GUI.enabled = previousEnabled && !isPreparingImageCuesBeforeStudy;
                 item.mnemonic = GUILayout.TextArea(item.mnemonic ?? string.Empty, textAreaStyle, GUILayout.MinHeight(84f));
+                GUI.enabled = previousEnabled;
+                if (!string.Equals(previousAssociationPrompt, item.associationPrompt ?? string.Empty, StringComparison.Ordinal)
+                    || !string.Equals(previousMnemonic, item.mnemonic ?? string.Empty, StringComparison.Ordinal))
+                {
+                    ClearGeneratedImageCueForWord(item.word);
+                }
 
                 GUILayout.EndVertical();
             }
 
             GUILayout.Space(12);
+            DrawPreStudyImageCuePreparationPanel(true);
+
+            GUILayout.Space(12);
+            var selfImageCuesReady = AreAllCurrentImageCuesReady();
+            GUI.enabled = !isPreparingImageCuesBeforeStudy
+                          && currentItems.Count > 0
+                          && (selfImageCuesReady || usePreGeneratedImageCueCatalog);
             if (GUILayout.Button("Next: Enter Study Room", buttonStyle))
             {
                 FinalizeSelfDrafts();
                 EnterStudyRoom();
+            }
+            GUI.enabled = true;
+            if (currentItems.Count > 0 && !selfImageCuesReady)
+            {
+                GUILayout.Label("Finalize drafts and generate all image cues before entering the study room.", mutedStyle);
             }
 
             if (GUILayout.Button("Back to Setup", buttonStyle))
             {
                 StopAllCoroutines();
                 isGenerating = false;
+                isPreparingImageCuesBeforeStudy = false;
+                preStudyImageCueCoroutine = null;
                 stage = ExperimentStage.Setup;
                 statusMessage = "Returned to setup.";
             }
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawPreStudyImageCuePreparationPanel(bool finalizeSelfDraftsBeforeGeneration)
+        {
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                return;
+            }
+
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Image Cue Preparation", smallTitleStyle);
+
+            var readyCount = CountReadyImageCueItems();
+            var totalCount = currentItems.Count;
+            GUILayout.Label($"Prepared Image Cues: {readyCount}/{totalCount}", labelStyle);
+
+            var missingWords = BuildMissingImageCueWordSummary();
+            if (!string.IsNullOrWhiteSpace(missingWords))
+            {
+                GUILayout.Label("Missing: " + missingWords, mutedStyle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(preStudyImageCueStatus))
+            {
+                GUILayout.Label(preStudyImageCueStatus, mutedStyle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(imageGenerationStatus))
+            {
+                GUILayout.Label(imageGenerationStatus, mutedStyle);
+            }
+
+            GUILayout.BeginHorizontal();
+            if (isPreparingImageCuesBeforeStudy)
+            {
+                if (GUILayout.Button("Cancel Image Cue Preparation", buttonStyle))
+                {
+                    CancelPreStudyImageCuePreparation();
+                }
+            }
+            else
+            {
+                GUI.enabled = readyCount < totalCount;
+                var loadMissingLabel = usePreGeneratedImageCueCatalog
+                    ? "Load Missing Image Cues From Catalog"
+                    : "Generate Missing Image Cues With Local SD";
+                if (GUILayout.Button(loadMissingLabel, buttonStyle))
+                {
+                    BeginPreStudyImageCuePreparation(false, finalizeSelfDraftsBeforeGeneration);
+                }
+
+                GUI.enabled = totalCount > 0;
+                var rebuildAllLabel = usePreGeneratedImageCueCatalog
+                    ? "Reload All Image Cues From Catalog"
+                    : "Regenerate All Image Cues With Local SD";
+                if (GUILayout.Button(rebuildAllLabel, buttonStyle))
+                {
+                    BeginPreStudyImageCuePreparation(true, finalizeSelfDraftsBeforeGeneration);
+                }
+
+                GUI.enabled = true;
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label(
+                usePreGeneratedImageCueCatalog
+                    ? "Formal sessions load pre-generated image cues here so Study Room time is spent studying, not waiting."
+                    : "Runtime image generation is enabled; this is slow and intended for catalog preparation only.",
+                mutedStyle);
+            GUILayout.EndVertical();
+        }
+
+        private void BeginPreStudyImageCuePreparation(bool regenerateAll, bool finalizeSelfDraftsBeforeGeneration)
+        {
+            if (isPreparingImageCuesBeforeStudy || currentItems == null || currentItems.Count == 0)
+            {
+                return;
+            }
+
+            if (finalizeSelfDraftsBeforeGeneration)
+            {
+                FinalizeSelfDrafts();
+            }
+
+            if (regenerateAll)
+            {
+                ClearAllGeneratedImageCueTextures();
+                for (int i = 0; i < currentItems.Count; i++)
+                {
+                    if (currentItems[i] != null)
+                    {
+                        currentItems[i].imageCuePath = string.Empty;
+                        currentItems[i].selectedImagePrompt = string.Empty;
+                        currentItems[i].selectedImageCandidateIndex = -1;
+                        currentItems[i].imageSelectionReason = string.Empty;
+                    }
+                }
+            }
+
+            preStudyImageCueCoroutine = StartCoroutine(PrepareImageCuesBeforeStudyRoutine());
+        }
+
+        private void CancelPreStudyImageCuePreparation()
+        {
+            if (preStudyImageCueCoroutine != null)
+            {
+                StopCoroutine(preStudyImageCueCoroutine);
+                preStudyImageCueCoroutine = null;
+            }
+
+            isPreparingImageCuesBeforeStudy = false;
+            generatingImageCueWords.Clear();
+            preStudyImageCueStatus = "Image cue preparation was cancelled. Already prepared image cues are kept.";
+            statusMessage = preStudyImageCueStatus;
+        }
+
+        private IEnumerator PrepareImageCuesBeforeStudyRoutine()
+        {
+            isPreparingImageCuesBeforeStudy = true;
+            preStudyImageCueFailureCount = 0;
+
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                preStudyImageCueStatus = "No mnemonic items are available for image cue preparation.";
+                isPreparingImageCuesBeforeStudy = false;
+                preStudyImageCueCoroutine = null;
+                yield break;
+            }
+
+            var totalCount = currentItems.Count;
+            for (int i = 0; i < totalCount; i++)
+            {
+                var item = currentItems[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                if (HasReadyImageCue(item))
+                {
+                    preStudyImageCueStatus = $"Image cue {i + 1}/{totalCount} already prepared for {item.word}.";
+                    continue;
+                }
+
+                if (usePreGeneratedImageCueCatalog)
+                {
+                    preStudyImageCueStatus = $"Loading image cue {i + 1}/{totalCount} from catalog: {item.word}.";
+                    if (TryLoadPreGeneratedImageCueSet(item, out var catalogError))
+                    {
+                        preStudyImageCueStatus = $"Loaded image cue {i + 1}/{totalCount} from catalog: {item.word}.";
+                        continue;
+                    }
+
+                    if (!allowRuntimeImageCueGenerationForMissing)
+                    {
+                        preStudyImageCueFailureCount++;
+                        preStudyImageCueStatus = $"Missing pre-generated image cue for {item.word} x {item.anchorType}: {catalogError}";
+                        LogInteraction("prestudy_image_catalog_missing", item.word, item.anchorId, preStudyImageCueStatus);
+                        continue;
+                    }
+
+                    preStudyImageCueStatus = $"Catalog missing for {item.word}; using slow local SD fallback because researcher mode is enabled.";
+                }
+
+                if (!allowRuntimeImageCueGenerationForMissing)
+                {
+                    preStudyImageCueFailureCount++;
+                    preStudyImageCueStatus = $"No pre-generated image cue is ready for {item.word}, and runtime image generation is disabled.";
+                    LogInteraction("prestudy_image_cue_missing", item.word, item.anchorId, preStudyImageCueStatus);
+                    break;
+                }
+
+                preStudyImageCueStatus = $"Preparing image cue {i + 1}/{totalCount} with slow local SD: {item.word}.";
+                yield return GenerateMnemonicImageCueRoutine(item);
+
+                if (!HasReadyImageCue(item))
+                {
+                    preStudyImageCueFailureCount++;
+                    preStudyImageCueStatus = $"Image cue preparation failed for {item.word}. Fix the image/vision endpoints and generate missing cues again.";
+                    LogInteraction("prestudy_image_cue_failed", item.word, item.anchorId, imageGenerationStatus);
+                    break;
+                }
+
+                preStudyImageCueStatus = $"Prepared image cue {i + 1}/{totalCount}: {item.word}.";
+            }
+
+            isPreparingImageCuesBeforeStudy = false;
+            preStudyImageCueCoroutine = null;
+
+            var readyCount = CountReadyImageCueItems();
+            if (readyCount >= totalCount)
+            {
+                preStudyImageCueStatus = $"All {readyCount}/{totalCount} image cues are ready. You can enter the study room.";
+                statusMessage = "Image cue preparation complete.";
+            }
+            else if (preStudyImageCueFailureCount > 0)
+            {
+                preStudyImageCueStatus = $"Prepared {readyCount}/{totalCount} image cues; {preStudyImageCueFailureCount} item(s) failed. Generate missing cues again after fixing the endpoint/model.";
+                statusMessage = preStudyImageCueStatus;
+            }
+            else
+            {
+                preStudyImageCueStatus = $"Prepared {readyCount}/{totalCount} image cues.";
+            }
+        }
+
+        private bool TryLoadPreGeneratedImageCueSet(MnemonicItemData item, out string error)
+        {
+            error = string.Empty;
+            if (item == null)
+            {
+                error = "Mnemonic item is null.";
+                return false;
+            }
+
+            ClearGeneratedImageCueForWord(item.word);
+            if (!PreGeneratedImageCueCatalog.TryLoadImageCueSet(item, out var loadedSet, out error))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < loadedSet.variants.Count; i++)
+            {
+                var variant = loadedSet.variants[i];
+                if (variant?.texture == null)
+                {
+                    continue;
+                }
+
+                var result = new ImageCueCandidateResult
+                {
+                    candidateIndex = variant.index,
+                    label = variant.label,
+                    innerLabel = "pre-generated catalog",
+                    rawPrompt = string.IsNullOrWhiteSpace(variant.rawPrompt) ? item.associationPrompt : variant.rawPrompt,
+                    fullPrompt = string.IsNullOrWhiteSpace(variant.fullPrompt) ? item.imagePrompt : variant.fullPrompt,
+                    texture = variant.texture,
+                    validation = null,
+                    score = variant.score,
+                    pass = variant.pass,
+                    validationComplete = true,
+                    reason = variant.reason,
+                    innerCandidates = new List<ImageCueInnerCandidateResult>
+                    {
+                        new()
+                        {
+                            index = variant.index,
+                            label = variant.label,
+                            rawPrompt = string.IsNullOrWhiteSpace(variant.rawPrompt) ? item.associationPrompt : variant.rawPrompt,
+                            fullPrompt = string.IsNullOrWhiteSpace(variant.fullPrompt) ? item.imagePrompt : variant.fullPrompt,
+                            imagePath = variant.imagePath,
+                            validation = null,
+                            score = variant.score,
+                            pass = variant.pass,
+                            validationComplete = true,
+                            reason = variant.reason
+                        }
+                    }
+                };
+                AddImageCueCandidateResult(item, result);
+            }
+
+            var primaryIndex = Mathf.Clamp(loadedSet.primaryIndex, 0, loadedSet.variants.Count - 1);
+            TryDisplayImageCueCandidate(item, primaryIndex, false);
+            imageGenerationStatus = $"Loaded {loadedSet.variants.Count} pre-generated image cue choice(s) for {item.word}.";
+            LogInteraction("load_pregenerated_image_cue_set", item.word, item.anchorId, imageGenerationStatus);
+            return HasReadyImageCue(item);
+        }
+
+        private bool TryLoadCurrentImageCuesFromCatalog(bool reloadAll, out int loadedCount, out int failedCount, out string firstError)
+        {
+            loadedCount = 0;
+            failedCount = 0;
+            firstError = string.Empty;
+            if (currentItems == null || currentItems.Count == 0 || !usePreGeneratedImageCueCatalog)
+            {
+                return AreAllCurrentImageCuesReady();
+            }
+
+            PreGeneratedImageCueCatalog.Reload();
+            for (int i = 0; i < currentItems.Count; i++)
+            {
+                var item = currentItems[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                if (!reloadAll && HasReadyImageCue(item))
+                {
+                    continue;
+                }
+
+                if (TryLoadPreGeneratedImageCueSet(item, out var error))
+                {
+                    loadedCount++;
+                    continue;
+                }
+
+                failedCount++;
+                if (string.IsNullOrWhiteSpace(firstError))
+                {
+                    firstError = $"{item.word} x {item.anchorType}: {error}";
+                }
+            }
+
+            var readyCount = CountReadyImageCueItems();
+            if (readyCount >= currentItems.Count)
+            {
+                preStudyImageCueStatus = $"All {readyCount}/{currentItems.Count} image cues are ready. You can enter the study room.";
+            }
+            else if (failedCount > 0)
+            {
+                preStudyImageCueStatus = $"Loaded {loadedCount} image cue set(s) from catalog; {failedCount} missing/failed. First issue: {firstError}";
+            }
+            else if (loadedCount > 0)
+            {
+                preStudyImageCueStatus = $"Loaded {loadedCount} image cue set(s) from catalog.";
+            }
+
+            return readyCount >= currentItems.Count;
+        }
+
+        private bool AreAllCurrentImageCuesReady()
+        {
+            return currentItems != null
+                   && currentItems.Count > 0
+                   && CountReadyImageCueItems() >= currentItems.Count;
+        }
+
+        private int CountReadyImageCueItems()
+        {
+            if (currentItems == null)
+            {
+                return 0;
+            }
+
+            var count = 0;
+            for (int i = 0; i < currentItems.Count; i++)
+            {
+                if (HasReadyImageCue(currentItems[i]))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private bool HasReadyImageCue(MnemonicItemData item)
+        {
+            return item != null
+                   && !string.IsNullOrWhiteSpace(item.word)
+                   && mnemonicImageCues.TryGetValue(item.word, out var texture)
+                   && texture != null
+                   && imageCueCandidateResults.TryGetValue(item.word, out var results)
+                   && results != null
+                   && results.Count > 0;
+        }
+
+        private string BuildMissingImageCueWordSummary()
+        {
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder();
+            for (int i = 0; i < currentItems.Count; i++)
+            {
+                var item = currentItems[i];
+                if (HasReadyImageCue(item))
+                {
+                    continue;
+                }
+
+                if (builder.Length > 0)
+                {
+                    builder.Append(", ");
+                }
+
+                builder.Append(string.IsNullOrWhiteSpace(item?.word) ? $"item {i + 1}" : item.word);
+            }
+
+            return builder.ToString();
         }
 
         private void DrawStudyView()
@@ -2161,7 +2746,7 @@ namespace MemPalaceLLM
             GUILayout.Label($"Participant: {participantId}", labelStyle);
             GUILayout.Label($"Condition: {GetConditionDisplayName()}", labelStyle);
             GUILayout.Label($"Mnemonic Source: {ResolveProviderLabel()}", labelStyle);
-            GUILayout.Label($"Ollama Call: {(IsUsingLiveLlm() ? "Yes" : "No")}", labelStyle);
+            GUILayout.Label($"Live LLM Call: {(IsUsingLiveLlm() ? "Yes" : "No")}", labelStyle);
             GUILayout.Label(GetLlmStatusText(), mutedStyle);
             GUILayout.Label($"Word Set: {activeWordSet.displayName}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
@@ -2458,7 +3043,7 @@ namespace MemPalaceLLM
             GUILayout.Label($"Participant: {participantId}", labelStyle);
             GUILayout.Label($"Condition: {GetConditionDisplayName()}", labelStyle);
             GUILayout.Label($"Mnemonic Source: {ResolveProviderLabel()}", labelStyle);
-            GUILayout.Label($"Ollama Request Used: {(IsUsingLiveLlm() ? "Yes" : "No")}", labelStyle);
+            GUILayout.Label($"Live LLM Request Used: {(IsUsingLiveLlm() ? "Yes" : "No")}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
             GUILayout.Label($"Room Source: {RoomSpecCatalog.CurrentRoom.generatedBy}", mutedStyle);
             GUILayout.Label($"Study Duration: {studyDurationSeconds:F1}s", labelStyle);
@@ -2515,7 +3100,17 @@ namespace MemPalaceLLM
             stage = ExperimentStage.Generation;
             generationError = string.Empty;
             usedLiveLlmForCurrentSession = false;
-            statusMessage = "Calling Ollama to generate mnemonic set...";
+            usedPreGeneratedForCurrentSession = false;
+            usedLocalFallbackForCurrentSession = false;
+            preGeneratedMnemonicHitCount = 0;
+            liveGeneratedMnemonicCount = 0;
+            localFallbackMnemonicCount = 0;
+            liveMnemonicProviderLabelForCurrentSession = string.Empty;
+            liveMnemonicModelForCurrentSession = string.Empty;
+            liveMnemonicSourceForCurrentSession = string.Empty;
+            statusMessage = preferPreGeneratedMnemonics
+                ? "Checking pre-generated mnemonic catalog..."
+                : $"Calling {GetSelectedLiveMnemonicProviderLabel()} to generate mnemonic set...";
 
             StopAllCoroutines();
             isGenerating = true;
@@ -2526,45 +3121,1482 @@ namespace MemPalaceLLM
         {
             yield return new WaitForSecondsRealtime(0.4f);
 
-            var service = new OllamaLlmService();
-            List<MnemonicItemData> results = null;
-            string error = null;
+            var words = activeWordSet?.words ?? new List<WordEntry>();
+            var assignedAnchors = BuildMnemonicAnchorAssignments(words.Count);
+            var mergedResults = new List<MnemonicItemData>();
+            var missingWords = new List<WordEntry>();
+            var missingAnchors = new List<AnchorDefinition>();
+            var missingIndexes = new List<int>();
 
-            yield return StartCoroutine(service.GenerateMnemonics(
-                ollamaBaseUrl,
-                ollamaModel,
-                activeWordSet.words,
-                items => results = items,
+            preGeneratedMnemonicHitCount = 0;
+            liveGeneratedMnemonicCount = 0;
+            localFallbackMnemonicCount = 0;
+            usedPreGeneratedForCurrentSession = false;
+            usedLiveLlmForCurrentSession = false;
+            usedLocalFallbackForCurrentSession = false;
+            liveMnemonicProviderLabelForCurrentSession = string.Empty;
+            liveMnemonicModelForCurrentSession = string.Empty;
+            liveMnemonicSourceForCurrentSession = string.Empty;
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                mergedResults.Add(null);
+                var anchor = i < assignedAnchors.Count ? assignedAnchors[i] : RoomSpecCatalog.GetAssignmentAnchor(i, words.Count);
+                if (preferPreGeneratedMnemonics
+                    && PreGeneratedMnemonicCatalog.TryCreateItem(words[i], anchor, i, out var preGeneratedItem))
+                {
+                    mergedResults[i] = preGeneratedItem;
+                    preGeneratedMnemonicHitCount++;
+                    continue;
+                }
+
+                missingWords.Add(words[i]);
+                missingAnchors.Add(anchor);
+                missingIndexes.Add(i);
+            }
+
+            usedPreGeneratedForCurrentSession = preGeneratedMnemonicHitCount > 0;
+
+            if (missingWords.Count > 0)
+            {
+                var liveProviderLabel = GetSelectedLiveMnemonicProviderLabel();
+                var liveSourceTag = GetSelectedLiveMnemonicSourceTag();
+                var liveModelLabel = GetSelectedLiveMnemonicModelLabel();
+                var service = new OllamaLlmService();
+                List<MnemonicItemData> liveResults = null;
+                string error = null;
+                string liveFailure = null;
+                var liveSucceeded = false;
+                var shouldTryLiveProvider = !preferPreGeneratedMnemonics || allowLiveLlmForMissingPreGenerated;
+
+                if (shouldTryLiveProvider)
+                {
+                    statusMessage = preGeneratedMnemonicHitCount > 0
+                        ? $"Loaded {preGeneratedMnemonicHitCount} pre-generated items. Trying {liveProviderLabel} for {missingWords.Count} missing combinations..."
+                        : $"Trying {liveProviderLabel} to generate mnemonic set...";
+
+                    if (providerMode == LlmProviderMode.GeminiOnline)
+                    {
+                        var geminiKey = ResolveGeminiApiKey();
+                        if (string.IsNullOrWhiteSpace(geminiKey) || string.IsNullOrWhiteSpace(geminiModel))
+                        {
+                            error = "Gemini API key or model is empty. Paste a key in setup or set GEMINI_API_KEY / GOOGLE_API_KEY.";
+                        }
+                        else
+                        {
+                            yield return StartCoroutine(service.GenerateGeminiMnemonics(
+                                geminiKey,
+                                geminiModel,
+                                missingWords,
+                                items => liveResults = items,
+                                err => error = err,
+                                missingAnchors));
+                        }
+                    }
+                    else
+                    {
+                        yield return StartCoroutine(service.GenerateMnemonics(
+                            ollamaBaseUrl,
+                            ollamaModel,
+                            missingWords,
+                            items => liveResults = items,
+                            err => error = err,
+                            missingAnchors));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        liveFailure = error;
+                    }
+                    else if (liveResults == null || liveResults.Count < missingWords.Count)
+                    {
+                        liveFailure = $"{liveProviderLabel} returned {liveResults?.Count ?? 0} live items for {missingWords.Count} missing combinations.";
+                    }
+                    else
+                    {
+                        liveSucceeded = true;
+                    }
+                }
+
+                if (liveSucceeded)
+                {
+                    if (providerMode == LlmProviderMode.GeminiOnline
+                        && !string.IsNullOrWhiteSpace(service.GeminiModelsUsedSummary))
+                    {
+                        liveModelLabel = service.GeminiModelsUsedSummary;
+                    }
+
+                    for (int i = 0; i < missingIndexes.Count; i++)
+                    {
+                        var item = liveResults[i];
+                        if (item == null)
+                        {
+                            liveSucceeded = false;
+                            liveFailure = $"{liveProviderLabel} returned an empty live item for {missingWords[i].word}.";
+                            break;
+                        }
+
+                        item.mnemonicSource = string.IsNullOrWhiteSpace(item.mnemonicSource) ? liveSourceTag : item.mnemonicSource;
+                        mergedResults[missingIndexes[i]] = item;
+                    }
+
+                    if (liveSucceeded)
+                    {
+                        liveGeneratedMnemonicCount = missingIndexes.Count;
+                        usedLiveLlmForCurrentSession = liveGeneratedMnemonicCount > 0;
+                        liveMnemonicProviderLabelForCurrentSession = liveProviderLabel;
+                        liveMnemonicModelForCurrentSession = liveModelLabel;
+                        liveMnemonicSourceForCurrentSession = liveSourceTag;
+                    }
+                }
+
+                if (!liveSucceeded)
+                {
+                    if (!useLocalFallbackForMissingPreGenerated)
+                    {
+                        currentItems = new List<MnemonicItemData>();
+                        generationError = string.IsNullOrWhiteSpace(liveFailure)
+                            ? $"Pre-generated catalog is missing {missingWords.Count}/{words.Count} word-anchor combinations and local fallback is disabled."
+                            : liveFailure;
+                        statusMessage = string.IsNullOrWhiteSpace(liveFailure)
+                            ? "Pre-generated mnemonic lookup was incomplete."
+                            : $"{liveProviderLabel} request failed and local fallback is disabled.";
+                        isGenerating = false;
+                        yield break;
+                    }
+
+                    ApplyLocalFallbackForMissingMnemonics(missingWords, missingAnchors, missingIndexes, mergedResults);
+                    statusMessage = string.IsNullOrWhiteSpace(liveFailure)
+                        ? $"Loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and filled {localFallbackMnemonicCount} missing item(s) with local story-only fallback."
+                        : $"{liveProviderLabel} was unavailable, so {localFallbackMnemonicCount} missing item(s) were filled with local story-only fallback. Last provider error: {BuildShortPreview(liveFailure)}";
+                }
+            }
+
+            currentItems = EnsureMnemonicDefaults(mergedResults);
+            statusMessage = BuildMnemonicGenerationStatus();
+            isGenerating = false;
+        }
+
+        private void ApplyLocalFallbackForMissingMnemonics(
+            List<WordEntry> missingWords,
+            List<AnchorDefinition> missingAnchors,
+            List<int> missingIndexes,
+            List<MnemonicItemData> mergedResults)
+        {
+            localFallbackMnemonicCount = 0;
+            usedLocalFallbackForCurrentSession = false;
+            if (missingWords == null || missingIndexes == null || mergedResults == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < missingWords.Count && i < missingIndexes.Count; i++)
+            {
+                var targetIndex = missingIndexes[i];
+                if (targetIndex < 0 || targetIndex >= mergedResults.Count)
+                {
+                    continue;
+                }
+
+                var anchor = missingAnchors != null && i < missingAnchors.Count && missingAnchors[i] != null
+                    ? missingAnchors[i]
+                    : RoomSpecCatalog.GetAssignmentAnchor(targetIndex, Mathf.Max(1, mergedResults.Count));
+                var item = BuildLocalFallbackMnemonicItem(missingWords[i], anchor, targetIndex);
+                mergedResults[targetIndex] = item;
+                localFallbackMnemonicCount++;
+            }
+
+            usedLocalFallbackForCurrentSession = localFallbackMnemonicCount > 0;
+        }
+
+        private MnemonicItemData BuildLocalFallbackMnemonicItem(WordEntry word, AnchorDefinition anchor, int itemIndex)
+        {
+            var safeWord = string.IsNullOrWhiteSpace(word?.word) ? "the Spanish word" : word.word.Trim();
+            var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
+            var anchorLabel = string.IsNullOrWhiteSpace(anchor?.label) ? "memory palace anchor" : anchor.label.Trim();
+            var anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor);
+            var cueObject = BuildLocalFallbackCueObject(word, meaning);
+            var relation = BuildLocalFallbackAnchorRelation(anchorLabel, anchorType, cueObject);
+            var association = cueObject + " " + relation;
+            var visualCue = $"At the {anchorLabel}, {association}.";
+            var mnemonic = $"At the {anchorLabel}, {association}, making a clear {meaning} moment. That image gives {safeWord} a stable meaning.";
+
+            var item = new MnemonicItemData
+            {
+                word = safeWord,
+                meaning = meaning,
+                anchorId = anchor?.id,
+                anchorLabel = anchorLabel,
+                anchorType = anchorType,
+                mnemonicSource = "local_story_fallback",
+                visualCue = visualCue,
+                mainCueObject = cueObject,
+                associationPrompt = association,
+                mnemonic = mnemonic,
+                mnemonicMode = "STORY_ONLY",
+                hookAccepted = false,
+                hookScore = 0,
+                hookReason = "Local fallback uses a story-only meaning cue when the pre-generated catalog is missing and live LLM generation is unavailable or disabled.",
+                mnemonicHook = string.Empty,
+                storyCue = string.Empty,
+                imagePrompt = association,
+                imagePromptCandidates = BuildLocalFallbackImagePromptCandidates(cueObject, relation, anchorLabel),
+                selectedImageCandidateIndex = -1,
+                objectShape = PickShape(itemIndex),
+                colorHex = PickColor(itemIndex),
+                visualObjects = BuildLocalFallbackVisualObjects(cueObject, itemIndex),
+                cueBlueprint = new CueBlueprintData
+                {
+                    targetMeaning = meaning,
+                    visualSceneCore = association,
+                    mainObject = cueObject,
+                    anchorRelation = relation,
+                    relativeSize = "large foreground cue",
+                    mainActionOrState = relation,
+                    visibleObjects = new List<string> { cueObject },
+                    mnemonicHookNote = string.Empty,
+                    mnemonicMode = "STORY_ONLY"
+                }
+            };
+
+            ApplyAnchorConsistency(item);
+            return item;
+        }
+
+        private static string BuildLocalFallbackCueObject(WordEntry word, string meaning)
+        {
+            var text = ((word?.word ?? string.Empty) + " " + (meaning ?? string.Empty)).ToLowerInvariant();
+            if (ContainsAny(text, "curtain", "cortina"))
+            {
+                return "heavy curtain fabric";
+            }
+
+            if (ContainsAny(text, "bottle", "botella"))
+            {
+                return "clear bottle";
+            }
+
+            if (ContainsAny(text, "stairs", "stair", "escalera", "escaleras"))
+            {
+                return "small stair blocks";
+            }
+
+            if (ContainsAny(text, "hammer", "martillo"))
+            {
+                return "small hammer";
+            }
+
+            if (ContainsAny(text, "wardrobe", "closet", "armario"))
+            {
+                return "tiny wardrobe cabinet";
+            }
+
+            if (ContainsAny(text, "blanket", "manta"))
+            {
+                return "soft blanket";
+            }
+
+            if (ContainsAny(text, "wallet", "cartera"))
+            {
+                return "open wallet";
+            }
+
+            if (ContainsAny(text, "airport", "aeropuerto"))
+            {
+                return "boarding pass and tiny suitcase";
+            }
+
+            if (ContainsAny(text, "poster", "cartel"))
+            {
+                return "bright poster sheet";
+            }
+
+            if (ContainsAny(text, "mirror", "espejo"))
+            {
+                return "small mirror";
+            }
+
+            if (ContainsAny(text, "door", "puerta"))
+            {
+                return "small door model";
+            }
+
+            return string.IsNullOrWhiteSpace(meaning) ? "concrete meaning prop" : meaning.Trim() + " cue prop";
+        }
+
+        private static string BuildLocalFallbackAnchorRelation(string anchorLabel, string anchorType, string cueObject)
+        {
+            var anchorText = ((anchorLabel ?? string.Empty) + " " + (anchorType ?? string.Empty)).ToLowerInvariant();
+            if (ContainsAny(anchorText, "air_conditioner", "air conditioner", "aircon", "ac unit", "a/c"))
+            {
+                return "touching the front vent flap of the wall-mounted air conditioner";
+            }
+
+            if (ContainsAny(anchorText, "chair"))
+            {
+                return "draped across the chair seat and backrest";
+            }
+
+            if (ContainsAny(anchorText, "bed"))
+            {
+                return "resting clearly on the bed pillow and blanket";
+            }
+
+            if (ContainsAny(anchorText, "desk"))
+            {
+                return "sitting on the desk surface beside the keyboard area";
+            }
+
+            if (ContainsAny(anchorText, "table"))
+            {
+                return "placed in the center of the table surface";
+            }
+
+            if (ContainsAny(anchorText, "sofa", "couch"))
+            {
+                return "leaning against the sofa cushion";
+            }
+
+            if (ContainsAny(anchorText, "door"))
+            {
+                return "hanging from the door handle";
+            }
+
+            if (ContainsAny(anchorText, "wardrobe", "closet"))
+            {
+                return "spilling from the open wardrobe shelf";
+            }
+
+            if (ContainsAny(anchorText, "bookshelf", "shelf"))
+            {
+                return "wedged visibly between the bookshelf shelves";
+            }
+
+            if (ContainsAny(anchorText, "television", "tv"))
+            {
+                return "touching the television screen frame without covering the whole screen";
+            }
+
+            return "touching the assigned anchor in the foreground";
+        }
+
+        private static List<string> BuildLocalFallbackImagePromptCandidates(string cueObject, string relation, string anchorLabel)
+        {
+            var basePrompt = cueObject + " " + relation;
+            return new List<string>
+            {
+                basePrompt + ", clear two-subject close-up",
+                cueObject + " physically contacting the " + anchorLabel,
+                "recognizable " + anchorLabel + " with " + cueObject + " in the foreground",
+                basePrompt + ", simple realistic composition"
+            };
+        }
+
+        private static List<VisualObjectSpec> BuildLocalFallbackVisualObjects(string cueObject, int itemIndex)
+        {
+            return new List<VisualObjectSpec>
+            {
+                new()
+                {
+                    label = cueObject,
+                    primitiveShape = PickShape(itemIndex),
+                    colorHex = PickColor(itemIndex),
+                    localPosition = new Vector3(0f, 0.26f, 0f),
+                    scale = new Vector3(0.34f, 0.22f, 0.22f),
+                    effect = "meaning cue"
+                }
+            };
+        }
+
+        private List<AnchorDefinition> BuildMnemonicAnchorAssignments(int itemCount)
+        {
+            return BuildMnemonicAnchorAssignments(itemCount, mnemonicAnchorRandom);
+        }
+
+        private List<AnchorDefinition> BuildMnemonicAnchorAssignments(int itemCount, System.Random rng)
+        {
+            var assignments = new List<AnchorDefinition>();
+            if (itemCount <= 0)
+            {
+                return assignments;
+            }
+
+            var availableAnchors = BuildAvailableMnemonicAnchors();
+            if (availableAnchors.Count == 0)
+            {
+                for (int i = 0; i < RoomSpecCatalog.AnchorCount; i++)
+                {
+                    availableAnchors.Add(RoomSpecCatalog.Anchors[i]);
+                }
+            }
+
+            if (randomizeMnemonicAnchors && availableAnchors.Count > 0)
+            {
+                var anchors = new List<AnchorDefinition>(availableAnchors);
+                ShuffleList(anchors, rng);
+                for (int i = 0; i < itemCount; i++)
+                {
+                    assignments.Add(anchors[i % anchors.Count]);
+                }
+
+                return assignments;
+            }
+
+            for (int i = 0; i < itemCount; i++)
+            {
+                assignments.Add(availableAnchors.Count > 0
+                    ? availableAnchors[i % availableAnchors.Count]
+                    : RoomSpecCatalog.GetAssignmentAnchor(i, itemCount));
+            }
+
+            return assignments;
+        }
+
+        private List<AnchorDefinition> BuildAvailableMnemonicAnchors()
+        {
+            var anchors = new List<AnchorDefinition>();
+            if (!usePreGeneratedImageCueCatalog)
+            {
+                for (int i = 0; i < RoomSpecCatalog.AnchorCount; i++)
+                {
+                    anchors.Add(RoomSpecCatalog.Anchors[i]);
+                }
+
+                return anchors;
+            }
+
+            for (int i = 0; i < RoomSpecCatalog.AnchorCount; i++)
+            {
+                var anchor = RoomSpecCatalog.Anchors[i];
+                if (IsFormalImageCueAnchor(anchor))
+                {
+                    anchors.Add(anchor);
+                }
+            }
+
+            return anchors;
+        }
+
+        private static bool IsFormalImageCueAnchor(AnchorDefinition anchor)
+        {
+            var anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor);
+            return IsFormalImageCueAnchorType(anchorType);
+        }
+
+        private static bool IsFormalImageCueAnchorType(string anchorType)
+        {
+            for (int i = 0; i < PreGeneratedImageCueCatalog.FormalAnchorTypes.Length; i++)
+            {
+                if (string.Equals(anchorType, PreGeneratedImageCueCatalog.FormalAnchorTypes[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private string BuildMnemonicGenerationStatus()
+        {
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                return "No mnemonic items were generated.";
+            }
+
+            if (preGeneratedMnemonicHitCount > 0 && liveGeneratedMnemonicCount > 0 && localFallbackMnemonicCount > 0)
+            {
+                return $"Loaded {preGeneratedMnemonicHitCount} pre-generated item(s), generated {liveGeneratedMnemonicCount} item(s) with {GetCurrentLiveMnemonicProviderLabel()}, and filled {localFallbackMnemonicCount} item(s) with local story-only fallback.";
+            }
+
+            if (preGeneratedMnemonicHitCount > 0 && liveGeneratedMnemonicCount > 0)
+            {
+                return $"Loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and generated {liveGeneratedMnemonicCount} missing item(s) with {GetCurrentLiveMnemonicProviderLabel()}.";
+            }
+
+            if (preGeneratedMnemonicHitCount > 0 && localFallbackMnemonicCount > 0)
+            {
+                return $"Loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and filled {localFallbackMnemonicCount} missing item(s) with local story-only fallback.";
+            }
+
+            if (preGeneratedMnemonicHitCount > 0)
+            {
+                return $"Loaded {preGeneratedMnemonicHitCount} pre-generated mnemonic item(s) successfully.";
+            }
+
+            if (liveGeneratedMnemonicCount > 0 && localFallbackMnemonicCount > 0)
+            {
+                return $"{GetCurrentLiveMnemonicProviderLabel()} generated {liveGeneratedMnemonicCount} item(s), and local story-only fallback filled {localFallbackMnemonicCount} item(s).";
+            }
+
+            if (liveGeneratedMnemonicCount > 0)
+            {
+                return $"{GetCurrentLiveMnemonicProviderLabel()} returned {liveGeneratedMnemonicCount} mnemonic item(s) successfully.";
+            }
+
+            if (localFallbackMnemonicCount > 0)
+            {
+                return $"Filled {localFallbackMnemonicCount} mnemonic item(s) with local story-only fallback.";
+            }
+
+            return $"{GetCurrentLiveMnemonicProviderLabel()} returned {currentItems.Count} mnemonic items successfully.";
+        }
+
+        private IEnumerator TestGeminiProviderRoutine()
+        {
+            if (isTestingGeminiProvider)
+            {
+                yield break;
+            }
+
+            var geminiKey = ResolveGeminiApiKey();
+            if (string.IsNullOrWhiteSpace(geminiKey) || string.IsNullOrWhiteSpace(geminiModel))
+            {
+                geminiProviderStatus = "Gemini API key or model is empty.";
+                yield break;
+            }
+
+            isTestingGeminiProvider = true;
+            geminiProviderStatus = "Testing Gemini connection...";
+
+            var service = new OllamaLlmService();
+            string success = null;
+            string error = null;
+            yield return StartCoroutine(service.TestGeminiConnection(
+                geminiKey,
+                geminiModel,
+                message => success = message,
                 err => error = err));
 
-            if (!string.IsNullOrWhiteSpace(error))
-            {
-                var isMnemonicJsonError = error.IndexOf("Failed to parse Ollama mnemonic JSON", StringComparison.Ordinal) >= 0
-                                          || error.IndexOf("Parsed JSON did not contain any mnemonic items", StringComparison.Ordinal) >= 0
-                                          || error.IndexOf("did not contain mnemonic JSON", StringComparison.Ordinal) >= 0;
-                generationError = error;
-                usedLiveLlmForCurrentSession = false;
+            isTestingGeminiProvider = false;
+            geminiProviderStatus = string.IsNullOrWhiteSpace(error)
+                ? BuildGeminiConnectionSuccessStatus(success, service.GeminiModelsUsedSummary)
+                : "Gemini connection test failed: " + error;
+        }
 
-                if (isMnemonicJsonError)
-                {
-                    currentItems = new List<MnemonicItemData>();
-                    statusMessage = "Ollama responded, but the mnemonic JSON did not match the required items schema. Try generating again.";
-                }
-                else
-                {
-                    currentItems = new List<MnemonicItemData>();
-                    statusMessage = "Ollama request failed. Check that Ollama is running and the model name is available.";
-                }
-            }
-            else
+        private static string BuildGeminiConnectionSuccessStatus(string success, string modelsUsed)
+        {
+            var message = string.IsNullOrWhiteSpace(success) ? "Gemini connection test succeeded." : success.Trim();
+            return string.IsNullOrWhiteSpace(modelsUsed)
+                ? message
+                : message + " Used model(s): " + modelsUsed + ".";
+        }
+
+        private void RefreshPreGeneratedCatalogCoverage()
+        {
+            preGeneratedCatalogDetails.Clear();
+            if (activeWordSet == null || activeWordSet.words == null || activeWordSet.words.Count == 0)
             {
-                currentItems = EnsureMnemonicDefaults(results);
-                ReassignCurrentItemsToAnchors();
-                statusMessage = $"Ollama returned {currentItems.Count} mnemonic items successfully.";
-                usedLiveLlmForCurrentSession = true;
+                preGeneratedCatalogStatus = "No active word set is loaded.";
+                return;
             }
 
-            isGenerating = false;
+            PreGeneratedMnemonicCatalog.Reload();
+            var assignments = BuildMnemonicAnchorAssignments(activeWordSet.words.Count, new System.Random(20260617));
+            var report = PreGeneratedMnemonicCatalog.BuildCoverageReport(activeWordSet.words, assignments);
+            var randomNote = randomizeMnemonicAnchors ? " Fixed-seed random-anchor preview." : string.Empty;
+            preGeneratedCatalogStatus = $"Pre-generated catalog coverage: {report.hits}/{report.total} ({report.ratio:P0}); missing {report.misses}.{randomNote}";
+
+            var shown = 0;
+            for (int i = 0; i < report.items.Count && shown < 8; i++)
+            {
+                var item = report.items[i];
+                if (item == null || item.hit)
+                {
+                    continue;
+                }
+
+                preGeneratedCatalogDetails.Add($"Missing: {item.word} x {item.anchorType} ({item.anchorLabel})");
+                shown++;
+            }
+
+            if (report.misses > shown)
+            {
+                preGeneratedCatalogDetails.Add($"...and {report.misses - shown} more missing combination(s).");
+            }
+        }
+
+        private void ValidatePreGeneratedCatalog()
+        {
+            preGeneratedCatalogDetails.Clear();
+            PreGeneratedMnemonicCatalog.Reload();
+            var issues = PreGeneratedMnemonicCatalog.BuildDiagnostics();
+            if (issues.Count == 0)
+            {
+                preGeneratedCatalogStatus = $"Pre-generated catalog diagnostics passed ({PreGeneratedMnemonicCatalog.EntryCount} entries).";
+                return;
+            }
+
+            preGeneratedCatalogStatus = $"Pre-generated catalog diagnostics found {issues.Count} issue(s).";
+            for (int i = 0; i < issues.Count && i < 10; i++)
+            {
+                preGeneratedCatalogDetails.Add(issues[i]);
+            }
+
+            if (issues.Count > preGeneratedCatalogDetails.Count)
+            {
+                preGeneratedCatalogDetails.Add($"...and {issues.Count - preGeneratedCatalogDetails.Count} more issue(s).");
+            }
+        }
+
+        private void RefreshFullMnemonicMatrixCoverage()
+        {
+            preGeneratedCatalogDetails.Clear();
+            var pool = GetFormalImageCatalogWordPool();
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                preGeneratedCatalogStatus = "Formal 12-word pool is not available.";
+                return;
+            }
+
+            PreGeneratedMnemonicCatalog.Reload();
+            var report = PreGeneratedMnemonicCatalog.BuildMatrixCoverageReport(
+                pool.words,
+                PreGeneratedImageCueCatalog.FormalAnchorTypes);
+            preGeneratedCatalogStatus = $"Full mnemonic matrix coverage: {report.hits}/{report.total} word-anchor pairs; missing {report.misses}.";
+
+            var shown = 0;
+            for (int i = 0; i < report.items.Count && shown < 16; i++)
+            {
+                var item = report.items[i];
+                if (item == null || item.hit)
+                {
+                    continue;
+                }
+
+                preGeneratedCatalogDetails.Add($"Missing matrix pair: {item.word} x {item.anchorType}");
+                shown++;
+            }
+
+            if (report.misses > shown)
+            {
+                preGeneratedCatalogDetails.Add($"...and {report.misses - shown} more missing matrix pair(s).");
+            }
+        }
+
+        private void DrawMnemonicCatalogReviewBuilderPanel()
+        {
+            showMnemonicCatalogReviewBuilder = GUILayout.Toggle(showMnemonicCatalogReviewBuilder, "Show Mnemonic Catalog Review Builder");
+            if (!showMnemonicCatalogReviewBuilder)
+            {
+                return;
+            }
+
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Mnemonic Catalog Review Builder", smallTitleStyle);
+            var pool = GetFormalImageCatalogWordPool();
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                GUILayout.Label("Formal 12-word pool is not available.", mutedStyle);
+                GUILayout.EndVertical();
+                return;
+            }
+
+            var report = PreGeneratedMnemonicCatalog.BuildMatrixCoverageReport(pool.words, PreGeneratedImageCueCatalog.FormalAnchorTypes);
+            GUILayout.Label($"Matrix: {pool.words.Count} words x {PreGeneratedImageCueCatalog.FormalAnchorTypes.Length} anchors", labelStyle);
+            GUILayout.Label($"Ready: {report.hits}/{report.total} reviewed mnemonic pairs; missing {report.misses}.", mutedStyle);
+            GUILayout.Label("Export JSON, review it in GPT-5.5, paste the returned strict JSON here, then import it into PreGeneratedMnemonics.json.", mutedStyle);
+            if (!string.IsNullOrWhiteSpace(mnemonicReviewBuilderStatus))
+            {
+                GUILayout.Label(mnemonicReviewBuilderStatus, mutedStyle);
+            }
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Export Missing Draft JSON", buttonStyle))
+            {
+                ExportMnemonicReviewJson(MnemonicReviewExportScope.MissingOnly);
+            }
+
+            if (GUILayout.Button("Export Review Needed JSON", buttonStyle))
+            {
+                ExportMnemonicReviewJson(MnemonicReviewExportScope.MissingOrUnreviewed);
+            }
+
+            if (GUILayout.Button("Export Full Review JSON", buttonStyle))
+            {
+                ExportMnemonicReviewJson(MnemonicReviewExportScope.Full);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Copy Text Box", buttonStyle))
+            {
+                GUIUtility.systemCopyBuffer = mnemonicReviewJsonText ?? string.Empty;
+                mnemonicReviewBuilderStatus = "Copied the mnemonic review JSON text box to the clipboard.";
+            }
+
+            if (GUILayout.Button("Paste Clipboard", buttonStyle))
+            {
+                mnemonicReviewJsonText = GUIUtility.systemCopyBuffer ?? string.Empty;
+                mnemonicReviewBuilderStatus = "Pasted clipboard text into the mnemonic review text box.";
+            }
+
+            if (GUILayout.Button("Import Reviewed Mnemonics", buttonStyle))
+            {
+                ImportReviewedMnemonicJson();
+            }
+            GUILayout.EndHorizontal();
+
+            mnemonicReviewJsonText = GUILayout.TextArea(mnemonicReviewJsonText, textAreaStyle, GUILayout.MinHeight(220f));
+            GUILayout.EndVertical();
+        }
+
+        private void ExportMnemonicReviewJson(MnemonicReviewExportScope scope)
+        {
+            var batch = BuildMnemonicReviewBatch(scope);
+            if (batch.items == null || batch.items.Count == 0)
+            {
+                mnemonicReviewBuilderStatus = scope switch
+                {
+                    MnemonicReviewExportScope.MissingOnly => "No missing mnemonic pairs to export.",
+                    MnemonicReviewExportScope.MissingOrUnreviewed => "No missing or non-GPT-reviewed mnemonic pairs to export.",
+                    _ => "No mnemonic pairs were available to export."
+                };
+                return;
+            }
+
+            var json = JsonUtility.ToJson(batch, true);
+            mnemonicReviewJsonText = json;
+            GUIUtility.systemCopyBuffer = json;
+
+            try
+            {
+                var exportDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "ExperimentExports", "MnemonicCatalogReview"));
+                Directory.CreateDirectory(exportDir);
+                var mode = scope switch
+                {
+                    MnemonicReviewExportScope.MissingOnly => "missing",
+                    MnemonicReviewExportScope.MissingOrUnreviewed => "review_needed",
+                    _ => "full"
+                };
+                var exportPath = Path.Combine(exportDir, $"mnemonic_review_{mode}_{DateTime.Now:yyyyMMdd_HHmmss}.json");
+                File.WriteAllText(exportPath, json, Encoding.UTF8);
+                mnemonicReviewBuilderStatus = $"Exported {batch.items.Count} mnemonic pair(s), copied JSON to clipboard, and saved {exportPath}.";
+            }
+            catch (Exception ex)
+            {
+                mnemonicReviewBuilderStatus = $"Exported {batch.items.Count} mnemonic pair(s) to the text box, but failed to save file: {ex.Message}";
+            }
+        }
+
+        private PreGeneratedMnemonicCatalog.ReviewedMnemonicBatch BuildMnemonicReviewBatch(MnemonicReviewExportScope scope)
+        {
+            var batch = new PreGeneratedMnemonicCatalog.ReviewedMnemonicBatch
+            {
+                instructions = BuildMnemonicReviewInstructions(scope),
+                items = new List<PreGeneratedMnemonicCatalog.ReviewedMnemonicItem>()
+            };
+
+            var pool = GetFormalImageCatalogWordPool();
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                return batch;
+            }
+
+            PreGeneratedMnemonicCatalog.Reload();
+            var report = PreGeneratedMnemonicCatalog.BuildMatrixCoverageReport(pool.words, PreGeneratedImageCueCatalog.FormalAnchorTypes);
+            var exportedIndex = 0;
+            for (int i = 0; i < report.items.Count; i++)
+            {
+                var coverage = report.items[i];
+                if (coverage == null)
+                {
+                    continue;
+                }
+
+                var word = FindWordEntry(pool.words, coverage.word);
+                if (word == null)
+                {
+                    continue;
+                }
+
+                var anchor = BuildCatalogAnchor(coverage.anchorType);
+                var hasCatalogItem = PreGeneratedMnemonicCatalog.TryCreateItem(word, anchor, exportedIndex, out var item);
+                var needsReview = !hasCatalogItem || !IsGptReviewedMnemonic(item);
+                if (scope == MnemonicReviewExportScope.MissingOnly && hasCatalogItem)
+                {
+                    continue;
+                }
+
+                if (scope == MnemonicReviewExportScope.MissingOrUnreviewed && !needsReview)
+                {
+                    continue;
+                }
+
+                item ??= BuildLocalFallbackMnemonicItem(word, anchor, exportedIndex);
+                item.anchorType = coverage.anchorType;
+                ApplyAnchorConsistency(item);
+                batch.items.Add(BuildReviewedMnemonicItem(item, anchor, hasCatalogItem));
+                exportedIndex++;
+            }
+
+            return batch;
+        }
+
+        private static string BuildMnemonicReviewInstructions(MnemonicReviewExportScope scope)
+        {
+            var scopeText = scope switch
+            {
+                MnemonicReviewExportScope.MissingOnly => "missing 12x10 mnemonic pairs",
+                MnemonicReviewExportScope.MissingOrUnreviewed => "missing or non-GPT-reviewed 12x10 mnemonic pairs",
+                _ => "all 12x10 mnemonic pairs"
+            };
+            return "Review and rewrite the " + scopeText + ". Return strict JSON with the same items array. " +
+                   "Keep word, meaning, anchorType, and id. Set mnemonicSource to gpt55_reviewed. " +
+                   "Use STORY_ONLY unless a natural high-quality phonetic/semantic hook exists; use HOOK_PLUS_STORY only when hookScore is at least 7. " +
+                   "Each item must clearly bind the target meaning object/action with the assigned anchor object. " +
+                   "Keep associationPrompt and imagePromptCandidates drawable as one simple realistic image with no text, logos, abstract icons, or translation explanations. " +
+                   "Do not return Markdown fences.";
+        }
+
+        private static bool IsGptReviewedMnemonic(MnemonicItemData item)
+        {
+            var source = item?.mnemonicSource;
+            return !string.IsNullOrWhiteSpace(source)
+                   && source.IndexOf("gpt", StringComparison.OrdinalIgnoreCase) >= 0
+                   && source.IndexOf("review", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private PreGeneratedMnemonicCatalog.ReviewedMnemonicItem BuildReviewedMnemonicItem(
+            MnemonicItemData item,
+            AnchorDefinition anchor,
+            bool hasCatalogItem)
+        {
+            var anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor);
+            if (!string.IsNullOrWhiteSpace(item.anchorType))
+            {
+                anchorType = item.anchorType;
+            }
+
+            return new PreGeneratedMnemonicCatalog.ReviewedMnemonicItem
+            {
+                id = BuildMnemonicReviewItemId(item.word, anchorType),
+                word = item.word,
+                meaning = item.meaning,
+                anchorType = anchorType,
+                anchorLabel = string.IsNullOrWhiteSpace(anchor?.label) ? HumanizeAnchorType(anchorType) : anchor.label,
+                mnemonicSource = hasCatalogItem ? "existing_catalog_needs_review" : "draft_needs_gpt55_review",
+                visualCue = item.visualCue,
+                mainCueObject = item.mainCueObject,
+                associationPrompt = item.associationPrompt,
+                mnemonic = item.mnemonic,
+                mnemonicMode = string.IsNullOrWhiteSpace(item.mnemonicMode) ? "STORY_ONLY" : item.mnemonicMode,
+                hookAccepted = item.hookAccepted,
+                hookScore = item.hookScore,
+                hookReason = item.hookReason,
+                mnemonicHook = item.mnemonicHook,
+                imagePrompt = item.imagePrompt,
+                imagePromptCandidates = item.imagePromptCandidates == null
+                    ? new List<string>()
+                    : new List<string>(item.imagePromptCandidates),
+                cueBlueprint = item.cueBlueprint,
+                objectShape = item.objectShape,
+                colorHex = item.colorHex,
+                visualObjects = item.visualObjects == null
+                    ? new List<VisualObjectSpec>()
+                    : new List<VisualObjectSpec>(item.visualObjects)
+            };
+        }
+
+        private static string BuildMnemonicReviewItemId(string word, string anchorType)
+        {
+            return SanitizeCatalogIdPart(word) + "_" + SanitizeCatalogIdPart(anchorType) + "_reviewed_v1";
+        }
+
+        private static string SanitizeCatalogIdPart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "item";
+            }
+
+            var builder = new StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                var c = char.ToLowerInvariant(value[i]);
+                builder.Append(char.IsLetterOrDigit(c) ? c : '_');
+            }
+
+            var result = builder.ToString().Trim('_');
+            while (result.Contains("__"))
+            {
+                result = result.Replace("__", "_");
+            }
+
+            return string.IsNullOrWhiteSpace(result) ? "item" : result;
+        }
+
+        private void ImportReviewedMnemonicJson()
+        {
+            preGeneratedCatalogDetails.Clear();
+            if (!PreGeneratedMnemonicCatalog.TryParseReviewedBatch(mnemonicReviewJsonText, out var reviewedItems, out var parseError))
+            {
+                mnemonicReviewBuilderStatus = "Import failed: " + parseError;
+                return;
+            }
+
+            if (!PreGeneratedMnemonicCatalog.UpsertReviewedItems(
+                    reviewedItems,
+                    out var upsertedCount,
+                    out var catalogPath,
+                    out var issues))
+            {
+                mnemonicReviewBuilderStatus = "Import failed: " + string.Join(" ", issues);
+                for (int i = 0; i < issues.Count && i < 12; i++)
+                {
+                    preGeneratedCatalogDetails.Add(issues[i]);
+                }
+
+                return;
+            }
+
+            PreGeneratedMnemonicCatalog.Reload();
+            var pool = GetFormalImageCatalogWordPool();
+            var matrixSummary = string.Empty;
+            if (pool?.words != null && pool.words.Count > 0)
+            {
+                var report = PreGeneratedMnemonicCatalog.BuildMatrixCoverageReport(pool.words, PreGeneratedImageCueCatalog.FormalAnchorTypes);
+                matrixSummary = $" Matrix now {report.hits}/{report.total}; missing {report.misses}.";
+            }
+
+            mnemonicReviewBuilderStatus = $"Imported {upsertedCount} reviewed mnemonic pair(s) into {catalogPath}.{matrixSummary}";
+            preGeneratedCatalogStatus = mnemonicReviewBuilderStatus;
+            for (int i = 0; i < issues.Count && i < 12; i++)
+            {
+                preGeneratedCatalogDetails.Add(issues[i]);
+            }
+
+            if (issues.Count > preGeneratedCatalogDetails.Count)
+            {
+                preGeneratedCatalogDetails.Add($"...and {issues.Count - preGeneratedCatalogDetails.Count} more skipped item issue(s).");
+            }
+        }
+
+        private void RefreshPreGeneratedImageCueCatalogCoverage()
+        {
+            preGeneratedImageCueCatalogDetails.Clear();
+            if (activeWordSet == null || activeWordSet.words == null || activeWordSet.words.Count == 0)
+            {
+                preGeneratedImageCueCatalogStatus = "No active word set is loaded.";
+                return;
+            }
+
+            PreGeneratedImageCueCatalog.Reload();
+            var assignments = BuildMnemonicAnchorAssignments(activeWordSet.words.Count, new System.Random(20260618));
+            var report = PreGeneratedImageCueCatalog.BuildCoverageReport(activeWordSet.words, assignments);
+            var randomNote = randomizeMnemonicAnchors ? " Fixed-seed random-anchor preview." : string.Empty;
+            preGeneratedImageCueCatalogStatus = $"Pre-generated image catalog coverage: {report.hits}/{report.total} ({report.ratio:P0}); missing {report.misses}.{randomNote}";
+
+            var shown = 0;
+            for (int i = 0; i < report.items.Count && shown < 10; i++)
+            {
+                var item = report.items[i];
+                if (item == null || item.hit)
+                {
+                    continue;
+                }
+
+                preGeneratedImageCueCatalogDetails.Add($"Missing images: {item.word} x {item.anchorType} ({item.imageCount}/{PreGeneratedImageCueCatalog.RequiredImagesPerPair})");
+                shown++;
+            }
+
+            if (report.misses > shown)
+            {
+                preGeneratedImageCueCatalogDetails.Add($"...and {report.misses - shown} more missing image combination(s).");
+            }
+        }
+
+        private void RefreshFullImageCueMatrixCoverage()
+        {
+            preGeneratedImageCueCatalogDetails.Clear();
+            if (activeWordSet == null || activeWordSet.words == null || activeWordSet.words.Count == 0)
+            {
+                preGeneratedImageCueCatalogStatus = "No active word set is loaded.";
+                return;
+            }
+
+            PreGeneratedImageCueCatalog.Reload();
+            var report = PreGeneratedImageCueCatalog.BuildMatrixCoverageReport(
+                activeWordSet.words,
+                PreGeneratedImageCueCatalog.FormalAnchorTypes);
+            var expectedImages = report.total * PreGeneratedImageCueCatalog.RequiredImagesPerPair;
+            var readyImages = report.hits * PreGeneratedImageCueCatalog.RequiredImagesPerPair;
+            preGeneratedImageCueCatalogStatus = $"Full image matrix coverage: {report.hits}/{report.total} word-anchor pairs ({readyImages}/{expectedImages} images); missing {report.misses}.";
+
+            var shown = 0;
+            for (int i = 0; i < report.items.Count && shown < 16; i++)
+            {
+                var item = report.items[i];
+                if (item == null || item.hit)
+                {
+                    continue;
+                }
+
+                preGeneratedImageCueCatalogDetails.Add($"Missing matrix pair: {item.word} x {item.anchorType} ({item.imageCount}/{PreGeneratedImageCueCatalog.RequiredImagesPerPair})");
+                shown++;
+            }
+
+            if (report.misses > shown)
+            {
+                preGeneratedImageCueCatalogDetails.Add($"...and {report.misses - shown} more missing matrix pair(s).");
+            }
+        }
+
+        private void ValidatePreGeneratedImageCueCatalog()
+        {
+            preGeneratedImageCueCatalogDetails.Clear();
+            PreGeneratedImageCueCatalog.Reload();
+            var issues = PreGeneratedImageCueCatalog.BuildDiagnostics();
+            if (issues.Count == 0)
+            {
+                preGeneratedImageCueCatalogStatus = $"Pre-generated image catalog diagnostics passed ({PreGeneratedImageCueCatalog.EntryCount} entries).";
+                return;
+            }
+
+            preGeneratedImageCueCatalogStatus = $"Pre-generated image catalog diagnostics found {issues.Count} issue(s).";
+            for (int i = 0; i < issues.Count && i < 12; i++)
+            {
+                preGeneratedImageCueCatalogDetails.Add(issues[i]);
+            }
+
+            if (issues.Count > preGeneratedImageCueCatalogDetails.Count)
+            {
+                preGeneratedImageCueCatalogDetails.Add($"...and {issues.Count - preGeneratedImageCueCatalogDetails.Count} more issue(s).");
+            }
+        }
+
+        private void DrawImageCueCatalogBuilderPanel()
+        {
+            showImageCueCatalogBuilder = GUILayout.Toggle(showImageCueCatalogBuilder, "Show Image Catalog Builder");
+            if (!showImageCueCatalogBuilder)
+            {
+                return;
+            }
+
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Image Catalog Builder", smallTitleStyle);
+            var pool = GetFormalImageCatalogWordPool();
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                GUILayout.Label("Formal 12-word pool is not available.", mutedStyle);
+                GUILayout.EndVertical();
+                return;
+            }
+
+            var report = PreGeneratedImageCueCatalog.BuildMatrixCoverageReport(pool.words, PreGeneratedImageCueCatalog.FormalAnchorTypes);
+            var totalImages = report.total * PreGeneratedImageCueCatalog.RequiredImagesPerPair;
+            var readyImages = report.hits * PreGeneratedImageCueCatalog.RequiredImagesPerPair;
+            GUILayout.Label($"Matrix: {pool.words.Count} words x {PreGeneratedImageCueCatalog.FormalAnchorTypes.Length} anchors x {PreGeneratedImageCueCatalog.RequiredImagesPerPair} images", labelStyle);
+            GUILayout.Label($"Ready: {report.hits}/{report.total} pairs ({readyImages}/{totalImages} images); missing {report.misses} pairs.", mutedStyle);
+            imageCueCatalogSkipVisionScoring = GUILayout.Toggle(imageCueCatalogSkipVisionScoring, "Fast bulk build: skip Ollama Vision scoring");
+            GUILayout.Label("Fast mode saves A-D images directly. Use human review and Regenerate Specific Pair for bad image sets.", mutedStyle);
+            if (!string.IsNullOrWhiteSpace(imageCueCatalogBuilderStatus))
+            {
+                GUILayout.Label(imageCueCatalogBuilderStatus, mutedStyle);
+            }
+
+            GUILayout.BeginHorizontal();
+            GUI.enabled = !isBuildingImageCueCatalog;
+            if (GUILayout.Button("Generate Next Missing Pair", buttonStyle))
+            {
+                BeginImageCueCatalogBuild(1);
+            }
+
+            if (GUILayout.Button("Generate Next 8 Missing Pairs", buttonStyle))
+            {
+                BeginImageCueCatalogBuild(8);
+            }
+
+            var allRemainingLabel = report.misses > 0
+                ? $"Generate All Remaining Pairs ({report.misses})"
+                : "All Image Pairs Ready";
+            GUI.enabled = !isBuildingImageCueCatalog && report.misses > 0;
+            if (GUILayout.Button(allRemainingLabel, buttonStyle))
+            {
+                BeginImageCueCatalogBuild(0);
+            }
+
+            GUI.enabled = isBuildingImageCueCatalog;
+            if (GUILayout.Button("Cancel Builder", buttonStyle))
+            {
+                CancelImageCueCatalogBuild();
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Regenerate Pair", mutedStyle, GUILayout.Width(120f));
+            imageCueCatalogTargetWord = GUILayout.TextField(imageCueCatalogTargetWord ?? string.Empty, GUILayout.Width(160f));
+            imageCueCatalogTargetAnchorType = GUILayout.TextField(imageCueCatalogTargetAnchorType ?? string.Empty, GUILayout.Width(180f));
+            GUI.enabled = !isBuildingImageCueCatalog;
+            if (GUILayout.Button("Regenerate Specific Pair", buttonStyle))
+            {
+                BeginSpecificImageCueCatalogRegeneration();
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            if (report.misses > 0)
+            {
+                var shown = 0;
+                for (int i = 0; i < report.items.Count && shown < 8; i++)
+                {
+                    var item = report.items[i];
+                    if (item == null || item.hit)
+                    {
+                        continue;
+                    }
+
+                    GUILayout.Label($"Next missing: {item.word} x {item.anchorType} ({item.imageCount}/{PreGeneratedImageCueCatalog.RequiredImagesPerPair})", mutedStyle);
+                    shown++;
+                }
+
+                if (report.misses > shown)
+                {
+                    GUILayout.Label($"...and {report.misses - shown} more missing pair(s).", mutedStyle);
+                }
+            }
+
+            GUILayout.Label("Generated PNGs are saved under Assets/Resources/PreGeneratedImageCues and written into PreGeneratedImageCueCatalog.json.", mutedStyle);
+            GUILayout.EndVertical();
+        }
+
+        private void BeginImageCueCatalogBuild(int maxPairs)
+        {
+            if (isBuildingImageCueCatalog)
+            {
+                return;
+            }
+
+            var missingPairs = BuildMissingImageCueCatalogPairs();
+            if (missingPairs.Count == 0)
+            {
+                imageCueCatalogBuilderStatus = "Image catalog matrix is already complete.";
+                return;
+            }
+
+            imageCueCatalogBuilderCoroutine = StartCoroutine(BuildImageCueCatalogRoutine(missingPairs, maxPairs));
+        }
+
+        private void BeginSpecificImageCueCatalogRegeneration()
+        {
+            if (isBuildingImageCueCatalog)
+            {
+                return;
+            }
+
+            var pool = GetFormalImageCatalogWordPool();
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                imageCueCatalogBuilderStatus = "Formal 12-word pool is not available.";
+                return;
+            }
+
+            var word = FindWordEntry(pool.words, imageCueCatalogTargetWord);
+            if (word == null)
+            {
+                imageCueCatalogBuilderStatus = $"Cannot regenerate: word '{imageCueCatalogTargetWord}' is not in the formal 12-word pool.";
+                return;
+            }
+
+            var anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(string.Empty, imageCueCatalogTargetAnchorType);
+            if (!IsFormalImageCueAnchorType(anchorType))
+            {
+                imageCueCatalogBuilderStatus = $"Cannot regenerate: anchorType '{imageCueCatalogTargetAnchorType}' is not one of the formal anchors.";
+                return;
+            }
+
+            imageCueCatalogTargetWord = word.word;
+            imageCueCatalogTargetAnchorType = anchorType;
+            var pairs = new List<ImageCueCatalogBuildPair>
+            {
+                new()
+                {
+                    word = word,
+                    anchorType = anchorType
+                }
+            };
+            imageCueCatalogBuilderCoroutine = StartCoroutine(BuildImageCueCatalogRoutine(
+                pairs,
+                1,
+                $"Regenerated image catalog pair: {word.word} x {anchorType}."));
+        }
+
+        private void CancelImageCueCatalogBuild()
+        {
+            if (imageCueCatalogBuilderCoroutine != null)
+            {
+                StopCoroutine(imageCueCatalogBuilderCoroutine);
+                imageCueCatalogBuilderCoroutine = null;
+            }
+
+            isBuildingImageCueCatalog = false;
+            generatingImageCueWords.Clear();
+            imageCueCatalogBuilderStatus = "Image catalog builder cancelled. Completed entries were kept.";
+        }
+
+        private IEnumerator BuildImageCueCatalogRoutine(
+            List<ImageCueCatalogBuildPair> missingPairs,
+            int maxPairs,
+            string successMessage = null)
+        {
+            isBuildingImageCueCatalog = true;
+            imageCueCatalogBuilderCompletedCount = 0;
+            imageCueCatalogBuilderTargetCount = maxPairs <= 0 ? missingPairs.Count : maxPairs;
+            var targetCount = Mathf.Min(imageCueCatalogBuilderTargetCount, missingPairs.Count);
+            for (int i = 0; i < targetCount; i++)
+            {
+                var pair = missingPairs[i];
+                if (pair == null || pair.word == null)
+                {
+                    continue;
+                }
+
+                imageCueCatalogBuilderStatus = $"Building catalog pair {i + 1}/{targetCount}: {pair.word.word} x {pair.anchorType}.";
+                string error = null;
+                yield return BuildSingleImageCueCatalogPairRoutine(pair, i, err => error = err);
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    imageCueCatalogBuilderStatus = $"Builder stopped at {pair.word.word} x {pair.anchorType}: {error}";
+                    break;
+                }
+
+                imageCueCatalogBuilderCompletedCount++;
+                imageCueCatalogBuilderStatus = $"Saved catalog pair {imageCueCatalogBuilderCompletedCount}/{targetCount}: {pair.word.word} x {pair.anchorType}.";
+            }
+
+            PreGeneratedImageCueCatalog.Reload();
+            RefreshFullImageCueMatrixCoverage();
+            var autoLoadedCount = 0;
+            var autoLoadFailedCount = 0;
+            var autoLoadError = string.Empty;
+            if (usePreGeneratedImageCueCatalog && currentItems != null && currentItems.Count > 0)
+            {
+                TryLoadCurrentImageCuesFromCatalog(false, out autoLoadedCount, out autoLoadFailedCount, out autoLoadError);
+            }
+
+            isBuildingImageCueCatalog = false;
+            imageCueCatalogBuilderCoroutine = null;
+            if (imageCueCatalogBuilderCompletedCount >= targetCount)
+            {
+                var autoLoadSuffix = autoLoadedCount > 0
+                    ? $" Loaded {autoLoadedCount} current-session image cue set(s)."
+                    : string.Empty;
+                if (autoLoadFailedCount > 0)
+                {
+                    autoLoadSuffix += $" Current-session auto-load still has {autoLoadFailedCount} missing/failed item(s).";
+                }
+
+                imageCueCatalogBuilderStatus = !string.IsNullOrWhiteSpace(successMessage)
+                    ? successMessage + autoLoadSuffix
+                    : targetCount == 1
+                        ? "Generated the next missing image catalog pair." + autoLoadSuffix
+                        : $"Image catalog builder finished {imageCueCatalogBuilderCompletedCount} pair(s)." + autoLoadSuffix;
+            }
+        }
+
+        private IEnumerator BuildSingleImageCueCatalogPairRoutine(ImageCueCatalogBuildPair pair, int itemIndex, Action<string> onError)
+        {
+            var anchor = BuildCatalogAnchor(pair.anchorType);
+            var item = PreGeneratedMnemonicCatalog.TryCreateItem(pair.word, anchor, itemIndex, out var preGenerated)
+                ? preGenerated
+                : BuildLocalFallbackMnemonicItem(pair.word, anchor, itemIndex);
+            item.anchorType = pair.anchorType;
+            ApplyAnchorConsistency(item);
+            ClearGeneratedImageCueForWord(item.word);
+
+            var results = new List<ImageCueCandidateResult>();
+            var crossVariantGuidance = string.Empty;
+            for (int variantIndex = 0; variantIndex < PreGeneratedImageCueCatalog.RequiredImagesPerPair; variantIndex++)
+            {
+                ImageCueCandidateResult bestResult = null;
+                string fatalError = null;
+                yield return GenerateBestImageCueVariantRoutine(
+                    item,
+                    variantIndex,
+                    PreGeneratedImageCueCatalog.RequiredImagesPerPair,
+                    crossVariantGuidance,
+                    imageCueCatalogSkipVisionScoring,
+                    result => bestResult = result,
+                    error => fatalError = error);
+
+                if (!string.IsNullOrWhiteSpace(fatalError))
+                {
+                    DestroyImageCueCandidateResults(results);
+                    onError?.Invoke(fatalError);
+                    yield break;
+                }
+
+                if (bestResult == null || bestResult.texture == null)
+                {
+                    DestroyImageCueCandidateResults(results);
+                    onError?.Invoke("Image generation returned no usable result.");
+                    yield break;
+                }
+
+                results.Add(bestResult);
+                crossVariantGuidance = imageCueCatalogSkipVisionScoring
+                    ? string.Empty
+                    : BuildImageCueEvolutionGuidance(bestResult);
+            }
+
+            var variants = new List<PreGeneratedImageCueCatalog.GeneratedImageCueVariant>();
+            for (int i = 0; i < results.Count; i++)
+            {
+                variants.Add(new PreGeneratedImageCueCatalog.GeneratedImageCueVariant
+                {
+                    label = BuildImageCueResultLabel(i),
+                    rawPrompt = results[i].rawPrompt,
+                    fullPrompt = results[i].fullPrompt,
+                    texture = results[i].texture,
+                    score = results[i].score,
+                    pass = results[i].pass,
+                    reason = results[i].reason
+                });
+            }
+
+            if (!PreGeneratedImageCueCatalog.UpsertGeneratedImageCueSet(
+                    item.word,
+                    item.meaning,
+                    item.anchorType,
+                    variants,
+                    0,
+                    out var catalogPath,
+                    out var saveError))
+            {
+                DestroyImageCueCandidateResults(results);
+                onError?.Invoke(saveError);
+                yield break;
+            }
+
+            LogInteraction("build_image_cue_catalog_pair", item.word, item.anchorId, $"Saved {item.word} x {item.anchorType} to {catalogPath}.");
+            DestroyImageCueCandidateResults(results);
+            onError?.Invoke(null);
+        }
+
+        private List<ImageCueCatalogBuildPair> BuildMissingImageCueCatalogPairs()
+        {
+            var pairs = new List<ImageCueCatalogBuildPair>();
+            var pool = GetFormalImageCatalogWordPool();
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                return pairs;
+            }
+
+            PreGeneratedImageCueCatalog.Reload();
+            var report = PreGeneratedImageCueCatalog.BuildMatrixCoverageReport(pool.words, PreGeneratedImageCueCatalog.FormalAnchorTypes);
+            for (int i = 0; i < report.items.Count; i++)
+            {
+                var item = report.items[i];
+                if (item == null || item.hit)
+                {
+                    continue;
+                }
+
+                var word = FindWordEntry(pool.words, item.word);
+                if (word == null)
+                {
+                    continue;
+                }
+
+                pairs.Add(new ImageCueCatalogBuildPair
+                {
+                    word = word,
+                    anchorType = item.anchorType
+                });
+            }
+
+            return pairs;
+        }
+
+        private WordSetDefinition GetFormalImageCatalogWordPool()
+        {
+            if (library?.wordSets != null)
+            {
+                for (int i = 0; i < library.wordSets.Count; i++)
+                {
+                    if (string.Equals(library.wordSets[i].setId, FormalWordPoolSetId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return library.wordSets[i];
+                    }
+                }
+            }
+
+            return activeWordSet;
+        }
+
+        private static WordEntry FindWordEntry(List<WordEntry> words, string word)
+        {
+            if (words == null || string.IsNullOrWhiteSpace(word))
+            {
+                return null;
+            }
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                if (string.Equals(words[i]?.word, word, StringComparison.OrdinalIgnoreCase))
+                {
+                    return words[i];
+                }
+            }
+
+            return null;
+        }
+
+        private AnchorDefinition BuildCatalogAnchor(string anchorType)
+        {
+            for (int i = 0; i < RoomSpecCatalog.AnchorCount; i++)
+            {
+                var anchor = RoomSpecCatalog.Anchors[i];
+                if (string.Equals(PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor), anchorType, StringComparison.OrdinalIgnoreCase))
+                {
+                    return anchor;
+                }
+            }
+
+            return new AnchorDefinition
+            {
+                id = anchorType,
+                label = HumanizeAnchorType(anchorType),
+                primitiveShape = "Cube",
+                colorHex = "#8B7A65",
+                position = Vector3.zero,
+                scale = Vector3.one,
+                rotationEuler = Vector3.zero,
+                mnemonicOffset = new Vector3(0f, 0.6f, 0f),
+                labelHeight = 1.0f
+            };
+        }
+
+        private static string HumanizeAnchorType(string anchorType)
+        {
+            if (string.IsNullOrWhiteSpace(anchorType))
+            {
+                return "Anchor";
+            }
+
+            return anchorType switch
+            {
+                "air_conditioner" => "Air Conditioner",
+                "bookshelf" => "Bookshelf",
+                "television" => "Television",
+                _ => char.ToUpperInvariant(anchorType[0]) + anchorType[1..].Replace('_', ' ')
+            };
+        }
+
+        private void DestroyImageCueCandidateResults(List<ImageCueCandidateResult> results)
+        {
+            if (results == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (results[i]?.texture != null)
+                {
+                    Destroy(results[i].texture);
+                }
+            }
         }
 
         private void BeginSelfAuthoring()
@@ -2584,6 +4616,23 @@ namespace MemPalaceLLM
 
         private void EnterStudyRoom()
         {
+            if (!AreAllCurrentImageCuesReady())
+            {
+                if (usePreGeneratedImageCueCatalog)
+                {
+                    TryLoadCurrentImageCuesFromCatalog(false, out _, out _, out _);
+                }
+            }
+
+            if (!AreAllCurrentImageCuesReady())
+            {
+                statusMessage = string.IsNullOrWhiteSpace(preStudyImageCueStatus)
+                    ? "Generate all image cues before entering the study room."
+                    : preStudyImageCueStatus;
+                preStudyImageCueStatus = statusMessage;
+                return;
+            }
+
             BuildStudyRoom();
             stage = ExperimentStage.Study;
             studyStartTime = Time.unscaledTime;
@@ -2840,8 +4889,8 @@ namespace MemPalaceLLM
                     var displayNumber = Mathf.Clamp(displayedCandidateIndex + 1, 1, candidateCount);
                     GUILayout.Label(
                         isGeneratingCue && candidateCount < BufferedImageCueResultCount
-                            ? $"Best image set {displayNumber}/{candidateCount} shown; preparing more best-of-two sets in background..."
-                            : $"Best image set {displayNumber}/{candidateCount}",
+                            ? $"Reviewer image choice {displayNumber}/{candidateCount} shown; preparing more scored sets in background..."
+                            : $"Reviewer image choice {displayNumber}/{candidateCount}",
                         mutedStyle);
 
                     GUILayout.BeginHorizontal();
@@ -2914,12 +4963,6 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (string.IsNullOrWhiteSpace(ollamaBaseUrl) || string.IsNullOrWhiteSpace(ollamaModel))
-            {
-                statusMessage = "Cannot regenerate mnemonic: Ollama endpoint or mnemonic text model is empty.";
-                yield break;
-            }
-
             var itemIndex = GetCurrentItemIndex(item);
             if (itemIndex < 0)
             {
@@ -2928,7 +4971,10 @@ namespace MemPalaceLLM
             }
 
             regeneratingMnemonicWords.Add(item.word);
-            statusMessage = $"Regenerating cue package for {item.word}...";
+            var liveProviderLabel = GetSelectedLiveMnemonicProviderLabel();
+            var liveSourceTag = GetSelectedLiveMnemonicSourceTag();
+            var liveModelLabel = GetSelectedLiveMnemonicModelLabel();
+            statusMessage = $"Regenerating cue package for {item.word} with {liveProviderLabel}...";
             generationError = string.Empty;
 
             var service = new OllamaLlmService();
@@ -2940,20 +4986,55 @@ namespace MemPalaceLLM
                 meaning = item.meaning
             };
 
-            yield return StartCoroutine(service.RegenerateMnemonicItem(
-                ollamaBaseUrl,
-                ollamaModel,
-                word,
-                itemIndex,
-                currentItems.Count,
-                item.anchorId,
-                item.anchorLabel,
-                item.visualCue,
-                item.mnemonic,
-                item.imagePrompt,
-                rejectionReason,
-                result => replacement = result,
-                err => error = err));
+            if (providerMode == LlmProviderMode.GeminiOnline)
+            {
+                var geminiKey = ResolveGeminiApiKey();
+                if (string.IsNullOrWhiteSpace(geminiKey) || string.IsNullOrWhiteSpace(geminiModel))
+                {
+                    regeneratingMnemonicWords.Remove(item.word);
+                    statusMessage = "Cannot regenerate mnemonic: Gemini API key or model is empty.";
+                    yield break;
+                }
+
+                yield return StartCoroutine(service.RegenerateGeminiMnemonicItem(
+                    geminiKey,
+                    geminiModel,
+                    word,
+                    itemIndex,
+                    currentItems.Count,
+                    item.anchorId,
+                    item.anchorLabel,
+                    item.visualCue,
+                    item.mnemonic,
+                    item.imagePrompt,
+                    rejectionReason,
+                    result => replacement = result,
+                    err => error = err));
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(ollamaBaseUrl) || string.IsNullOrWhiteSpace(ollamaModel))
+                {
+                    regeneratingMnemonicWords.Remove(item.word);
+                    statusMessage = "Cannot regenerate mnemonic: Ollama endpoint or mnemonic text model is empty.";
+                    yield break;
+                }
+
+                yield return StartCoroutine(service.RegenerateMnemonicItem(
+                    ollamaBaseUrl,
+                    ollamaModel,
+                    word,
+                    itemIndex,
+                    currentItems.Count,
+                    item.anchorId,
+                    item.anchorLabel,
+                    item.visualCue,
+                    item.mnemonic,
+                    item.imagePrompt,
+                    rejectionReason,
+                    result => replacement = result,
+                    err => error = err));
+            }
 
             regeneratingMnemonicWords.Remove(item.word);
 
@@ -2967,8 +5048,14 @@ namespace MemPalaceLLM
 
             if (replacement == null)
             {
-                statusMessage = $"Ollama returned no replacement mnemonic for {item.word}.";
+                statusMessage = $"{liveProviderLabel} returned no replacement mnemonic for {item.word}.";
                 yield break;
+            }
+
+            if (providerMode == LlmProviderMode.GeminiOnline
+                && !string.IsNullOrWhiteSpace(service.GeminiModelsUsedSummary))
+            {
+                liveModelLabel = service.GeminiModelsUsedSummary;
             }
 
             ReplaceMnemonicItemFields(item, replacement);
@@ -2983,6 +5070,10 @@ namespace MemPalaceLLM
             imageCueValidationFailures.Remove(item.word);
             imageGenerationStatus = string.Empty;
             usedLiveLlmForCurrentSession = true;
+            liveMnemonicProviderLabelForCurrentSession = liveProviderLabel;
+            liveMnemonicModelForCurrentSession = liveModelLabel;
+            liveMnemonicSourceForCurrentSession = liveSourceTag;
+            item.mnemonicSource = string.IsNullOrWhiteSpace(item.mnemonicSource) ? liveSourceTag : item.mnemonicSource;
             statusMessage = $"Regenerated cue package for {item.word}. Generate the image cue again.";
             LogInteraction("regenerate_mnemonic", item.word, item.anchorId, "Replaced weak cue scene. Reason: " + rejectionReason);
         }
@@ -3021,6 +5112,15 @@ namespace MemPalaceLLM
             if (!string.IsNullOrWhiteSpace(replacement.anchorLabel))
             {
                 target.anchorLabel = replacement.anchorLabel;
+            }
+
+            target.anchorType = string.IsNullOrWhiteSpace(replacement.anchorType)
+                ? PreGeneratedMnemonicCatalog.NormalizeAnchorType(target.anchorId, target.anchorLabel)
+                : replacement.anchorType;
+
+            if (!string.IsNullOrWhiteSpace(replacement.mnemonicSource))
+            {
+                target.mnemonicSource = replacement.mnemonicSource;
             }
 
             if (!string.IsNullOrWhiteSpace(replacement.visualCue))
@@ -3405,6 +5505,10 @@ namespace MemPalaceLLM
             mnemonicImageCues[item.word] = result.texture;
             displayedImageCueCandidateIndexes[item.word] = listIndex;
             item.imageCuePath = SaveMnemonicImageCue(item, result.texture);
+            if (string.IsNullOrWhiteSpace(item.imageCuePath))
+            {
+                item.imageCuePath = GetSourceImagePath(result);
+            }
             item.selectedImagePrompt = result.fullPrompt;
             item.selectedImageCandidateIndex = result.candidateIndex;
             item.imageSelectionReason = BuildImageCueCandidateDisplaySummary(item, result, listIndex, results.Count);
@@ -3455,6 +5559,25 @@ namespace MemPalaceLLM
             }
         }
 
+        private static string GetSourceImagePath(ImageCueCandidateResult result)
+        {
+            if (result?.innerCandidates == null)
+            {
+                return string.Empty;
+            }
+
+            for (int i = 0; i < result.innerCandidates.Count; i++)
+            {
+                var path = result.innerCandidates[i]?.imagePath;
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    return path;
+                }
+            }
+
+            return string.Empty;
+        }
+
         private static string BuildImageCueCandidateDisplaySummary(
             MnemonicItemData item,
             ImageCueCandidateResult result,
@@ -3467,10 +5590,10 @@ namespace MemPalaceLLM
             var reason = string.IsNullOrWhiteSpace(result.reason)
                 ? "Generated image is available while background validation continues."
                 : result.reason.Trim();
-            var inner = string.IsNullOrWhiteSpace(result.innerLabel)
-                ? $"inner candidate {result.candidateIndex}"
-                : $"inner candidate {result.candidateIndex} ({result.innerLabel})";
-            return $"Showing result {result.label} ({listIndex + 1}/{Mathf.Max(1, totalCount)}): best {inner}, score {result.score}, {state}. {reason}";
+            var candidate = string.IsNullOrWhiteSpace(result.innerLabel)
+                ? $"prompt {result.candidateIndex}"
+                : $"prompt {result.candidateIndex} ({result.innerLabel})";
+            return $"Showing result {result.label} ({listIndex + 1}/{Mathf.Max(1, totalCount)}): {candidate}, score {result.score}, {state}. {reason}";
         }
 
         private IEnumerator GenerateMnemonicImageCueRoutine(MnemonicItemData item)
@@ -3513,6 +5636,7 @@ namespace MemPalaceLLM
                     variantIndex,
                     BufferedImageCueResultCount,
                     crossVariantGuidance,
+                    false,
                     result => bestResult = result,
                     error => fatalError = error);
 
@@ -3520,10 +5644,10 @@ namespace MemPalaceLLM
                 {
                     AddImageCueCandidateResult(item, bestResult);
                     LogInteraction(
-                        "generate_best_of_two_image_cue",
+                        "generate_single_pass_image_cue",
                         item.word,
                         item.anchorId,
-                        $"Generated result {bestResult.label} from inner candidate {bestResult.candidateIndex}; score={bestResult.score}. {bestResult.reason}");
+                        $"Generated result {bestResult.label} from prompt {bestResult.candidateIndex}; score={bestResult.score}. {bestResult.reason}");
                     crossVariantGuidance = BuildImageCueEvolutionGuidance(bestResult);
                     if (!string.IsNullOrWhiteSpace(crossVariantGuidance))
                     {
@@ -3556,13 +5680,13 @@ namespace MemPalaceLLM
                     : 0;
                 imageGenerationStatus = variantIndex == 0
                     ? $"Selected image set A for {item.word}. Preparing B, C, and D with feedback from previous sets..."
-                    : $"Prepared {readyCount}/{BufferedImageCueResultCount} best image set(s) for {item.word}.";
+                    : $"Prepared {readyCount}/{BufferedImageCueResultCount} scored image set(s) for {item.word}.";
             }
 
             generatingImageCueWords.Remove(item.word);
             if (!imageCueCandidateResults.TryGetValue(item.word, out var generatedResults) || generatedResults == null || generatedResults.Count == 0)
             {
-                imageGenerationStatus = $"Image generation finished for {item.word}, but no best-of-two result could be kept.";
+                imageGenerationStatus = $"Image generation finished for {item.word}, but no image cue result could be kept.";
                 yield break;
             }
 
@@ -3573,13 +5697,13 @@ namespace MemPalaceLLM
                 displayedIndex = 0;
             }
 
-            imageGenerationStatus = $"Prepared {generatedResults.Count}/{BufferedImageCueResultCount} best image cue result(s) for {item.word}. Use the arrow buttons to switch; Regenerate starts a fresh full set.";
+            imageGenerationStatus = $"Prepared {generatedResults.Count}/{BufferedImageCueResultCount} scored image cue result(s) for {item.word}. Use the arrow buttons for human review/selection; Regenerate starts a fresh full set.";
             var displayedResult = displayedIndex >= 0 && displayedIndex < generatedResults.Count ? generatedResults[displayedIndex] : null;
             LogInteraction(
                 "generate_image_cue_result_pool",
                 item.word,
                 item.anchorId,
-                $"Prepared {generatedResults.Count} best-of-two result(s). Displayed: {(displayedResult == null ? "none" : BuildImageCueCandidateDisplaySummary(item, displayedResult, displayedIndex, generatedResults.Count))}");
+                $"Prepared {generatedResults.Count} single-pass image cue result(s). Displayed: {(displayedResult == null ? "none" : BuildImageCueCandidateDisplaySummary(item, displayedResult, displayedIndex, generatedResults.Count))}");
         }
 
         private IEnumerator GenerateBestImageCueVariantRoutine(
@@ -3587,225 +5711,187 @@ namespace MemPalaceLLM
             int variantIndex,
             int variantCount,
             string initialGuidance,
+            bool skipVisionScoring,
             Action<ImageCueCandidateResult> onResult,
             Action<string> onError)
         {
-            Texture2D selectedTexture = null;
-            ImageCueValidationResult selectedValidation = null;
-            var selectedScore = int.MinValue;
-            var selectedPass = false;
-            var selectedCandidateIndex = -1;
-            var selectedCandidateLabel = string.Empty;
-            var selectedRawPrompt = string.Empty;
-            var selectedPrompt = string.Empty;
-            var selectedReason = string.Empty;
             var retryGuidance = string.IsNullOrWhiteSpace(initialGuidance) ? string.Empty : initialGuidance.Trim();
             var variantLabel = BuildImageCueResultLabel(variantIndex);
             var promptCandidates = BuildMnemonicImagePromptCandidates(item);
-            var candidateCount = Mathf.Max(promptCandidates.Count, RequiredImagePromptCandidateCount);
-
-            for (int attempt = 0; attempt < promptCandidates.Count; attempt++)
+            var innerCandidates = new List<ImageCueInnerCandidateResult>();
+            if (promptCandidates.Count == 0)
             {
-                var candidate = promptCandidates[attempt];
-                imageGenerationStatus = $"Generating image set {variantLabel}/{BuildImageCueResultLabel(variantCount - 1)} for {item.word} (inner candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
-                var prompt = BuildFinalStableDiffusionPrompt(item, candidate, retryGuidance, out var promptRepairSummary);
-                if (!string.IsNullOrWhiteSpace(promptRepairSummary))
-                {
-                    LogInteraction("repair_image_prompt_preflight", item.word, item.anchorId, promptRepairSummary);
-                }
-
-                Debug.Log($"FINAL_IMAGE_PROMPT_SENT_TO_MODEL [{item.word} {variantLabel}/{candidate.label}] = {prompt}");
-                LogInteraction("stable_diffusion_prompt", item.word, item.anchorId, BuildShortPreview(prompt));
-
-                var requestBody = new StableDiffusionTxt2ImgRequest
-                {
-                    prompt = prompt,
-                    negative_prompt = BuildMnemonicImageNegativePrompt(),
-                    width = 512,
-                    height = 512,
-                    steps = 28,
-                    cfg_scale = 8.5f,
-                    sampler_name = "DPM++ 2M",
-                    batch_size = 1,
-                    n_iter = 1,
-                    tiling = false,
-                    do_not_save_grid = true,
-                    send_images = true,
-                    save_images = false
-                };
-                requestBody.override_settings = BuildImageOverrideSettings();
-                requestBody.override_settings_restore_afterwards = requestBody.override_settings != null;
-                var json = JsonUtility.ToJson(requestBody);
-
-                using (var request = new UnityWebRequest(imageGenerationEndpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
-                {
-                    var bodyRaw = Encoding.UTF8.GetBytes(json);
-                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                    request.downloadHandler = new DownloadHandlerBuffer();
-                    request.timeout = 180;
-                    request.SetRequestHeader("Content-Type", "application/json");
-
-                    yield return request.SendWebRequest();
-
-                    if (request.result != UnityWebRequest.Result.Success)
-                    {
-                        var error = BuildStableDiffusionErrorStatus(request);
-                        if (selectedTexture == null)
-                        {
-                            onError?.Invoke(error);
-                            yield break;
-                        }
-
-                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + error;
-                        break;
-                    }
-
-                    StableDiffusionTxt2ImgResponse response = null;
-                    try
-                    {
-                        response = JsonUtility.FromJson<StableDiffusionTxt2ImgResponse>(request.downloadHandler.text);
-                    }
-                    catch (Exception ex)
-                    {
-                        var error = "Failed to parse image response: " + ex.Message;
-                        if (selectedTexture == null)
-                        {
-                            onError?.Invoke(error);
-                            yield break;
-                        }
-
-                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + error;
-                        break;
-                    }
-
-                    if (response == null || response.images == null || response.images.Length == 0 || string.IsNullOrWhiteSpace(response.images[0]))
-                    {
-                        const string error = "Image response did not contain any images.";
-                        if (selectedTexture == null)
-                        {
-                            onError?.Invoke(error);
-                            yield break;
-                        }
-
-                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + error;
-                        break;
-                    }
-
-                    if (!TryLoadBase64Image(response.images[0], out var texture, out var loadError))
-                    {
-                        if (selectedTexture == null)
-                        {
-                            onError?.Invoke(loadError);
-                            yield break;
-                        }
-
-                        selectedReason = "Image generation stopped early after keeping the best available inner candidate: " + loadError;
-                        break;
-                    }
-
-                    imageGenerationStatus = $"Scoring image set {variantLabel} for {item.word} (inner candidate {attempt + 1}/{candidateCount}: {candidate.label})...";
-                    ImageCueValidationResult validation = null;
-                    string validationError = null;
-                    yield return ValidateImageCueSubjectsRoutine(
-                        item,
-                        response.images[0],
-                        prompt,
-                        result => validation = result,
-                        errorMessage => validationError = errorMessage);
-
-                    if (!string.IsNullOrWhiteSpace(validationError))
-                    {
-                        if (selectedTexture == null)
-                        {
-                            selectedTexture = texture;
-                            selectedValidation = null;
-                            selectedScore = 0;
-                            selectedPass = false;
-                            selectedCandidateIndex = candidate.index;
-                            selectedCandidateLabel = candidate.label;
-                            selectedRawPrompt = candidate.rawPrompt;
-                            selectedPrompt = prompt;
-                            selectedReason = "Vision validation was unavailable, so this inner candidate was kept: " + validationError;
-                        }
-                        else
-                        {
-                            Destroy(texture);
-                            if (!selectedPass)
-                            {
-                                selectedReason = "Vision validation stopped before all inner candidates could be scored: " + validationError;
-                            }
-                        }
-
-                        LogInteraction("keep_unvalidated_image_cue_candidate", item.word, item.anchorId, selectedReason);
-                        break;
-                    }
-
-                    var failure = BuildImageCueValidationFailureSummary(validation);
-                    var score = ScoreImageCueValidation(validation);
-                    var candidatePassed = validation != null && validation.pass;
-                    var isBetter = selectedTexture == null
-                                   || (candidatePassed && !selectedPass)
-                                   || (candidatePassed == selectedPass && score > selectedScore);
-                    if (isBetter)
-                    {
-                        if (selectedTexture != null)
-                        {
-                            Destroy(selectedTexture);
-                        }
-
-                        selectedTexture = texture;
-                        selectedValidation = validation;
-                        selectedScore = score;
-                        selectedPass = candidatePassed;
-                        selectedCandidateIndex = candidate.index;
-                        selectedCandidateLabel = candidate.label;
-                        selectedRawPrompt = candidate.rawPrompt;
-                        selectedPrompt = prompt;
-                        selectedReason = candidatePassed
-                            ? BuildImageCueValidationPassSummary(validation)
-                            : failure;
-                    }
-                    else
-                    {
-                        Destroy(texture);
-                    }
-
-                    LogInteraction(
-                        candidatePassed ? "score_image_cue_inner_candidate" : "reject_image_cue_inner_candidate",
-                        item.word,
-                        item.anchorId,
-                        $"Set {variantLabel}, inner candidate {candidate.index} ({candidate.label}) score={score}. {(candidatePassed ? BuildImageCueValidationPassSummary(validation) : failure)}");
-
-                    if (attempt < promptCandidates.Count - 1 && validation != null && !validation.pass)
-                    {
-                        retryGuidance = BuildImageCueRetryGuidance(validation);
-                        imageGenerationStatus = $"Scored image set {variantLabel} inner candidate {candidate.index} for {item.word}; generating another inner candidate. {failure}";
-                    }
-                }
-            }
-
-            if (selectedTexture == null)
-            {
-                onError?.Invoke($"Image set {variantLabel} finished, but no inner candidate image could be kept.");
+                onError?.Invoke($"Image set {variantLabel} had no prompt candidates.");
                 yield break;
             }
 
-            var reason = string.IsNullOrWhiteSpace(selectedReason)
-                ? BuildImageCueValidationFailureSummary(selectedValidation)
-                : selectedReason;
+            var candidate = promptCandidates[Mathf.Clamp(variantIndex, 0, promptCandidates.Count - 1)];
+            imageGenerationStatus = $"Generating image {variantLabel}/{BuildImageCueResultLabel(variantCount - 1)} for {item.word} ({candidate.label})...";
+            var prompt = BuildFinalStableDiffusionPrompt(item, candidate, retryGuidance, out var promptRepairSummary);
+            if (!string.IsNullOrWhiteSpace(promptRepairSummary))
+            {
+                LogInteraction("repair_image_prompt_preflight", item.word, item.anchorId, promptRepairSummary);
+            }
+
+            Debug.Log($"FINAL_IMAGE_PROMPT_SENT_TO_MODEL [{item.word} {variantLabel}/{candidate.label}] = {prompt}");
+            LogInteraction("stable_diffusion_prompt", item.word, item.anchorId, BuildShortPreview(prompt));
+
+            var requestBody = new StableDiffusionTxt2ImgRequest
+            {
+                prompt = prompt,
+                negative_prompt = BuildMnemonicImageNegativePrompt(),
+                width = 512,
+                height = 512,
+                steps = 28,
+                cfg_scale = 8.5f,
+                sampler_name = "DPM++ 2M",
+                batch_size = 1,
+                n_iter = 1,
+                tiling = false,
+                do_not_save_grid = true,
+                send_images = true,
+                save_images = false
+            };
+            requestBody.override_settings = BuildImageOverrideSettings();
+            requestBody.override_settings_restore_afterwards = requestBody.override_settings != null;
+            var json = JsonUtility.ToJson(requestBody);
+
+            using var request = new UnityWebRequest(imageGenerationEndpoint.Trim(), UnityWebRequest.kHttpVerbPOST);
+            var bodyRaw = Encoding.UTF8.GetBytes(json);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = 180;
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                onError?.Invoke(BuildStableDiffusionErrorStatus(request));
+                yield break;
+            }
+
+            StableDiffusionTxt2ImgResponse response = null;
+            try
+            {
+                response = JsonUtility.FromJson<StableDiffusionTxt2ImgResponse>(request.downloadHandler.text);
+            }
+            catch (Exception ex)
+            {
+                onError?.Invoke("Failed to parse image response: " + ex.Message);
+                yield break;
+            }
+
+            if (response == null || response.images == null || response.images.Length == 0 || string.IsNullOrWhiteSpace(response.images[0]))
+            {
+                onError?.Invoke("Image response did not contain any images.");
+                yield break;
+            }
+
+            if (!TryLoadBase64Image(response.images[0], out var texture, out var loadError))
+            {
+                onError?.Invoke(loadError);
+                yield break;
+            }
+
+            var imagePath = SaveMnemonicImageCue(item, texture, variantLabel);
+            if (skipVisionScoring)
+            {
+                var skipReason = "Vision scoring skipped for fast image catalog build; keep or regenerate after human review.";
+                innerCandidates.Add(new ImageCueInnerCandidateResult
+                {
+                    index = candidate.index,
+                    label = candidate.label,
+                    rawPrompt = candidate.rawPrompt,
+                    fullPrompt = prompt,
+                    imagePath = imagePath,
+                    validation = null,
+                    score = 0,
+                    pass = false,
+                    validationComplete = false,
+                    reason = skipReason
+                });
+
+                onResult?.Invoke(new ImageCueCandidateResult
+                {
+                    candidateIndex = candidate.index,
+                    label = variantLabel,
+                    innerLabel = candidate.label,
+                    rawPrompt = candidate.rawPrompt,
+                    fullPrompt = prompt,
+                    texture = texture,
+                    validation = null,
+                    score = 0,
+                    pass = false,
+                    validationComplete = false,
+                    reason = skipReason,
+                    innerCandidates = innerCandidates
+                });
+                yield break;
+            }
+
+            imageGenerationStatus = $"Scoring image {variantLabel} for {item.word} ({candidate.label})...";
+            ImageCueValidationResult validation = null;
+            string validationError = null;
+            yield return ValidateImageCueSubjectsRoutine(
+                item,
+                response.images[0],
+                prompt,
+                result => validation = result,
+                errorMessage => validationError = errorMessage);
+
+            var score = 0;
+            var candidatePassed = false;
+            var validationComplete = false;
+            var reason = string.Empty;
+            if (!string.IsNullOrWhiteSpace(validationError))
+            {
+                reason = "Vision validation was unavailable, so the generated image was kept: " + validationError;
+                LogInteraction("keep_unvalidated_image_cue", item.word, item.anchorId, reason);
+            }
+            else
+            {
+                validationComplete = true;
+                candidatePassed = validation != null && validation.pass;
+                score = ScoreImageCueValidation(validation);
+                reason = candidatePassed
+                    ? BuildImageCueValidationPassSummary(validation)
+                    : BuildImageCueValidationFailureSummary(validation);
+                LogInteraction(
+                    candidatePassed ? "score_image_cue_candidate" : "flag_image_cue_candidate",
+                    item.word,
+                    item.anchorId,
+                    $"Image {variantLabel}, prompt {candidate.index} ({candidate.label}) score={score}. {reason}");
+            }
+
+            innerCandidates.Add(new ImageCueInnerCandidateResult
+            {
+                index = candidate.index,
+                label = candidate.label,
+                rawPrompt = candidate.rawPrompt,
+                fullPrompt = prompt,
+                imagePath = imagePath,
+                validation = validation,
+                score = score,
+                pass = candidatePassed,
+                validationComplete = validationComplete,
+                reason = reason
+            });
+
             onResult?.Invoke(new ImageCueCandidateResult
             {
-                candidateIndex = selectedCandidateIndex,
+                candidateIndex = candidate.index,
                 label = variantLabel,
-                innerLabel = selectedCandidateLabel,
-                rawPrompt = selectedRawPrompt,
-                fullPrompt = selectedPrompt,
-                texture = selectedTexture,
-                validation = selectedValidation,
-                score = selectedScore,
-                pass = selectedPass,
-                validationComplete = true,
-                reason = reason
+                innerLabel = candidate.label,
+                rawPrompt = candidate.rawPrompt,
+                fullPrompt = prompt,
+                texture = texture,
+                validation = validation,
+                score = score,
+                pass = candidatePassed,
+                validationComplete = validationComplete,
+                reason = reason,
+                innerCandidates = innerCandidates
             });
         }
 
@@ -3854,7 +5940,15 @@ namespace MemPalaceLLM
 
             var anchor = GetAnchorDisplayName(item);
             var concreteCueSubject = BuildConcreteCueSubjectPhrase(item, anchor);
+            var anchorRequirement = BuildAnchorVisualRequirement(item, anchor);
+            var cueRequirement = BuildCueVisualRequirement(item, concreteCueSubject);
             prompt += " Mandatory two-subject frame: the assigned room object and " + concreteCueSubject + " must both be clearly visible, close together, and dominate the image; do not show only one of them.";
+            prompt += " " + anchorRequirement;
+            if (!string.IsNullOrWhiteSpace(cueRequirement))
+            {
+                prompt += " " + cueRequirement;
+            }
+
             if (!string.IsNullOrWhiteSpace(retryGuidance))
             {
                 prompt += " Visual correction from previous validation: " + RemoveImagePromptProcessTerms(retryGuidance);
@@ -4086,6 +6180,8 @@ namespace MemPalaceLLM
             {
                 cueObjects = "the foreground cue object described in the expected scene";
             }
+            var anchorRequirement = BuildAnchorVisualRequirement(item, anchor);
+            var cueRequirement = BuildCueVisualRequirement(item, BuildConcreteCueSubjectPhrase(item, anchor));
 
             return
                 "You are checking whether a generated association image cue is usable.\n" +
@@ -4093,9 +6189,16 @@ namespace MemPalaceLLM
                 "Assigned anchor that must be visible: " + anchor + "\n" +
                 "Target vocabulary meaning: " + GetMeaningText(item) + "\n" +
                 "Cue object(s) that must be visible: " + cueObjects + "\n" +
+                anchorRequirement + "\n" +
+                cueRequirement + "\n" +
                 "Expected scene text: " + (item?.visualCue ?? string.Empty) + "\n" +
                 "Association prompt: " + (item?.associationPrompt ?? string.Empty) + "\n" +
                 "Image generation prompt: " + generationPrompt + "\n\n" +
+                "Evidence requirement:\n" +
+                "- anchor_evidence must name visible parts of the assigned anchor object, not just repeat the anchor label.\n" +
+                "- cue_evidence must name visible parts of the cue object, not just repeat the target meaning.\n" +
+                "- contact_evidence must describe where the cue physically touches or interacts with the anchor.\n" +
+                "- If any evidence field is empty, vague, or contradicted by the image, pass must be false.\n\n" +
                 "Pass only if all are true:\n" +
                 "1. The assigned anchor is clearly visible and recognizable.\n" +
                 "2. The cue object(s) for the vocabulary meaning are clearly visible as separate objects.\n" +
@@ -4106,11 +6209,14 @@ namespace MemPalaceLLM
                 "7. The cue-anchor relation is novel but physically possible.\n" +
                 "8. The image is tightly focused on the anchor plus cue object(s), with no irrelevant room overview.\n" +
                 "9. The cue object is not replaced by a recolored or restyled anchor.\n" +
-                "10. The image is one single continuous camera view, not a collage, split-screen, contact sheet, grid, or multi-panel layout.\n\n" +
-                "Reject if only the anchor is visible, only the cue object is visible, the anchor is cropped out, the cue is missing, hidden inside the anchor, tucked into a pocket or drawer, covered by fabric, blended into furniture, unrelated objects dominate, the image looks like interior design / a whole-room overview, or the image contains separate panels / multiple views inside one output image.\n" +
-                "Examples: a red chair is not a red hat; a tray with a tiny object is not a chair anchor; a jar alone is not an air conditioner anchor.\n\n" +
+                "10. The image is one single continuous camera view, not a collage, split-screen, contact sheet, grid, or multi-panel layout.\n" +
+                "11. The anchor and cue object are both large enough to inspect; neither should be a tiny background detail.\n" +
+                "12. The image is not a floor-plan-like layout, room tour, showroom, or interior design overview.\n\n" +
+                "Reject if only the anchor is visible, only the cue object is visible, the anchor is cropped out, the cue is missing, hidden inside the anchor, tucked into a pocket or drawer, covered by fabric, blended into furniture, unrelated objects dominate, the cue or anchor is tiny, the image looks like interior design / a whole-room overview / showroom / floor plan, or the image contains separate panels / multiple views inside one output image.\n" +
+                "Reject abstract_or_iconic=true if the assigned anchor is represented as a logo, icon, abstract symbol, colored curve, decorative shape, or isolated machine part instead of the real room object.\n" +
+                "Examples: a red chair is not a red hat; a tray with a tiny object is not a chair anchor; a jar alone is not an air conditioner anchor; a blue C-shaped symbol or mechanical nozzle is not a wall-mounted air conditioner with grille and vent flap.\n\n" +
                 "Return only valid JSON in this exact shape:\n" +
-                "{\"pass\":false,\"anchor_visible\":false,\"cue_visible\":false,\"focus_ok\":false,\"meaning_specific\":false,\"foreground_clear\":false,\"anchor_interaction\":false,\"simple_scene\":false,\"familiar_objects\":false,\"novel_possible_relation\":false,\"no_room_overview\":false,\"single_continuous_image\":false,\"no_split_screen_or_collage\":false,\"caption\":\"short factual caption\",\"reason\":\"short reason\",\"missing_or_wrong\":[]}";
+                "{\"pass\":false,\"anchor_visible\":false,\"cue_visible\":false,\"focus_ok\":false,\"meaning_specific\":false,\"foreground_clear\":false,\"anchor_interaction\":false,\"simple_scene\":false,\"familiar_objects\":false,\"novel_possible_relation\":false,\"no_room_overview\":false,\"single_continuous_image\":false,\"no_split_screen_or_collage\":false,\"abstract_or_iconic\":false,\"anchor_evidence\":\"visible anchor parts\",\"cue_evidence\":\"visible cue parts\",\"contact_evidence\":\"visible contact point\",\"caption\":\"short factual caption\",\"reason\":\"short reason\",\"missing_or_wrong\":[]}";
         }
 
         private static bool TryParseImageCueValidationResult(string raw, out ImageCueValidationResult validation, out string error)
@@ -4158,8 +6264,32 @@ namespace MemPalaceLLM
                               && validation.novel_possible_relation
                               && validation.no_room_overview
                               && validation.single_continuous_image
-                              && validation.no_split_screen_or_collage;
+                              && validation.no_split_screen_or_collage
+                              && !validation.abstract_or_iconic
+                              && HasValidationEvidence(validation.anchor_evidence)
+                              && HasValidationEvidence(validation.cue_evidence)
+                              && HasValidationEvidence(validation.contact_evidence);
             return true;
+        }
+
+        private static bool HasValidationEvidence(string evidence)
+        {
+            if (string.IsNullOrWhiteSpace(evidence))
+            {
+                return false;
+            }
+
+            var cleaned = evidence.Trim().ToLowerInvariant();
+            if (cleaned.Length < 8)
+            {
+                return false;
+            }
+
+            return !string.Equals(cleaned, "visible", StringComparison.Ordinal)
+                   && !string.Equals(cleaned, "clear", StringComparison.Ordinal)
+                   && !string.Equals(cleaned, "present", StringComparison.Ordinal)
+                   && !cleaned.Contains("not specified")
+                   && !cleaned.Contains("unclear");
         }
 
         private static string ExtractFirstJsonObject(string raw)
@@ -4320,6 +6450,26 @@ namespace MemPalaceLLM
                 score -= Mathf.Min(validation.missing_or_wrong.Length * 5, 20);
             }
 
+            if (validation.abstract_or_iconic)
+            {
+                score -= 35;
+            }
+
+            if (!HasValidationEvidence(validation.anchor_evidence))
+            {
+                score -= 20;
+            }
+
+            if (!HasValidationEvidence(validation.cue_evidence))
+            {
+                score -= 20;
+            }
+
+            if (!HasValidationEvidence(validation.contact_evidence))
+            {
+                score -= 20;
+            }
+
             return score;
         }
 
@@ -4333,6 +6483,11 @@ namespace MemPalaceLLM
             if (validation != null && !validation.cue_visible)
             {
                 return "Fix this failed image: " + BuildImageCueValidationFailureSummary(validation) + " The concrete foreground prop is missing or hidden. Make it fully exposed, separate from the room object, high contrast, and impossible to miss. Do not put it inside pockets, drawers, cushions, covers, or furniture.";
+            }
+
+            if (validation != null && (validation.abstract_or_iconic || !HasValidationEvidence(validation.anchor_evidence)))
+            {
+                return "Fix this failed image: " + BuildImageCueValidationFailureSummary(validation) + " Replace any icon, abstract symbol, logo, decorative curve, or machine fragment with the real assigned room object, large and recognizable with its normal parts visible.";
             }
 
             if (validation != null && !validation.no_room_overview)
@@ -4416,6 +6571,26 @@ namespace MemPalaceLLM
                 issues.Add("split-screen, collage, contact sheet, or multi-panel image");
             }
 
+            if (validation.abstract_or_iconic)
+            {
+                issues.Add("anchor shown as abstract/iconic shape or unrelated part");
+            }
+
+            if (!HasValidationEvidence(validation.anchor_evidence))
+            {
+                issues.Add("missing concrete anchor evidence");
+            }
+
+            if (!HasValidationEvidence(validation.cue_evidence))
+            {
+                issues.Add("missing concrete cue evidence");
+            }
+
+            if (!HasValidationEvidence(validation.contact_evidence))
+            {
+                issues.Add("missing contact evidence");
+            }
+
             return issues.Count == 0 ? string.Empty : string.Join("; ", issues);
         }
 
@@ -4478,7 +6653,7 @@ namespace MemPalaceLLM
             }
         }
 
-        private string SaveMnemonicImageCue(MnemonicItemData item, Texture2D texture)
+        private string SaveMnemonicImageCue(MnemonicItemData item, Texture2D texture, string suffix = null)
         {
             if (texture == null)
             {
@@ -4487,10 +6662,19 @@ namespace MemPalaceLLM
 
             var exportFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "ExperimentExports", "GeneratedMnemonicImages", string.IsNullOrWhiteSpace(sessionId) ? "unsaved_session" : sessionId));
             Directory.CreateDirectory(exportFolder);
-            var fileName = SanitizeIdPrefix(item.word) + "_image_cue.png";
+            var safeSuffix = string.IsNullOrWhiteSpace(suffix) ? "image_cue" : SanitizeIdPrefix(suffix);
+            var fileName = SanitizeIdPrefix(item.word) + "_" + safeSuffix + ".png";
             var path = Path.Combine(exportFolder, fileName);
-            File.WriteAllBytes(path, texture.EncodeToPNG());
-            return path;
+            try
+            {
+                File.WriteAllBytes(path, texture.EncodeToPNG());
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("Failed to save mnemonic image cue: " + ex.Message);
+                return string.Empty;
+            }
         }
 
         private Texture2D CloneTexture(Texture2D source)
@@ -4521,6 +6705,7 @@ namespace MemPalaceLLM
                 return;
             }
 
+            item.anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(item.anchorId, item.anchorLabel);
             if (ApplyMeaningFirstMnemonicGuardrails(item))
             {
                 item.imageCuePath = string.Empty;
@@ -4614,12 +6799,76 @@ namespace MemPalaceLLM
                 : $"{anchor}, {foregroundObjects}";
             var proxySafety = BuildNatureOutdoorProxyImageSafetyClause(item, anchor, backgroundScene, foregroundFocus);
             var smallCueSafety = BuildSmallCueVisibilityImageSafetyClause(item, backgroundScene, foregroundFocus, foregroundObjects);
+            var anchorRequirement = BuildAnchorVisualRequirement(item, anchor);
+            var cueRequirement = BuildCueVisualRequirement(item, concreteCueSubject);
 
             var composition = layoutVariant >= 0
                 ? BuildImagePromptCandidateComposition(layoutVariant)
                 : "anchor and " + concreteCueSubject + " share a tight foreground frame, clear contact point, simple background.";
 
-            return $"Single close-up image, one continuous scene from one camera view, {subjects}. {composition} The assigned room object and {concreteCueSubject} must be separate, large, sharp, and visible together. {concreteCueSubject} is smaller than the room object but large enough to inspect, positioned beside, on, under, hanging from, attached to, or leaning against the assigned room object according to the cue description. The room object should occupy about 30-45 percent of the image, and {concreteCueSubject} should occupy about 35-55 percent. Main visible action or state: {foregroundFocus}. {proxySafety}{smallCueSafety}Scene context for accuracy: {backgroundScene}. Simple background, no readable text, no captions, no logos, no watermark, no split-screen, no collage, no contact sheet.";
+            return $"Single close-up image, one continuous scene from one camera view, {subjects}. {composition} The assigned room object and {concreteCueSubject} must be separate, large, sharp, and visible together. {concreteCueSubject} is smaller than the room object but large enough to inspect, positioned beside, on, under, hanging from, attached to, or leaning against the assigned room object according to the cue description. The room object should occupy about 30-45 percent of the image, and {concreteCueSubject} should occupy about 35-55 percent. {anchorRequirement} {cueRequirement} Main visible action or state: {foregroundFocus}. {proxySafety}{smallCueSafety}Scene context for accuracy: {backgroundScene}. Simple background, no readable text, no captions, no logos, no watermark, no split-screen, no collage, no contact sheet.";
+        }
+
+        private static string BuildAnchorVisualRequirement(MnemonicItemData item, string anchor)
+        {
+            var text = ((item?.anchorType ?? string.Empty) + " "
+                + (item?.anchorId ?? string.Empty) + " "
+                + (item?.anchorLabel ?? string.Empty) + " "
+                + (anchor ?? string.Empty)).ToLowerInvariant();
+
+            if (ContainsAny(text, "air_conditioner", "air conditioner", "aircon", "ac unit", "a/c"))
+            {
+                return "Anchor visual requirement: show a real wall-mounted rectangular air conditioner unit with a visible front grille, horizontal slats, and a loose vent flap or louver. Do not show abstract C-shaped logos, icons, isolated hoses, nozzles, valves, or unrelated machine parts.";
+            }
+
+            if (ContainsAny(text, "chair", "seat"))
+            {
+                return "Anchor visual requirement: show a recognizable chair with seat and backrest visible, not an abstract block or partial furniture fragment.";
+            }
+
+            if (ContainsAny(text, "door"))
+            {
+                return "Anchor visual requirement: show a recognizable door panel with frame or handle visible, not an abstract rectangle or sign.";
+            }
+
+            if (ContainsAny(text, "wardrobe", "closet", "armoire"))
+            {
+                return "Anchor visual requirement: show a tall wardrobe or closet cabinet with doors or shelves visible, not a generic box.";
+            }
+
+            if (ContainsAny(text, "bookshelf", "shelf"))
+            {
+                return "Anchor visual requirement: show a recognizable shelf or bookshelf with horizontal shelves visible.";
+            }
+
+            return "Anchor visual requirement: show the assigned room object as a recognizable real object, not an icon, logo, abstract symbol, or unrelated part.";
+        }
+
+        private static string BuildCueVisualRequirement(MnemonicItemData item, string concreteCueSubject)
+        {
+            var text = ((item?.word ?? string.Empty) + " "
+                + (item?.meaning ?? string.Empty) + " "
+                + (item?.mainCueObject ?? string.Empty) + " "
+                + (item?.associationPrompt ?? string.Empty) + " "
+                + (item?.imagePrompt ?? string.Empty) + " "
+                + (concreteCueSubject ?? string.Empty)).ToLowerInvariant();
+
+            if (ContainsAny(text, "martillo", "hammer"))
+            {
+                return "Cue visual requirement: show a complete small hammer with a clear head and handle, angled toward the anchor, with the hammer visibly touching the target surface.";
+            }
+
+            if (ContainsAny(text, "bottle", "botella"))
+            {
+                return "Cue visual requirement: show a recognizable bottle silhouette with neck and body visible.";
+            }
+
+            if (ContainsAny(text, "curtain", "cortina"))
+            {
+                return "Cue visual requirement: show fabric curtain folds or draped cloth clearly, not an abstract colored sheet.";
+            }
+
+            return string.Empty;
         }
 
         private string BuildConcreteCueSubjectPhrase(MnemonicItemData item, string anchor)
@@ -5050,7 +7299,7 @@ namespace MemPalaceLLM
 
         private string BuildMnemonicImageNegativePrompt()
         {
-            return "text, letters, words, captions, readable writing, logo, watermark, signature, blurry, low quality, distorted, extra limbs, split-screen, split screen, collage, contact sheet, grid layout, tiled image, image sequence, storyboard, diptych, triptych, multiple panels, multiple views, side-by-side views, before and after layout, empty room, bare room, furniture only, chair only, table only, chairs and table only, dining set, interior design photo, generic room photo, window only, shelf only, landscape view, room overview, full room, whole room, establishing shot, wide shot, long shot, distant subject, tiny subject, small subject, architectural rendering, background emphasis, real sky, cloudscape, outdoor weather photo, forest waterfall, cliff waterfall, real beach, city street view, outdoor city view, smoke, fog, haze, abstract light-only cue, atmosphere-only glow, vague beam with no object source, abstract atmosphere, cluttered background, sexual content, nudity, pornographic content, casino, gambling, betting, drugs, narcotics, drug trafficking, smoking, alcohol, crime, criminal, mafia, gang, mugshot, wanted poster, weapon, gun, knife, blood, gore, horror, violence";
+            return "text, letters, words, captions, readable writing, logo, icon, symbol, abstract symbol, abstract shape, C-shaped logo, decorative curve, isolated mechanical part, isolated nozzle, isolated valve, unrelated machine part, watermark, signature, blurry, low quality, distorted, extra limbs, split-screen, split screen, collage, contact sheet, grid layout, tiled image, image sequence, storyboard, diptych, triptych, multiple panels, multiple views, side-by-side views, before and after layout, empty room, bare room, furniture only, chair only, table only, chairs and table only, dining set, interior design photo, generic room photo, window only, shelf only, landscape view, room overview, full room, whole room, establishing shot, wide shot, long shot, distant subject, tiny subject, small subject, architectural rendering, background emphasis, real sky, cloudscape, outdoor weather photo, forest waterfall, cliff waterfall, real beach, city street view, outdoor city view, smoke, fog, haze, abstract light-only cue, atmosphere-only glow, vague beam with no object source, abstract atmosphere, cluttered background, sexual content, nudity, pornographic content, casino, gambling, betting, drugs, narcotics, drug trafficking, smoking, alcohol, crime, criminal, mafia, gang, mugshot, wanted poster, weapon, gun, knife, blood, gore, horror, violence";
         }
 
         private string BuildImageBackgroundScene(MnemonicItemData item)
@@ -6555,8 +8804,12 @@ namespace MemPalaceLLM
                 roomGeneratedBy = RoomSpecCatalog.CurrentRoom.generatedBy,
                 roomSourcePrompt = RoomSpecCatalog.CurrentRoom.sourcePrompt,
                 llmProvider = ResolveProviderLabel(),
-                llmModel = condition == ExperimentCondition.SelfGenerated ? "self-authored" : ollamaModel,
+                llmModel = ResolveLlmModelLabelForExport(),
                 llmStatus = GetLlmStatusText(),
+                preGeneratedMnemonicCount = preGeneratedMnemonicHitCount,
+                liveGeneratedMnemonicCount = liveGeneratedMnemonicCount,
+                localFallbackMnemonicCount = localFallbackMnemonicCount,
+                usedLocalFallback = usedLocalFallbackForCurrentSession,
                 condition = condition,
                 studyDurationSeconds = studyDurationSeconds,
                 viewedCount = viewedWords.Count,
@@ -6581,6 +8834,8 @@ namespace MemPalaceLLM
                     word = item.word,
                     meaning = item.meaning,
                     anchorId = item.anchorId,
+                    anchorType = item.anchorType,
+                    mnemonicSource = item.mnemonicSource,
                     cue = item.visualCue,
                     mainCueObject = item.mainCueObject,
                     associationPrompt = item.associationPrompt,
@@ -6593,15 +8848,129 @@ namespace MemPalaceLLM
                     storyCue = item.storyCue,
                     imagePrompt = item.imagePrompt,
                     imagePromptCandidates = item.imagePromptCandidates == null ? new List<string>() : new List<string>(item.imagePromptCandidates),
+                    cueBlueprint = item.cueBlueprint,
                     selectedImagePrompt = item.selectedImagePrompt,
                     selectedImageCandidateIndex = item.selectedImageCandidateIndex,
                     imageSelectionReason = item.imageSelectionReason,
                     imageCuePath = item.imageCuePath,
+                    imageCueResults = BuildImageCueResultExports(item),
                     visualObjects = item.visualObjects == null ? new List<VisualObjectSpec>() : new List<VisualObjectSpec>(item.visualObjects)
                 });
             }
 
             return export;
+        }
+
+        private List<ImageCueResultExport> BuildImageCueResultExports(MnemonicItemData item)
+        {
+            var exports = new List<ImageCueResultExport>();
+            if (item == null
+                || string.IsNullOrWhiteSpace(item.word)
+                || !imageCueCandidateResults.TryGetValue(item.word, out var results)
+                || results == null)
+            {
+                return exports;
+            }
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                var result = results[i];
+                if (result == null)
+                {
+                    continue;
+                }
+
+                var resultExport = new ImageCueResultExport
+                {
+                    listIndex = result.listIndex,
+                    resultLabel = result.label,
+                    selectedInnerCandidateIndex = result.candidateIndex,
+                    selectedInnerLabel = result.innerLabel,
+                    selectedRawPrompt = result.rawPrompt,
+                    selectedFullPrompt = result.fullPrompt,
+                    selectedImagePath = i == GetDisplayedImageCueCandidateIndex(item.word) ? item.imageCuePath : GetSourceImagePath(result),
+                    score = result.score,
+                    pass = result.pass,
+                    validationComplete = result.validationComplete,
+                    reason = result.reason,
+                    innerCandidates = new List<ImageCueInnerCandidateExport>()
+                };
+
+                if (result.innerCandidates != null)
+                {
+                    for (int j = 0; j < result.innerCandidates.Count; j++)
+                    {
+                        var inner = result.innerCandidates[j];
+                        if (inner == null)
+                        {
+                            continue;
+                        }
+
+                        resultExport.innerCandidates.Add(new ImageCueInnerCandidateExport
+                        {
+                            index = inner.index,
+                            label = inner.label,
+                            rawPrompt = inner.rawPrompt,
+                            fullPrompt = inner.fullPrompt,
+                            imagePath = inner.imagePath,
+                            score = inner.score,
+                            pass = inner.pass,
+                            validationComplete = inner.validationComplete,
+                            reason = inner.reason,
+                            validation = ConvertImageCueValidation(inner.validation)
+                        });
+                    }
+                }
+
+                exports.Add(resultExport);
+            }
+
+            return exports;
+        }
+
+        private static ImageCueValidationExport ConvertImageCueValidation(ImageCueValidationResult validation)
+        {
+            if (validation == null)
+            {
+                return null;
+            }
+
+            var result = new ImageCueValidationExport
+            {
+                pass = validation.pass,
+                anchorVisible = validation.anchor_visible,
+                cueVisible = validation.cue_visible,
+                focusOk = validation.focus_ok,
+                meaningSpecific = validation.meaning_specific,
+                foregroundClear = validation.foreground_clear,
+                anchorInteraction = validation.anchor_interaction,
+                simpleScene = validation.simple_scene,
+                familiarObjects = validation.familiar_objects,
+                novelPossibleRelation = validation.novel_possible_relation,
+                noRoomOverview = validation.no_room_overview,
+                singleContinuousImage = validation.single_continuous_image,
+                noSplitScreenOrCollage = validation.no_split_screen_or_collage,
+                abstractOrIconic = validation.abstract_or_iconic,
+                caption = validation.caption,
+                reason = validation.reason,
+                anchorEvidence = validation.anchor_evidence,
+                cueEvidence = validation.cue_evidence,
+                contactEvidence = validation.contact_evidence,
+                missingOrWrong = new List<string>()
+            };
+
+            if (validation.missing_or_wrong != null)
+            {
+                for (int i = 0; i < validation.missing_or_wrong.Length; i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(validation.missing_or_wrong[i]))
+                    {
+                        result.missingOrWrong.Add(validation.missing_or_wrong[i].Trim());
+                    }
+                }
+            }
+
+            return result;
         }
 
         private void WriteExportFiles(ExperimentSessionExport export)
@@ -6677,11 +9046,23 @@ namespace MemPalaceLLM
             finalTestCompleted = false;
             isCapturingSnapshot = false;
             usedLiveLlmForCurrentSession = false;
+            usedPreGeneratedForCurrentSession = false;
+            usedLocalFallbackForCurrentSession = false;
+            preGeneratedMnemonicHitCount = 0;
+            liveGeneratedMnemonicCount = 0;
+            localFallbackMnemonicCount = 0;
+            liveMnemonicProviderLabelForCurrentSession = string.Empty;
+            liveMnemonicModelForCurrentSession = string.Empty;
+            liveMnemonicSourceForCurrentSession = string.Empty;
             flashOverlayAlpha = 0f;
             teleportOverlayAlpha = 0f;
             currentRecognitionTargetWord = string.Empty;
             recognitionFeedback = string.Empty;
             imageGenerationStatus = string.Empty;
+            preStudyImageCueStatus = string.Empty;
+            isPreparingImageCuesBeforeStudy = false;
+            preStudyImageCueFailureCount = 0;
+            preStudyImageCueCoroutine = null;
             lastJsonExportPath = string.Empty;
             lastCsvExportPath = string.Empty;
             generatingImageCueWords.Clear();
@@ -6752,6 +9133,8 @@ namespace MemPalaceLLM
             vrPreviewImage = null;
             vrPreviewInfoText = null;
             vrGenerateButton = null;
+            vrPreviousImageButton = null;
+            vrNextImageButton = null;
             vrCaptureButton = null;
             vrAdvanceButton = null;
             vrHeadTrackingActive = false;
@@ -6849,7 +9232,18 @@ namespace MemPalaceLLM
 
         private void GenerateRandomAdvancedWordSet()
         {
-            var pool = GetAdvancedWordPool();
+            var selectableSets = GetSelectableWordSets();
+            WordSetDefinition pool = null;
+            if (selectableSets.Count > 0)
+            {
+                var selected = selectableSets[Mathf.Clamp(selectedWordSetIndex, 0, selectableSets.Count - 1)];
+                if (selected != null && selected.words != null && selected.words.Count > RandomAdvancedWordCount)
+                {
+                    pool = selected;
+                }
+            }
+
+            pool ??= GetAdvancedWordPool();
             if (pool == null || pool.words.Count == 0)
             {
                 statusMessage = "No Spanish noun pool was loaded.";
@@ -6877,9 +9271,9 @@ namespace MemPalaceLLM
 
             activeWordSet = new WordSetDefinition
             {
-                setId = "advanced_random",
-                displayName = $"Random Spanish Nouns ({sampleCount})",
-                description = "Randomly sampled Spanish nouns for testing how well room anchors and generated scenes support concrete mnemonic imagery.",
+                setId = pool.setId + "_sample_" + sampleCount,
+                displayName = $"{pool.displayName} Sample ({sampleCount})",
+                description = $"Sampled {sampleCount} words from {pool.displayName}.",
                 words = sampledWords
             };
 
@@ -6887,7 +9281,7 @@ namespace MemPalaceLLM
             useCustomCsv = false;
             customCsvText = BuildCsvText(activeWordSet);
             RememberRandomAdvancedSample(sampledWords);
-            statusMessage = "Random Spanish noun sample prepared.";
+            statusMessage = $"Sampled {sampleCount} words from {pool.displayName}.";
         }
 
         private WordSetDefinition CloneWordSet(WordSetDefinition source)
@@ -7089,6 +9483,8 @@ namespace MemPalaceLLM
                     meaning = words[i].meaning,
                     anchorId = anchor.id,
                     anchorLabel = anchor.label,
+                    anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor),
+                    mnemonicSource = "self_authored",
                     visualCue = string.Empty,
                     associationPrompt = string.Empty,
                     mnemonic = string.Empty,
@@ -7131,6 +9527,7 @@ namespace MemPalaceLLM
             var autoFilled = MockMnemonicGenerator.GenerateFallback(activeWordSet.words);
             for (int i = 0; i < currentItems.Count && i < autoFilled.Count; i++)
             {
+                ClearGeneratedImageCueForWord(currentItems[i].word);
                 currentItems[i].visualCue = autoFilled[i].visualCue;
                 currentItems[i].mainCueObject = autoFilled[i].mainCueObject;
                 currentItems[i].associationPrompt = autoFilled[i].associationPrompt;
@@ -7177,6 +9574,15 @@ namespace MemPalaceLLM
 
         private List<MnemonicItemData> EnsureMnemonicDefaults(List<MnemonicItemData> items)
         {
+            items ??= new List<MnemonicItemData>();
+            for (int i = items.Count - 1; i >= 0; i--)
+            {
+                if (items[i] == null)
+                {
+                    items.RemoveAt(i);
+                }
+            }
+
             for (int i = 0; i < items.Count; i++)
             {
                 var anchor = RoomSpecCatalog.TryGetAnchor(items[i].anchorId, out var existingAnchor)
@@ -7184,6 +9590,13 @@ namespace MemPalaceLLM
                     : RoomSpecCatalog.GetAssignmentAnchor(i, items.Count);
                 items[i].anchorId = anchor.id;
                 items[i].anchorLabel = anchor.label;
+                items[i].anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor);
+                if (string.IsNullOrWhiteSpace(items[i].mnemonicSource))
+                {
+                    items[i].mnemonicSource = condition == ExperimentCondition.SelfGenerated
+                        ? "self_authored"
+                        : "unknown";
+                }
 
                 if (string.IsNullOrWhiteSpace(items[i].objectShape))
                 {
@@ -7360,6 +9773,7 @@ namespace MemPalaceLLM
             var nextAnchor = RoomSpecCatalog.Anchors[nextIndex];
             item.anchorId = nextAnchor.id;
             item.anchorLabel = nextAnchor.label;
+            item.anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(nextAnchor);
             ClearImagePromptCandidateState(item);
             ApplyAnchorConsistency(item);
             ClearGeneratedImageCueForWord(item.word);
@@ -7385,6 +9799,7 @@ namespace MemPalaceLLM
 
                 currentItems[i].anchorId = anchor.id;
                 currentItems[i].anchorLabel = anchor.label;
+                currentItems[i].anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor);
                 if (anchorChanged)
                 {
                     ClearImagePromptCandidateState(currentItems[i]);
@@ -10438,6 +12853,20 @@ namespace MemPalaceLLM
                     }
                     break;
 
+                case VrPanelButtonAction.PreviousImageCue:
+                    if (selectedStudyItem != null)
+                    {
+                        TryCycleDisplayedImageCueCandidate(selectedStudyItem, -1);
+                    }
+                    break;
+
+                case VrPanelButtonAction.NextImageCue:
+                    if (selectedStudyItem != null)
+                    {
+                        TryCycleDisplayedImageCueCandidate(selectedStudyItem, 1);
+                    }
+                    break;
+
                 case VrPanelButtonAction.AdvancePhase:
                     if (!midTestCompleted && memorizedWords.Count >= MidTestTriggerCount)
                     {
@@ -10454,6 +12883,8 @@ namespace MemPalaceLLM
         private void UpdateVrPanelButtonHighlight(VrPanelButtonInteractable hoveredButton)
         {
             UpdateVrPanelButtonVisual(vrGenerateButton, hoveredButton == vrGenerateButton);
+            UpdateVrPanelButtonVisual(vrPreviousImageButton, hoveredButton == vrPreviousImageButton);
+            UpdateVrPanelButtonVisual(vrNextImageButton, hoveredButton == vrNextImageButton);
             UpdateVrPanelButtonVisual(vrCaptureButton, hoveredButton == vrCaptureButton);
             UpdateVrPanelButtonVisual(vrAdvanceButton, hoveredButton == vrAdvanceButton);
         }
@@ -10627,7 +13058,9 @@ namespace MemPalaceLLM
             vrStoryText = null;
             vrPreviewHeaderText = CreateVrPanelText(panel.transform, "PreviewHeader", 20, new Rect(26f, -462f, 708f, 28f), Color.white);
             vrPreviewImage = CreateVrPanelImage(panel.transform, "PreviewImage", new Rect(26f, -494f, 290f, 170f), new Color(0.14f, 0.16f, 0.20f, 0.98f));
-            vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 132f), new Color(0.84f, 0.88f, 0.94f));
+            vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 84f), new Color(0.84f, 0.88f, 0.94f));
+            vrPreviousImageButton = CreateVrPanelButton(panel.transform, "PreviousImageButton", "Previous Image", new Rect(336f, -586f, 190f, 38f), VrPanelButtonAction.PreviousImageCue);
+            vrNextImageButton = CreateVrPanelButton(panel.transform, "NextImageButton", "Next Image", new Rect(544f, -586f, 190f, 38f), VrPanelButtonAction.NextImageCue);
             vrGenerateButton = CreateVrPanelButton(panel.transform, "GenerateButton", "Generate Image Cue", new Rect(336f, -634f, 398f, 42f), VrPanelButtonAction.GenerateImageCue);
             vrCaptureButton = CreateVrPanelButton(panel.transform, "CaptureButton", "Capture Memory Snapshot", new Rect(26f, -634f, 290f, 42f), VrPanelButtonAction.CaptureSnapshot);
             vrAdvanceButton = null;
@@ -10759,6 +13192,8 @@ namespace MemPalaceLLM
                 vrPreviewInfoText.text = string.Empty;
                 SetVrPanelPreview(vrPreviewImage, null);
                 SetVrButtonState(vrGenerateButton, false, "Generate Image Cue");
+                SetVrButtonState(vrPreviousImageButton, false, "Previous Image");
+                SetVrButtonState(vrNextImageButton, false, "Next Image");
                 SetVrButtonState(vrCaptureButton, false, "Capture Memory Snapshot");
                 vrActionText.text = vrHeadTrackingActive
                     ? "Trigger or A: inspect marker"
@@ -10778,6 +13213,9 @@ namespace MemPalaceLLM
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
             var hasGeneratedCue = mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null;
             var isGeneratingCue = generatingImageCueWords.Contains(selectedStudyItem.word);
+            var imageChoiceCount = imageCueCandidateResults.TryGetValue(selectedStudyItem.word, out var imageChoices) && imageChoices != null
+                ? imageChoices.Count
+                : 0;
             if (hasSnapshot && memorySnapshots.TryGetValue(selectedStudyItem.word, out var snapshotTexture) && snapshotTexture != null)
             {
                 vrPreviewHeaderText.text = "Stored Snapshot";
@@ -10807,6 +13245,10 @@ namespace MemPalaceLLM
                     : hasGeneratedCue
                         ? "Regenerate Image Set"
                         : "Generate Image Cue");
+
+            var canReviewImages = hasGeneratedCue && imageChoiceCount > 1;
+            SetVrButtonState(vrPreviousImageButton, canReviewImages, "Previous Image");
+            SetVrButtonState(vrNextImageButton, canReviewImages, "Next Image");
 
             SetVrButtonState(
                 vrCaptureButton,
@@ -10866,13 +13308,13 @@ namespace MemPalaceLLM
             }
 
             var displayedIndex = Mathf.Clamp(GetDisplayedImageCueCandidateIndex(item.word), 0, results.Count - 1);
-            var text = $"Showing best image set {displayedIndex + 1}/{results.Count}.";
+            var text = $"Showing reviewer image choice {displayedIndex + 1}/{results.Count}.";
             if (isGeneratingCue && results.Count < BufferedImageCueResultCount)
             {
-                text += " More best-of-two sets are being generated and scored in the background.";
+                text += " More single-pass image choices are being generated and scored in the background.";
             }
 
-            text += " A / Grip stores the currently shown image.";
+            text += " Use Previous/Next to review choices. A / Grip stores the currently shown image.";
             return text;
         }
 
@@ -11949,7 +14391,102 @@ namespace MemPalaceLLM
                 return "Self Authored";
             }
 
-            return "Ollama Local";
+            var parts = new List<string>();
+            if (usedPreGeneratedForCurrentSession)
+            {
+                parts.Add("Pre-generated Catalog");
+            }
+
+            if (usedLiveLlmForCurrentSession)
+            {
+                parts.Add(GetCurrentLiveMnemonicProviderLabel());
+            }
+
+            if (usedLocalFallbackForCurrentSession)
+            {
+                parts.Add("Local Story Fallback");
+            }
+
+            if (parts.Count > 0)
+            {
+                return string.Join(" + ", parts);
+            }
+
+            return GetCurrentLiveMnemonicProviderLabel();
+        }
+
+        private string ResolveLlmModelLabelForExport()
+        {
+            if (condition == ExperimentCondition.SelfGenerated)
+            {
+                return "self-authored";
+            }
+
+            if (usedLiveLlmForCurrentSession)
+            {
+                var modelLabel = string.IsNullOrWhiteSpace(liveMnemonicModelForCurrentSession)
+                    ? GetSelectedLiveMnemonicModelLabel()
+                    : liveMnemonicModelForCurrentSession;
+                return usedLocalFallbackForCurrentSession
+                    ? modelLabel + " + local story fallback"
+                    : modelLabel;
+            }
+
+            if (usedPreGeneratedForCurrentSession && usedLocalFallbackForCurrentSession)
+            {
+                return "pre-generated catalog + local story fallback";
+            }
+
+            if (usedPreGeneratedForCurrentSession)
+            {
+                return "pre-generated catalog";
+            }
+
+            if (usedLocalFallbackForCurrentSession)
+            {
+                return "local story fallback";
+            }
+
+            return GetSelectedLiveMnemonicModelLabel();
+        }
+
+        private string GetCurrentLiveMnemonicProviderLabel()
+        {
+            return string.IsNullOrWhiteSpace(liveMnemonicProviderLabelForCurrentSession)
+                ? GetSelectedLiveMnemonicProviderLabel()
+                : liveMnemonicProviderLabelForCurrentSession;
+        }
+
+        private string GetSelectedLiveMnemonicProviderLabel()
+        {
+            return providerMode == LlmProviderMode.GeminiOnline ? "Gemini Online" : "Ollama Local";
+        }
+
+        private string GetSelectedLiveMnemonicModelLabel()
+        {
+            return providerMode == LlmProviderMode.GeminiOnline ? geminiModel : ollamaModel;
+        }
+
+        private string GetSelectedLiveMnemonicSourceTag()
+        {
+            return providerMode == LlmProviderMode.GeminiOnline ? "gemini_live" : "ollama_live";
+        }
+
+        private string ResolveGeminiApiKey()
+        {
+            if (!string.IsNullOrWhiteSpace(geminiApiKey))
+            {
+                return geminiApiKey.Trim();
+            }
+
+            var key = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                return key.Trim();
+            }
+
+            key = Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
+            return string.IsNullOrWhiteSpace(key) ? string.Empty : key.Trim();
         }
 
         private bool IsUsingLiveLlm()
@@ -11964,17 +14501,48 @@ namespace MemPalaceLLM
                 return "This run uses participant-authored scenes and connections.";
             }
 
+            if (usedPreGeneratedForCurrentSession && usedLiveLlmForCurrentSession)
+            {
+                var liveUse = liveGeneratedMnemonicCount > 0
+                    ? $"for {liveGeneratedMnemonicCount} missing item(s)"
+                    : "for regeneration";
+                var fallbackUse = localFallbackMnemonicCount > 0
+                    ? $" It also filled {localFallbackMnemonicCount} item(s) with local story-only fallback."
+                    : string.Empty;
+                return $"This run loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and used {GetCurrentLiveMnemonicProviderLabel()} {liveUse}.{fallbackUse}";
+            }
+
+            if (usedPreGeneratedForCurrentSession && usedLocalFallbackForCurrentSession)
+            {
+                return $"This run loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and filled {localFallbackMnemonicCount} missing item(s) with local story-only fallback.";
+            }
+
+            if (usedPreGeneratedForCurrentSession)
+            {
+                return $"This run uses {preGeneratedMnemonicHitCount} pre-generated word x furniture mnemonic item(s).";
+            }
+
+            if (usedLocalFallbackForCurrentSession && usedLiveLlmForCurrentSession)
+            {
+                return $"This run used {GetCurrentLiveMnemonicProviderLabel()} for {liveGeneratedMnemonicCount} item(s) and local story-only fallback for {localFallbackMnemonicCount} item(s).";
+            }
+
             if (IsUsingLiveLlm())
             {
-                return "This run is using a direct local Ollama response.";
+                return $"This run is using a direct {GetCurrentLiveMnemonicProviderLabel()} response.";
+            }
+
+            if (usedLocalFallbackForCurrentSession)
+            {
+                return $"This run filled {localFallbackMnemonicCount} item(s) with local story-only fallback because catalog coverage or live generation was unavailable.";
             }
 
             if (!string.IsNullOrWhiteSpace(generationError))
             {
-                return "Ollama generation failed. No local fallback is enabled for this condition.";
+                return "Mnemonic generation failed before a fallback item could be produced.";
             }
 
-            return "This condition is configured for direct Ollama generation only.";
+            return $"This condition is configured for direct {GetSelectedLiveMnemonicProviderLabel()} generation only.";
         }
 
         private static Texture2D MakeTexture(Color color)
@@ -12282,6 +14850,12 @@ namespace MemPalaceLLM
             public string fullPrompt;
         }
 
+        private sealed class ImageCueCatalogBuildPair
+        {
+            public WordEntry word;
+            public string anchorType;
+        }
+
         private sealed class ImageCueCandidateResult
         {
             public int listIndex;
@@ -12291,6 +14865,21 @@ namespace MemPalaceLLM
             public string rawPrompt;
             public string fullPrompt;
             public Texture2D texture;
+            public ImageCueValidationResult validation;
+            public int score;
+            public bool pass;
+            public bool validationComplete;
+            public string reason;
+            public List<ImageCueInnerCandidateResult> innerCandidates = new();
+        }
+
+        private sealed class ImageCueInnerCandidateResult
+        {
+            public int index;
+            public string label;
+            public string rawPrompt;
+            public string fullPrompt;
+            public string imagePath;
             public ImageCueValidationResult validation;
             public int score;
             public bool pass;
@@ -12339,8 +14928,12 @@ namespace MemPalaceLLM
             public bool no_room_overview;
             public bool single_continuous_image;
             public bool no_split_screen_or_collage;
+            public bool abstract_or_iconic;
             public string caption;
             public string reason;
+            public string anchor_evidence;
+            public string cue_evidence;
+            public string contact_evidence;
             public string[] missing_or_wrong;
         }
     }
@@ -12372,6 +14965,8 @@ namespace MemPalaceLLM
     {
         GenerateImageCue,
         CaptureSnapshot,
+        PreviousImageCue,
+        NextImageCue,
         AdvancePhase
     }
 
