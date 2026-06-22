@@ -3045,6 +3045,7 @@ namespace MemPalaceLLM
                     label = string.IsNullOrWhiteSpace(source.label) ? $"Anchor {i + 1}" : source.label,
                     primitiveShape = string.IsNullOrWhiteSpace(source.primitiveShape) ? "Cube" : source.primitiveShape,
                     colorHex = string.IsNullOrWhiteSpace(source.colorHex) ? PickColor(i) : source.colorHex,
+                    modelKey = RoomSpecCatalog.ResolveModelKey(source.id, source.label),
                     position = ClampVector(source.position, new Vector3(-width * 0.45f, 0.05f, -depth * 0.45f), new Vector3(width * 0.45f, 3.8f, depth * 0.45f)),
                     scale = clampedScale,
                     rotationEuler = source.rotationEuler,

@@ -191,7 +191,7 @@ Entry:
 
 Resource:
 - `Assets/Resources/PreGeneratedMnemonics.json`
-- Current seed entries include story-only coverage for the shown missing pairs: `escaleras|door`, `manta|wardrobe`, `martillo|air_conditioner`, and `armario|chair`.
+- The formal pool avoids target words that duplicate furniture anchors; `armario=wardrobe` was replaced with `zapato=shoe`.
 
 Key fields:
 - `word`

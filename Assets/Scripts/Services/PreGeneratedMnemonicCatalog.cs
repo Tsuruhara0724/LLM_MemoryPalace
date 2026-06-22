@@ -479,7 +479,7 @@ namespace MemPalaceLLM
                 return "bookshelf";
             }
 
-                if (ContainsAny(text, "wardrobe", "closet", "cabinet", "armario"))
+            if (ContainsAny(text, "wardrobe", "closet", "cabinet", "armario"))
             {
                 return "wardrobe";
             }
@@ -487,6 +487,11 @@ namespace MemPalaceLLM
             if (ContainsAny(text, "television", "tv"))
             {
                 return "television";
+            }
+
+            if (ContainsAny(text, "bathtub", "bath tub", "tub", "浴槽", "風呂"))
+            {
+                return "bathtub";
             }
 
             if (ContainsAny(text, "dining table"))
@@ -498,7 +503,7 @@ namespace MemPalaceLLM
             {
                 "door", "bed", "desk", "computer", "window", "chair", "table", "sofa",
                 "toilet", "stove", "sink", "counter", "fridge", "refrigerator", "lamp",
-                "plant", "shelf"
+                "plant", "shelf", "bathtub"
             };
             for (int i = 0; i < knownTypes.Length; i++)
             {

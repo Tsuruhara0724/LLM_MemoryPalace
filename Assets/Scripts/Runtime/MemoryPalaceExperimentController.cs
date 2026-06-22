@@ -27,6 +27,11 @@ namespace MemPalaceLLM
         private const float BuilderAxisDragScale = 0.012f;
         private const float BuilderRotateDragScale = 0.45f;
         private const float BuilderScaleDragScale = 0.01f;
+        private const float BuilderGridSize = 0.25f;
+        private const float BuilderRotationSnapDegrees = 90f;
+        private const float GridRoomCellSize = 1.0f;
+        private const float GridRoomFloorThickness = 0.06f;
+        private const float GridRoomWallThickness = 0.1f;
         private const float VrDefaultHeadHeight = 1.20f;
         private const float VrPointerDistance = 8f;
         private const float VrActionCooldownSeconds = 0.35f;
@@ -41,6 +46,20 @@ namespace MemPalaceLLM
             Move,
             Rotate,
             Scale
+        }
+
+        private enum GridEditorMode
+        {
+            Floor,
+            Wall,
+            Furniture,
+            Select
+        }
+
+        private enum GridFurnitureSnapType
+        {
+            Floor,
+            Wall
         }
 
         private enum BuilderWizardStep
@@ -93,8 +112,8 @@ namespace MemPalaceLLM
 
         private static readonly string[] GuidedFurnitureLabels =
         {
-            "Bed", "Bookshelf", "Desk", "Wardrobe", "Window", "Computer",
-            "Television", "Air Conditioner", "Dining Table", "Stove", "Toilet"
+            "Bed", "Wardrobe", "Desk", "Chair", "Bookshelf", "Bathtub",
+            "Sofa", "Television", "Air Conditioner", "Toilet"
         };
 
         private static readonly string[] GuidedFurnitureZones =
@@ -111,12 +130,33 @@ namespace MemPalaceLLM
         {
             new("Desk", "desk", "Cube", "#7A5A3B", new Vector3(0.84f, 0.15f, 0.48f), 0.48f, 0.64f),
             new("Chair", "chair", "Cube", "#5C6A7A", new Vector3(0.31f, 0.54f, 0.31f), 0.30f, 0.48f),
-            new("Shelf", "shelf", "Cube", "#8B6A3A", new Vector3(0.60f, 1.48f, 0.22f), 0.74f, 0.92f),
-            new("Table", "table", "Cube", "#8B6A3A", new Vector3(0.88f, 0.15f, 0.60f), 0.46f, 0.58f),
+            new("Wardrobe", "wardrobe", "Cube", "#7E6B55", new Vector3(0.68f, 1.34f, 0.30f), 0.67f, 0.84f),
+            new("Bookshelf", "bookshelf", "Cube", "#8B6A3A", new Vector3(0.60f, 1.48f, 0.22f), 0.74f, 0.92f),
+            new("Bathtub", "bathtub", "Cube", "#DDE7EF", new Vector3(0.94f, 0.38f, 0.54f), 0.24f, 0.54f),
             new("Sofa", "sofa", "Cube", "#6A5C72", new Vector3(1.08f, 0.60f, 0.50f), 0.38f, 0.62f),
             new("Bed", "bed", "Cube", "#D8D6D0", new Vector3(1.30f, 0.30f, 0.90f), 0.28f, 0.54f),
+            new("Television", "television", "Cube", "#252A32", new Vector3(0.82f, 0.60f, 0.10f), 0.50f, 0.72f),
+            new("Air Conditioner", "air_conditioner", "Cube", "#E6ECEF", new Vector3(0.74f, 0.28f, 0.10f), 1.62f, 0.40f),
             new("Plant", "plant", "Cylinder", "#6F8F5D", new Vector3(0.30f, 0.82f, 0.30f), 0.46f, 0.66f),
             new("Lamp", "lamp", "Sphere", "#FFD98A", new Vector3(0.23f, 0.23f, 0.23f), 0.86f, 0.0f)
+        };
+
+        private static readonly GridFurnitureDefinition[] GridFurnitureDefinitions =
+        {
+            new("door", "Door", "door", "door", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(0.85f, 2.1f, 0.10f), "#7B5032", true, 0.0f),
+            new("bed", "Bed", "bed", "bed", GridFurnitureSnapType.Floor, new Vector2Int(2, 3), new Vector3(1.8f, 0.55f, 2.6f), "#D8D6D0", true, 0.0f),
+            new("wardrobe", "Wardrobe", "wardrobe", "wardrobe", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.35f, 2.0f, 0.55f), "#7E6B55", true, 0.0f, true),
+            new("desk", "Desk", "desk", "desk", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.35f, 0.75f, 0.75f), "#7A5A3B", true, 0.0f, true),
+            new("chair", "Chair", "chair", "chair", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.7f, 0.85f, 0.7f), "#5C6A7A", true, 0.0f),
+            new("bookshelf", "Bookshelf", "bookshelf", "bookshelf", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.85f, 2.0f, 0.45f), "#8B6A3A", true, 0.0f, true),
+            new("bathtub", "Bathtub", "bathtub", "bathtub", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.7f, 0.55f, 0.95f), "#DDE7EF", true, 0.0f, true),
+            new("sofa", "Sofa", "sofa", "sofa", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.7f, 0.85f, 0.85f), "#6A5C72", true, 0.0f, true),
+            new("television", "Television", "television", "television", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.25f, 0.75f, 0.12f), "#252A32", false, 1.35f),
+            new("air_conditioner", "Air Conditioner", "air_conditioner", "air_conditioner", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.25f, 0.35f, 0.16f), "#E6ECEF", false, 2.25f),
+            new("window", "Window", "window", "window", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.2f, 0.85f, 0.08f), "#779CCB", false, 1.45f),
+            new("lamp", "Lamp", "lamp", "lamp", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.45f, 1.45f, 0.45f), "#FFD98A", true, 0.0f),
+            new("plant", "Plant", "plant", "plant", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.55f, 1.15f, 0.55f), "#6F8F5D", true, 0.0f),
+            new("toilet", "Toilet", "toilet", "toilet", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.75f, 0.75f, 0.85f), "#E9ECEF", true, 0.0f, true)
         };
 
         private DemoDataLibrary library;
@@ -197,6 +237,21 @@ namespace MemPalaceLLM
         private int selectedRoomPrimitiveIndex = -1;
         private BuilderToolMode builderToolMode = BuilderToolMode.Select;
         private BuilderWizardStep builderWizardStep = BuilderWizardStep.Layout;
+        private GridEditorMode gridEditorMode = GridEditorMode.Floor;
+        private GridRoomLayoutModel gridRoomLayout = new();
+        private bool gridRoomInitialized;
+        private int selectedGridFurnitureDefinitionIndex = 1;
+        private int selectedGridFurnitureInstanceIndex = -1;
+        private int movingGridFurnitureInstanceIndex = -1;
+        private int hoveredGridFurnitureInstanceIndex = -1;
+        private int gridGhostRotation;
+        private bool hasGridHoverCell;
+        private Vector2Int gridHoverCell;
+        private GridFurniturePlacementPreview gridFurniturePreview = new();
+        private GridWallPlacementPreview gridWallPreview = new();
+        private readonly Stack<GridRoomLayoutModel> gridUndoStack = new();
+        private readonly Stack<GridRoomLayoutModel> gridRedoStack = new();
+        private string gridEditorStatus = "Paint floor cells, then place fixed furniture anchors.";
         private bool isBuilderDragging;
         private int builderDragAnchorIndex = -1;
         private int builderDragPrimitiveIndex = -1;
@@ -242,22 +297,24 @@ namespace MemPalaceLLM
         private bool allowRuntimeImageCueGenerationForMissing = false;
         private bool randomizeMnemonicAnchors = false;
         private bool showLegacyRoomGenerator = false;
+        private bool showLegacyGuidedRoomBuilder = false;
         private bool showAdvancedRoomEditing = false;
+        private bool snapBuilderFurnitureToGrid = true;
         private string customFurnitureName = "Toilet";
         private string roomDescription = "A single open room for a desktop memory-palace demo: no corridor and no partitions, with clear walking space and 6-10 memorable furniture anchors.";
         private int guidedRoomShapeIndex = 1;
-        private bool guidedHasBathroom = true;
-        private bool guidedHasToilet = true;
+        private bool guidedHasBathroom = false;
+        private bool guidedHasToilet = false;
         private int guidedBathroomZoneIndex = 0;
         private float guidedRoomWidthAdjustment;
         private float guidedRoomDepthAdjustment;
         private readonly bool[] guidedFurnitureIncluded =
         {
-            true, true, true, true, true, true, true, true, false, false, true
+            true, true, true, true, true, false, false, true, true, false
         };
         private readonly int[] guidedFurnitureZoneIndexes =
         {
-            3, 1, 0, 1, 2, 0, 2, 2, 4, 0, 5
+            2, 1, 0, 0, 1, 5, 3, 2, 2, 5
         };
         private string statusMessage = "Ready to configure the experiment.";
         private string generationError = string.Empty;
@@ -681,7 +738,7 @@ namespace MemPalaceLLM
             GUILayout.Label(RoomSpecCatalog.CurrentRoom.generatedBy, mutedStyle);
             GUILayout.Label(RoomSpecCatalog.CurrentRoom.summary, mutedStyle);
             GUILayout.Space(4);
-            GUILayout.Label("Main flow: open the Guided Room Builder, confirm only Square / Rectangle / L-Shape plus bathroom/toilet, then ask Ollama to place selected furniture from rough zones.", mutedStyle);
+            GUILayout.Label("Default room is the furnished resource room for immediate study. Open Room Builder when you want to create a new clear-room grid layout manually.", mutedStyle);
             GUILayout.Label($"Anchors available: {RoomSpecCatalog.AnchorCount}", mutedStyle);
             GUILayout.Label($"Active Room Source: {RoomSpecCatalog.CurrentRoom.generatedBy}", labelStyle);
             GUILayout.Space(8);
@@ -693,11 +750,7 @@ namespace MemPalaceLLM
 
             if (GUILayout.Button("Reload Default Room", buttonStyle))
             {
-                RoomSpecCatalog.ReloadResourceRoom();
-                ClearStudyRoom();
-                MoveCameraToOverview();
-                selectedBuilderAnchorIndex = -1;
-                statusMessage = "Default resource room reloaded.";
+                ReloadDefaultRoomForSetup();
             }
             GUI.enabled = true;
             GUILayout.EndHorizontal();
@@ -965,11 +1018,18 @@ namespace MemPalaceLLM
             roomBuilderScroll = GUILayout.BeginScrollView(roomBuilderScroll, false, true);
 
             GUILayout.Label("Room Builder", titleStyle);
-            GUILayout.Label("Create a clean covered room preview first. Advanced gizmo editing is available only if you expand the manual editor.", mutedStyle);
+            GUILayout.Label("Deterministic grid editor: paint floor cells, place fixed furniture anchors, then use the room for mnemonic generation.", mutedStyle);
             GUILayout.Space(8);
 
-            DrawGuidedRoomBuilderWizard();
+            DrawGridRoomBuilderPanel();
             GUILayout.Space(8);
+
+            showLegacyGuidedRoomBuilder = GUILayout.Toggle(showLegacyGuidedRoomBuilder, "Show legacy guided builder");
+            if (showLegacyGuidedRoomBuilder)
+            {
+                DrawGuidedRoomBuilderWizard();
+                GUILayout.Space(8);
+            }
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Current Room", smallTitleStyle);
@@ -986,6 +1046,7 @@ namespace MemPalaceLLM
             GUILayout.Label($"Active Tool: {builderToolMode}", labelStyle);
             GUILayout.Label("Q Select  |  W Move  |  E Rotate  |  R Scale", mutedStyle);
             GUILayout.Label("Move: drag on floor or drag colored axis. Rotate/Scale: horizontal drag adjusts the selected furniture.", mutedStyle);
+            snapBuilderFurnitureToGrid = GUILayout.Toggle(snapBuilderFurnitureToGrid, $"Snap furniture to {BuilderGridSize:0.##}m grid / {BuilderRotationSnapDegrees:0} deg turns");
             if (GUILayout.Button("Clean Up Layout / Snap To Floor", buttonStyle))
             {
                 CleanUpCurrentRoomLayout();
@@ -1033,6 +1094,10 @@ namespace MemPalaceLLM
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label("Selected Furniture", smallTitleStyle);
                 selectedAnchor.label = DrawLabeledTextField("Label", selectedAnchor.label);
+                selectedAnchor.modelKey = DrawLabeledTextField("Model Key", string.IsNullOrWhiteSpace(selectedAnchor.modelKey)
+                    ? RoomSpecCatalog.ResolveModelKey(selectedAnchor.id, selectedAnchor.label)
+                    : selectedAnchor.modelKey);
+                GUILayout.Label($"Prefab: Resources/FurniturePrefabs/{selectedAnchor.modelKey}.prefab", mutedStyle);
                 GUILayout.Label($"ID: {selectedAnchor.id}", mutedStyle);
                 GUILayout.Label($"Position: x {selectedAnchor.position.x:F2}, y {selectedAnchor.position.y:F2}, z {selectedAnchor.position.z:F2}", mutedStyle);
                 GUILayout.Label($"Rotation Y: {selectedAnchor.rotationEuler.y:F0} deg", mutedStyle);
@@ -1200,6 +1265,1339 @@ namespace MemPalaceLLM
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawGridRoomBuilderPanel()
+        {
+            EnsureGridRoomEditorInitialized();
+            EnsureGridRoomLayoutLists();
+
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Memory Palace Room Builder", smallTitleStyle);
+            GUILayout.Label("WASD/QE moves the build view. Left click paints/places. Right click removes floor cells. R rotates furniture. Esc cancels placement. Ctrl+Z / Ctrl+Y undo and redo.", mutedStyle);
+            gridEditorMode = (GridEditorMode)GUILayout.Toolbar((int)gridEditorMode, new[] { "Floor", "Wall", "Furniture", "Select" });
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Top View", buttonStyle))
+            {
+                MoveCameraToPlanView();
+            }
+
+            GUI.enabled = gridUndoStack.Count > 0;
+            if (GUILayout.Button("Undo", buttonStyle))
+            {
+                UndoGridRoomEdit();
+            }
+
+            GUI.enabled = gridRedoStack.Count > 0;
+            if (GUILayout.Button("Redo", buttonStyle))
+            {
+                RedoGridRoomEdit();
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("4 x 4 Clear Room", buttonStyle))
+            {
+                PushGridRoomUndo();
+                CreateEmptyGridRoom(4, 4);
+                ApplyGridRoomLayoutToCurrentRoom(true);
+                gridEditorStatus = "Started a 4 x 4 clear room.";
+            }
+
+            if (GUILayout.Button("L-Shape Default", buttonStyle))
+            {
+                PushGridRoomUndo();
+                CreateDefaultLShapeGridRoom();
+                ApplyGridRoomLayoutToCurrentRoom(true);
+                gridEditorStatus = "Started an L-shape default room.";
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Save Grid Layout", buttonStyle))
+            {
+                SaveGridRoomLayout();
+            }
+
+            if (GUILayout.Button("Load Latest Grid", buttonStyle))
+            {
+                LoadLatestGridRoomLayout();
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label($"Floor cells: {gridRoomLayout.floorCells.Count}  Walls: {gridRoomLayout.manualWalls.Count}  Furniture: {gridRoomLayout.furniture.Count}", mutedStyle);
+            GUILayout.EndVertical();
+
+            if (gridEditorMode == GridEditorMode.Floor)
+            {
+                GUILayout.BeginVertical(sectionStyle);
+                GUILayout.Label("Floor Cells", smallTitleStyle);
+                GUILayout.Label("Paint cells to define the room footprint. Boundary walls are rebuilt automatically from the grid outline. Use Alt + right drag to rotate the view while right click is reserved for deleting cells.", mutedStyle);
+                GUILayout.EndVertical();
+            }
+
+            if (gridEditorMode == GridEditorMode.Wall)
+            {
+                GUILayout.BeginVertical(sectionStyle);
+                GUILayout.Label("Manual Walls", smallTitleStyle);
+                GUILayout.Label("Move near a floor-cell edge to snap the wall preview. Left click adds a snapped wall segment; right click removes an existing manual wall on that edge.", mutedStyle);
+                GUILayout.EndVertical();
+            }
+
+            if (gridEditorMode == GridEditorMode.Furniture)
+            {
+                GUILayout.BeginVertical(sectionStyle);
+                GUILayout.Label("Furniture Library", smallTitleStyle);
+                selectedGridFurnitureDefinitionIndex = GUILayout.SelectionGrid(
+                    Mathf.Clamp(selectedGridFurnitureDefinitionIndex, 0, GridFurnitureDefinitions.Length - 1),
+                    BuildGridFurnitureDefinitionNames(),
+                    2);
+
+                var definition = GetSelectedGridFurnitureDefinition();
+                if (definition != null)
+                {
+                    GUILayout.Label($"{definition.displayName}: {definition.snapType}, footprint {definition.footprint.x} x {definition.footprint.y}, anchor {definition.anchorType}", mutedStyle);
+                    if (movingGridFurnitureInstanceIndex >= 0)
+                    {
+                        GUILayout.Label("Move mode: click a valid green ghost location to move the selected furniture.", labelStyle);
+                    }
+                }
+                GUILayout.EndVertical();
+            }
+
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Selected Furniture", smallTitleStyle);
+            if (TryGetSelectedGridFurniture(out var selectedFurniture, out var selectedDefinition))
+            {
+                GUILayout.Label($"{selectedDefinition.displayName}  ({selectedFurniture.id})", labelStyle);
+                GUILayout.Label($"Anchor type: {selectedFurniture.anchorType}", mutedStyle);
+                GUILayout.Label(movingGridFurnitureInstanceIndex == selectedGridFurnitureInstanceIndex
+                    ? "Picked up: move the mouse over a valid grid cell, then click the green ghost to drop. R rotates, Esc cancels, Delete removes."
+                    : "Hover furniture in the scene and click to pick it up. Use Pick Up, Rotate, or Delete here as backup controls.",
+                    mutedStyle);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(movingGridFurnitureInstanceIndex == selectedGridFurnitureInstanceIndex ? "Cancel Move" : "Pick Up", buttonStyle))
+                {
+                    if (movingGridFurnitureInstanceIndex == selectedGridFurnitureInstanceIndex)
+                    {
+                        CancelGridFurnitureMove("Move cancelled.");
+                    }
+                    else
+                    {
+                        BeginMoveSelectedGridFurniture();
+                    }
+                }
+
+                GUI.enabled = selectedDefinition.canRotate;
+                if (GUILayout.Button("Rotate", buttonStyle))
+                {
+                    RotateSelectedGridFurniture();
+                }
+                GUI.enabled = true;
+
+                if (GUILayout.Button("Delete", buttonStyle))
+                {
+                    DeleteSelectedGridFurniture();
+                }
+                GUILayout.EndHorizontal();
+            }
+            else
+            {
+                GUILayout.Label("No furniture selected.", mutedStyle);
+            }
+            GUILayout.EndVertical();
+
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Grid Status", smallTitleStyle);
+            GUILayout.Label(gridEditorStatus, mutedStyle);
+            if (gridFurniturePreview.hasPreview && gridEditorMode == GridEditorMode.Furniture)
+            {
+                GUILayout.Label(gridFurniturePreview.isValid ? "Ghost: valid placement." : "Ghost: blocked or outside floor.", gridFurniturePreview.isValid ? mutedStyle : labelStyle);
+            }
+            GUILayout.EndVertical();
+        }
+
+        private void EnsureGridRoomEditorInitialized()
+        {
+            if (gridRoomInitialized && gridRoomLayout != null)
+            {
+                return;
+            }
+
+            if (gridRoomLayout == null || gridRoomLayout.floorCells == null || gridRoomLayout.floorCells.Count == 0)
+            {
+                CreateEmptyGridRoom(4, 4);
+            }
+
+            gridRoomInitialized = true;
+            gridUndoStack.Clear();
+            gridRedoStack.Clear();
+        }
+
+        private void CreateBedroomGridTemplate()
+        {
+            gridRoomLayout = new GridRoomLayoutModel
+            {
+                roomId = "grid_bedroom_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"),
+                roomName = "Custom Grid Bedroom",
+                gridSize = GridRoomCellSize,
+                nextFurnitureNumber = 1,
+                floorCells = new List<GridFloorCellData>(),
+                manualWalls = new List<GridWallSegmentData>(),
+                furniture = new List<GridFurnitureInstanceData>()
+            };
+
+            for (int x = -3; x <= 2; x++)
+            {
+                for (int z = -2; z <= 2; z++)
+                {
+                    gridRoomLayout.floorCells.Add(new GridFloorCellData { x = x, z = z });
+                }
+            }
+
+            AddTemplateGridFurniture("door", -1, -2, 0, 2);
+            AddTemplateGridFurniture("bed", -3, -1, 0, -1);
+            AddTemplateGridFurniture("wardrobe", 1, 1, 0, -1);
+            AddTemplateGridFurniture("desk", 0, -1, 0, -1);
+            AddTemplateGridFurniture("chair", 0, 0, 180, -1);
+            AddTemplateGridFurniture("bookshelf", -3, 2, 0, -1);
+            AddTemplateGridFurniture("television", 1, -2, 0, 2);
+            AddTemplateGridFurniture("window", -2, 2, 0, 3);
+            AddTemplateGridFurniture("air_conditioner", 2, 1, 0, 1);
+
+            selectedGridFurnitureInstanceIndex = gridRoomLayout.furniture.Count > 0 ? 0 : -1;
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            selectedBuilderAnchorIndex = selectedGridFurnitureInstanceIndex;
+            gridGhostRotation = 0;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+        }
+
+        private void CreateEmptyGridRoom(int width, int depth)
+        {
+            gridRoomLayout = new GridRoomLayoutModel
+            {
+                roomId = "grid_room_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"),
+                roomName = $"{width} x {depth} Clear Room",
+                gridSize = GridRoomCellSize,
+                nextFurnitureNumber = 1,
+                floorCells = new List<GridFloorCellData>(),
+                manualWalls = new List<GridWallSegmentData>(),
+                furniture = new List<GridFurnitureInstanceData>()
+            };
+
+            var startX = -Mathf.FloorToInt(width * 0.5f);
+            var startZ = -Mathf.FloorToInt(depth * 0.5f);
+            for (int x = 0; x < width; x++)
+            {
+                for (int z = 0; z < depth; z++)
+                {
+                    gridRoomLayout.floorCells.Add(new GridFloorCellData { x = startX + x, z = startZ + z });
+                }
+            }
+
+            selectedGridFurnitureInstanceIndex = -1;
+            selectedBuilderAnchorIndex = -1;
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridGhostRotation = 0;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+        }
+
+        private void CreateDefaultLShapeGridRoom()
+        {
+            gridRoomLayout = new GridRoomLayoutModel
+            {
+                roomId = "grid_l_shape_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"),
+                roomName = "L-Shape Default Room",
+                gridSize = GridRoomCellSize,
+                nextFurnitureNumber = 1,
+                floorCells = new List<GridFloorCellData>(),
+                manualWalls = new List<GridWallSegmentData>(),
+                furniture = new List<GridFurnitureInstanceData>()
+            };
+
+            for (int x = -3; x <= 2; x++)
+            {
+                for (int z = -2; z <= 2; z++)
+                {
+                    if (x <= -1 || z >= 0)
+                    {
+                        gridRoomLayout.floorCells.Add(new GridFloorCellData { x = x, z = z });
+                    }
+                }
+            }
+
+            selectedGridFurnitureInstanceIndex = -1;
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            selectedBuilderAnchorIndex = -1;
+            gridGhostRotation = 0;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+        }
+
+        private void AddTemplateGridFurniture(string definitionId, int gridX, int gridZ, int rotation, int wallDirection)
+        {
+            var definition = GetGridFurnitureDefinition(definitionId);
+            if (definition == null)
+            {
+                return;
+            }
+
+            gridRoomLayout.furniture.Add(CreateGridFurnitureInstance(definition, gridX, gridZ, rotation, wallDirection));
+        }
+
+        private GridFurnitureInstanceData CreateGridFurnitureInstance(
+            GridFurnitureDefinition definition,
+            int gridX,
+            int gridZ,
+            int rotation,
+            int wallDirection)
+        {
+            var number = Mathf.Max(1, gridRoomLayout.nextFurnitureNumber++);
+            var idBase = string.IsNullOrWhiteSpace(definition.id) ? "furniture" : definition.id;
+            var id = $"{idBase}_{number}";
+            while (GridFurnitureIdExists(id))
+            {
+                number = Mathf.Max(number + 1, gridRoomLayout.nextFurnitureNumber++);
+                id = $"{idBase}_{number}";
+            }
+
+            return new GridFurnitureInstanceData
+            {
+                id = id,
+                definitionId = definition.id,
+                anchorType = definition.anchorType,
+                gridX = gridX,
+                gridZ = gridZ,
+                rotation = NormalizeGridRotation(rotation),
+                wallDirection = wallDirection,
+                height = definition.fixedHeight
+            };
+        }
+
+        private bool GridFurnitureIdExists(string id)
+        {
+            if (gridRoomLayout?.furniture == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < gridRoomLayout.furniture.Count; i++)
+            {
+                if (string.Equals(gridRoomLayout.furniture[i]?.id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ApplyGridRoomLayoutToCurrentRoom(bool rebuildPreview)
+        {
+            EnsureGridRoomLayoutLists();
+            NormalizeGridRoomLayout();
+            var room = BuildRoomSpecFromGridLayout();
+            RoomSpecCatalog.SetCurrentRoom(room);
+
+            selectedGridFurnitureInstanceIndex = Mathf.Clamp(selectedGridFurnitureInstanceIndex, -1, gridRoomLayout.furniture.Count - 1);
+            hoveredGridFurnitureInstanceIndex = Mathf.Clamp(hoveredGridFurnitureInstanceIndex, -1, gridRoomLayout.furniture.Count - 1);
+            selectedBuilderAnchorIndex = selectedGridFurnitureInstanceIndex;
+            selectedRoomPrimitiveIndex = -1;
+
+            if (rebuildPreview && stage == ExperimentStage.RoomBuilder)
+            {
+                BuildRoomBuilderPreview();
+            }
+        }
+
+        private RoomSpecDefinition BuildRoomSpecFromGridLayout()
+        {
+            var floorSet = BuildGridFloorSet();
+            var room = new RoomSpecDefinition
+            {
+                roomId = string.IsNullOrWhiteSpace(gridRoomLayout.roomId) ? "grid_room" : gridRoomLayout.roomId,
+                roomName = string.IsNullOrWhiteSpace(gridRoomLayout.roomName) ? "Grid Memory Room" : gridRoomLayout.roomName,
+                generatedBy = "Deterministic grid room editor",
+                sourcePrompt = "User-authored grid layout. LLM is intentionally not used for room or furniture creation.",
+                summary = $"Grid room: {floorSet.Count} floor cell(s), {gridRoomLayout.furniture.Count} fixed furniture anchor(s).",
+                environmentPrimitives = new List<RoomPrimitiveDefinition>(),
+                anchors = new List<AnchorDefinition>(),
+                overviewCamera = new CameraPoseDefinition(),
+                studyCamera = new CameraPoseDefinition()
+            };
+
+            foreach (var cell in floorSet)
+            {
+                room.environmentPrimitives.Add(CreateGridFloorPrimitive(cell));
+            }
+
+            AddGridBoundaryPrimitives(room, floorSet);
+            AddManualGridWallPrimitives(room, floorSet);
+            AddDollhouseWallCaps(room);
+
+            for (int i = 0; i < gridRoomLayout.furniture.Count; i++)
+            {
+                var instance = gridRoomLayout.furniture[i];
+                if (!TryCreateAnchorFromGridFurniture(instance, floorSet, out var anchor))
+                {
+                    continue;
+                }
+
+                room.anchors.Add(anchor);
+            }
+
+            ApplyGridCameraDefaults(room, floorSet);
+            return room;
+        }
+
+        private RoomPrimitiveDefinition CreateGridFloorPrimitive(Vector2Int cell)
+        {
+            var shade = Mathf.Abs(cell.x + cell.y) % 2 == 0 ? "#E7D9C1" : "#E2D0B7";
+            return CreateGuidedRoomPrimitive(
+                $"grid_floor_{cell.x}_{cell.y}",
+                "Grid Floor Cell",
+                "Cube",
+                shade,
+                GridCellCenter(cell, GridRoomFloorThickness * 0.5f),
+                new Vector3(GridRoomCellSize, GridRoomFloorThickness, GridRoomCellSize),
+                Vector3.zero);
+        }
+
+        private void AddGridBoundaryPrimitives(RoomSpecDefinition room, HashSet<Vector2Int> floorSet)
+        {
+            var horizontalEdges = new Dictionary<string, List<int>>();
+            var verticalEdges = new Dictionary<string, List<int>>();
+
+            foreach (var cell in floorSet)
+            {
+                if (!floorSet.Contains(new Vector2Int(cell.x, cell.y - 1)))
+                {
+                    AddGridEdgeUnit(horizontalEdges, cell.y, -1, cell.x);
+                }
+
+                if (!floorSet.Contains(new Vector2Int(cell.x, cell.y + 1)))
+                {
+                    AddGridEdgeUnit(horizontalEdges, cell.y + 1, 1, cell.x);
+                }
+
+                if (!floorSet.Contains(new Vector2Int(cell.x - 1, cell.y)))
+                {
+                    AddGridEdgeUnit(verticalEdges, cell.x, -1, cell.y);
+                }
+
+                if (!floorSet.Contains(new Vector2Int(cell.x + 1, cell.y)))
+                {
+                    AddGridEdgeUnit(verticalEdges, cell.x + 1, 1, cell.y);
+                }
+            }
+
+            var wallIndex = 0;
+            AddMergedGridEdges(room, horizontalEdges, true, ref wallIndex);
+            AddMergedGridEdges(room, verticalEdges, false, ref wallIndex);
+        }
+
+        private void AddGridEdgeUnit(Dictionary<string, List<int>> edges, int fixedCoord, int outwardSign, int startCoord)
+        {
+            var key = fixedCoord + "|" + outwardSign;
+            if (!edges.TryGetValue(key, out var values))
+            {
+                values = new List<int>();
+                edges[key] = values;
+            }
+
+            values.Add(startCoord);
+        }
+
+        private void AddMergedGridEdges(RoomSpecDefinition room, Dictionary<string, List<int>> edges, bool horizontal, ref int wallIndex)
+        {
+            foreach (var pair in edges)
+            {
+                var keyParts = pair.Key.Split('|');
+                if (keyParts.Length != 2
+                    || !int.TryParse(keyParts[0], out var fixedCoord)
+                    || !int.TryParse(keyParts[1], out var outwardSign))
+                {
+                    continue;
+                }
+
+                var values = pair.Value;
+                values.Sort();
+                if (values.Count == 0)
+                {
+                    continue;
+                }
+
+                var runStart = values[0];
+                var previous = values[0];
+                for (int i = 1; i < values.Count; i++)
+                {
+                    if (values[i] == previous + 1)
+                    {
+                        previous = values[i];
+                        continue;
+                    }
+
+                    AddGridBoundaryRun(room, horizontal, fixedCoord, runStart, previous + 1, outwardSign, wallIndex++);
+                    runStart = values[i];
+                    previous = values[i];
+                }
+
+                AddGridBoundaryRun(room, horizontal, fixedCoord, runStart, previous + 1, outwardSign, wallIndex++);
+            }
+        }
+
+        private void AddGridBoundaryRun(RoomSpecDefinition room, bool horizontal, int fixedCoord, int startCoord, int endCoord, int outwardSign, int wallIndex)
+        {
+            var length = (endCoord - startCoord) * GridRoomCellSize;
+            if (length <= 0.05f)
+            {
+                return;
+            }
+
+            var wallHeight = RoomSpecCatalog.DefaultShellWallHeight;
+            var wallY = wallHeight * 0.5f;
+            var edge = fixedCoord * GridRoomCellSize;
+            var runStart = startCoord * GridRoomCellSize;
+            var runEnd = endCoord * GridRoomCellSize;
+            var center = (runStart + runEnd) * 0.5f;
+            var wallOffset = outwardSign * GridRoomWallThickness * 0.5f;
+
+            if (horizontal)
+            {
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive(
+                    $"grid_floor_border_h_{wallIndex}",
+                    "Grid Floor Border",
+                    "Cube",
+                    "#B98A58",
+                    new Vector3(center, GridRoomFloorThickness + 0.01f, edge),
+                    new Vector3(length, 0.05f, 0.05f),
+                    Vector3.zero));
+                room.environmentPrimitives.Add(CreateGuidedRoomPrimitive(
+                    $"grid_wall_h_{wallIndex}",
+                    "Grid Outer Wall",
+                    "Cube",
+                    "#F7F4EC",
+                    new Vector3(center, wallY, edge + wallOffset),
+                    new Vector3(length, wallHeight, GridRoomWallThickness),
+                    Vector3.zero));
+                return;
+            }
+
+            room.environmentPrimitives.Add(CreateGuidedRoomPrimitive(
+                $"grid_floor_border_v_{wallIndex}",
+                "Grid Floor Border",
+                "Cube",
+                "#B98A58",
+                new Vector3(edge, GridRoomFloorThickness + 0.01f, center),
+                new Vector3(0.05f, 0.05f, length),
+                Vector3.zero));
+            room.environmentPrimitives.Add(CreateGuidedRoomPrimitive(
+                $"grid_wall_v_{wallIndex}",
+                "Grid Outer Wall",
+                "Cube",
+                "#F7F4EC",
+                new Vector3(edge + wallOffset, wallY, center),
+                new Vector3(GridRoomWallThickness, wallHeight, length),
+                Vector3.zero));
+        }
+
+        private void AddManualGridWallPrimitives(RoomSpecDefinition room, HashSet<Vector2Int> floorSet)
+        {
+            if (gridRoomLayout?.manualWalls == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < gridRoomLayout.manualWalls.Count; i++)
+            {
+                var wall = gridRoomLayout.manualWalls[i];
+                if (wall == null || !floorSet.Contains(new Vector2Int(wall.gridX, wall.gridZ)))
+                {
+                    continue;
+                }
+
+                var wallHeight = RoomSpecCatalog.DefaultShellWallHeight;
+                var wallY = wallHeight * 0.5f;
+                var cell = new Vector2Int(wall.gridX, wall.gridZ);
+                var id = string.IsNullOrWhiteSpace(wall.id)
+                    ? "grid_manual_wall_" + i
+                    : wall.id;
+                var primitive = BuildGridWallPrimitive(
+                    id,
+                    "Manual Grid Wall",
+                    "#EFE7DA",
+                    cell,
+                    wall.direction,
+                    wallY,
+                    wallHeight);
+                if (primitive != null)
+                {
+                    room.environmentPrimitives.Add(primitive);
+                }
+            }
+        }
+
+        private RoomPrimitiveDefinition BuildGridWallPrimitive(
+            string id,
+            string label,
+            string colorHex,
+            Vector2Int cell,
+            int direction,
+            float wallY,
+            float wallHeight)
+        {
+            if (direction < 0 || direction > 3)
+            {
+                return null;
+            }
+
+            var xMin = cell.x * GridRoomCellSize;
+            var xMax = (cell.x + 1) * GridRoomCellSize;
+            var zMin = cell.y * GridRoomCellSize;
+            var zMax = (cell.y + 1) * GridRoomCellSize;
+            var thickness = GridRoomWallThickness;
+            if (direction == 0)
+            {
+                return CreateGuidedRoomPrimitive(
+                    id,
+                    label,
+                    "Cube",
+                    colorHex,
+                    new Vector3(xMin, wallY, (zMin + zMax) * 0.5f),
+                    new Vector3(thickness, wallHeight, GridRoomCellSize),
+                    Vector3.zero);
+            }
+
+            if (direction == 1)
+            {
+                return CreateGuidedRoomPrimitive(
+                    id,
+                    label,
+                    "Cube",
+                    colorHex,
+                    new Vector3(xMax, wallY, (zMin + zMax) * 0.5f),
+                    new Vector3(thickness, wallHeight, GridRoomCellSize),
+                    Vector3.zero);
+            }
+
+            if (direction == 2)
+            {
+                return CreateGuidedRoomPrimitive(
+                    id,
+                    label,
+                    "Cube",
+                    colorHex,
+                    new Vector3((xMin + xMax) * 0.5f, wallY, zMin),
+                    new Vector3(GridRoomCellSize, wallHeight, thickness),
+                    Vector3.zero);
+            }
+
+            return CreateGuidedRoomPrimitive(
+                id,
+                label,
+                "Cube",
+                colorHex,
+                new Vector3((xMin + xMax) * 0.5f, wallY, zMax),
+                new Vector3(GridRoomCellSize, wallHeight, thickness),
+                Vector3.zero);
+        }
+
+        private bool TryCreateAnchorFromGridFurniture(GridFurnitureInstanceData instance, HashSet<Vector2Int> floorSet, out AnchorDefinition anchor)
+        {
+            anchor = null;
+            var definition = GetGridFurnitureDefinition(instance?.definitionId);
+            if (definition == null)
+            {
+                return false;
+            }
+
+            var preview = BuildGridFurniturePlacement(definition, instance.gridX, instance.gridZ, instance.rotation, instance.wallDirection, floorSet);
+            if (!preview.isValid)
+            {
+                return false;
+            }
+
+            var renderHeight = Mathf.Max(0.05f, definition.scale.y);
+            anchor = new AnchorDefinition
+            {
+                id = string.IsNullOrWhiteSpace(instance.id) ? definition.id : instance.id,
+                label = definition.displayName,
+                primitiveShape = definition.primitiveShape,
+                colorHex = definition.colorHex,
+                modelKey = definition.modelKey,
+                position = preview.position,
+                scale = definition.scale,
+                rotationEuler = preview.rotationEuler,
+                mnemonicOffset = new Vector3(0f, Mathf.Max(0.45f, renderHeight * 0.65f + 0.35f), 0f),
+                labelHeight = Mathf.Max(0.7f, renderHeight * 0.75f + 0.45f),
+                modelParts = new List<VisualObjectSpec>()
+            };
+            return true;
+        }
+
+        private void ApplyGridCameraDefaults(RoomSpecDefinition room, HashSet<Vector2Int> floorSet)
+        {
+            GetGridBounds(floorSet, out var minX, out var maxX, out var minZ, out var maxZ);
+            var width = Mathf.Max(GridRoomCellSize, (maxX - minX + 1) * GridRoomCellSize);
+            var depth = Mathf.Max(GridRoomCellSize, (maxZ - minZ + 1) * GridRoomCellSize);
+            var center = new Vector3((minX + maxX + 1) * GridRoomCellSize * 0.5f, 0f, (minZ + maxZ + 1) * GridRoomCellSize * 0.5f);
+
+            room.overviewCamera.position = center + new Vector3(width * 0.55f, Mathf.Max(6.8f, Mathf.Max(width, depth) * 0.9f), -depth * 0.82f);
+            room.overviewCamera.eulerAngles = new Vector3(58f, -35f, 0f);
+
+            var door = FindGridDoorInstance();
+            var studyPosition = center + new Vector3(0f, 1.45f, -depth * 0.5f - 1.2f);
+            if (door != null && TryBuildPreviewForGridFurniture(door, floorSet, out var doorPreview))
+            {
+                var inward = GetGridWallInwardVector(doorPreview.wallDirection);
+                studyPosition = doorPreview.position + inward * 1.15f;
+                studyPosition.y = 1.45f;
+            }
+
+            room.studyCamera.position = studyPosition;
+            var lookTarget = center + Vector3.up * 1.25f;
+            var lookDirection = lookTarget - studyPosition;
+            room.studyCamera.eulerAngles = lookDirection.sqrMagnitude > 0.001f
+                ? Quaternion.LookRotation(lookDirection.normalized, Vector3.up).eulerAngles
+                : new Vector3(0f, 0f, 0f);
+        }
+
+        private GridFurnitureInstanceData FindGridDoorInstance()
+        {
+            if (gridRoomLayout?.furniture == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < gridRoomLayout.furniture.Count; i++)
+            {
+                var definition = GetGridFurnitureDefinition(gridRoomLayout.furniture[i]?.definitionId);
+                if (definition != null && string.Equals(definition.id, "door", StringComparison.OrdinalIgnoreCase))
+                {
+                    return gridRoomLayout.furniture[i];
+                }
+            }
+
+            return null;
+        }
+
+        private bool TryBuildPreviewForGridFurniture(GridFurnitureInstanceData instance, HashSet<Vector2Int> floorSet, out GridFurniturePlacementPreview preview)
+        {
+            preview = new GridFurniturePlacementPreview();
+            var definition = GetGridFurnitureDefinition(instance?.definitionId);
+            if (definition == null)
+            {
+                return false;
+            }
+
+            preview = BuildGridFurniturePlacement(definition, instance.gridX, instance.gridZ, instance.rotation, instance.wallDirection, floorSet);
+            return preview.hasPreview && preview.isValid;
+        }
+
+        private GridFurniturePlacementPreview BuildGridFurniturePlacement(
+            GridFurnitureDefinition definition,
+            int gridX,
+            int gridZ,
+            int rotation,
+            int wallDirection,
+            HashSet<Vector2Int> floorSet)
+        {
+            var preview = new GridFurniturePlacementPreview
+            {
+                hasPreview = true,
+                gridX = gridX,
+                gridZ = gridZ,
+                rotation = NormalizeGridRotation(rotation),
+                wallDirection = wallDirection,
+                isValid = true
+            };
+
+            if (definition == null)
+            {
+                preview.isValid = false;
+                preview.reason = "No furniture definition.";
+                return preview;
+            }
+
+            if (definition.snapType == GridFurnitureSnapType.Wall)
+            {
+                if (wallDirection < 0 || wallDirection > 3)
+                {
+                    preview.isValid = false;
+                    preview.reason = "Pick a boundary edge.";
+                    return preview;
+                }
+
+                var cell = new Vector2Int(gridX, gridZ);
+                if (!floorSet.Contains(cell) || !IsGridBoundaryEdge(cell, wallDirection, floorSet))
+                {
+                    preview.isValid = false;
+                    preview.reason = "Wall item must sit on an outer boundary.";
+                    return preview;
+                }
+
+                preview.position = GetGridWallMountedPosition(definition, cell, wallDirection);
+                preview.rotationEuler = new Vector3(0f, GetGridWallYaw(wallDirection), 0f);
+                return preview;
+            }
+
+            var footprint = GetGridFurnitureFootprint(definition, preview.rotation);
+            for (int x = 0; x < footprint.x; x++)
+            {
+                for (int z = 0; z < footprint.y; z++)
+                {
+                    if (!floorSet.Contains(new Vector2Int(gridX + x, gridZ + z)))
+                    {
+                        preview.isValid = false;
+                        preview.reason = "Footprint is outside the painted floor.";
+                        break;
+                    }
+                }
+            }
+
+            var center = new Vector3(
+                (gridX + footprint.x * 0.5f) * GridRoomCellSize,
+                Mathf.Max(0.05f, definition.scale.y * 0.5f),
+                (gridZ + footprint.y * 0.5f) * GridRoomCellSize);
+            preview.position = center;
+            preview.rotationEuler = new Vector3(0f, preview.rotation, 0f);
+            return preview;
+        }
+
+        private Vector3 GetGridWallMountedPosition(GridFurnitureDefinition definition, Vector2Int cell, int wallDirection)
+        {
+            var center = GridCellCenter(cell, 0f);
+            var inward = GetGridWallInwardVector(wallDirection);
+            var position = center;
+            var offset = Mathf.Max(0.03f, definition.scale.z * 0.5f + GridRoomWallThickness * 0.15f);
+
+            switch (wallDirection)
+            {
+                case 0:
+                    position.x = cell.x * GridRoomCellSize + offset;
+                    break;
+                case 1:
+                    position.x = (cell.x + 1) * GridRoomCellSize - offset;
+                    break;
+                case 2:
+                    position.z = cell.y * GridRoomCellSize + offset;
+                    break;
+                case 3:
+                    position.z = (cell.y + 1) * GridRoomCellSize - offset;
+                    break;
+            }
+
+            position += inward * 0.01f;
+            position.y = definition.fixedHeight > 0f ? definition.fixedHeight : Mathf.Max(0.05f, definition.scale.y * 0.5f);
+            return position;
+        }
+
+        private float GetGridWallYaw(int wallDirection)
+        {
+            return wallDirection switch
+            {
+                0 => -90f,
+                1 => 90f,
+                2 => 180f,
+                _ => 0f
+            };
+        }
+
+        private Vector3 GetGridWallInwardVector(int wallDirection)
+        {
+            return wallDirection switch
+            {
+                0 => Vector3.right,
+                1 => Vector3.left,
+                2 => Vector3.forward,
+                _ => Vector3.back
+            };
+        }
+
+        private bool IsGridBoundaryEdge(Vector2Int cell, int wallDirection, HashSet<Vector2Int> floorSet)
+        {
+            return wallDirection switch
+            {
+                0 => !floorSet.Contains(new Vector2Int(cell.x - 1, cell.y)),
+                1 => !floorSet.Contains(new Vector2Int(cell.x + 1, cell.y)),
+                2 => !floorSet.Contains(new Vector2Int(cell.x, cell.y - 1)),
+                3 => !floorSet.Contains(new Vector2Int(cell.x, cell.y + 1)),
+                _ => false
+            };
+        }
+
+        private Vector2Int GetGridFurnitureFootprint(GridFurnitureDefinition definition, int rotation)
+        {
+            var normalized = NormalizeGridRotation(rotation);
+            if (normalized == 90 || normalized == 270)
+            {
+                return new Vector2Int(definition.footprint.y, definition.footprint.x);
+            }
+
+            return definition.footprint;
+        }
+
+        private void PushGridRoomUndo()
+        {
+            EnsureGridRoomLayoutLists();
+            gridUndoStack.Push(CloneGridRoomLayout(gridRoomLayout));
+            gridRedoStack.Clear();
+        }
+
+        private void UndoGridRoomEdit()
+        {
+            if (gridUndoStack.Count == 0)
+            {
+                gridEditorStatus = "Nothing to undo.";
+                return;
+            }
+
+            gridRedoStack.Push(CloneGridRoomLayout(gridRoomLayout));
+            gridRoomLayout = gridUndoStack.Pop();
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = "Undo applied.";
+        }
+
+        private void RedoGridRoomEdit()
+        {
+            if (gridRedoStack.Count == 0)
+            {
+                gridEditorStatus = "Nothing to redo.";
+                return;
+            }
+
+            gridUndoStack.Push(CloneGridRoomLayout(gridRoomLayout));
+            gridRoomLayout = gridRedoStack.Pop();
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = "Redo applied.";
+        }
+
+        private GridRoomLayoutModel CloneGridRoomLayout(GridRoomLayoutModel source)
+        {
+            var clone = new GridRoomLayoutModel
+            {
+                roomId = source?.roomId ?? "grid_room",
+                roomName = source?.roomName ?? "Grid Memory Room",
+                gridSize = source?.gridSize > 0f ? source.gridSize : GridRoomCellSize,
+                nextFurnitureNumber = Mathf.Max(1, source?.nextFurnitureNumber ?? 1),
+                floorCells = new List<GridFloorCellData>(),
+                manualWalls = new List<GridWallSegmentData>(),
+                furniture = new List<GridFurnitureInstanceData>()
+            };
+
+            if (source?.floorCells != null)
+            {
+                for (int i = 0; i < source.floorCells.Count; i++)
+                {
+                    var cell = source.floorCells[i];
+                    if (cell != null)
+                    {
+                        clone.floorCells.Add(new GridFloorCellData { x = cell.x, z = cell.z });
+                    }
+                }
+            }
+
+            if (source?.furniture != null)
+            {
+                for (int i = 0; i < source.furniture.Count; i++)
+                {
+                    var item = source.furniture[i];
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    clone.furniture.Add(new GridFurnitureInstanceData
+                    {
+                        id = item.id,
+                        definitionId = item.definitionId,
+                        anchorType = item.anchorType,
+                        gridX = item.gridX,
+                        gridZ = item.gridZ,
+                        rotation = item.rotation,
+                        wallDirection = item.wallDirection,
+                        height = item.height
+                    });
+                }
+            }
+
+            if (source?.manualWalls != null)
+            {
+                for (int i = 0; i < source.manualWalls.Count; i++)
+                {
+                    var wall = source.manualWalls[i];
+                    if (wall == null)
+                    {
+                        continue;
+                    }
+
+                    clone.manualWalls.Add(new GridWallSegmentData
+                    {
+                        id = wall.id,
+                        gridX = wall.gridX,
+                        gridZ = wall.gridZ,
+                        direction = wall.direction
+                    });
+                }
+            }
+
+            return clone;
+        }
+
+        private void SaveGridRoomLayout()
+        {
+            EnsureGridRoomLayoutLists();
+            var exportFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "GeneratedRooms"));
+            Directory.CreateDirectory(exportFolder);
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var path = Path.Combine(exportFolder, $"grid_room_{timestamp}.json");
+            File.WriteAllText(path, JsonUtility.ToJson(gridRoomLayout, true), Encoding.UTF8);
+            gridEditorStatus = $"Grid layout saved: {path}";
+        }
+
+        private void LoadLatestGridRoomLayout()
+        {
+            var exportFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "GeneratedRooms"));
+            if (!Directory.Exists(exportFolder))
+            {
+                gridEditorStatus = "No GeneratedRooms folder was found.";
+                return;
+            }
+
+            var files = Directory.GetFiles(exportFolder, "grid_room_*.json");
+            if (files.Length == 0)
+            {
+                gridEditorStatus = "No saved grid layout JSON was found.";
+                return;
+            }
+
+            Array.Sort(files, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+            var loaded = JsonUtility.FromJson<GridRoomLayoutModel>(File.ReadAllText(files[0], Encoding.UTF8));
+            if (loaded == null || loaded.floorCells == null || loaded.floorCells.Count == 0)
+            {
+                gridEditorStatus = "Latest grid layout could not be loaded.";
+                return;
+            }
+
+            PushGridRoomUndo();
+            gridRoomLayout = loaded;
+            gridRoomInitialized = true;
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = $"Loaded grid layout: {Path.GetFileName(files[0])}";
+        }
+
+        private string[] BuildGridFurnitureDefinitionNames()
+        {
+            var names = new string[GridFurnitureDefinitions.Length];
+            for (int i = 0; i < GridFurnitureDefinitions.Length; i++)
+            {
+                names[i] = GridFurnitureDefinitions[i].displayName;
+            }
+
+            return names;
+        }
+
+        private GridFurnitureDefinition GetSelectedGridFurnitureDefinition()
+        {
+            if (GridFurnitureDefinitions.Length == 0)
+            {
+                return null;
+            }
+
+            return GridFurnitureDefinitions[Mathf.Clamp(selectedGridFurnitureDefinitionIndex, 0, GridFurnitureDefinitions.Length - 1)];
+        }
+
+        private GridFurnitureDefinition GetGridFurnitureDefinition(string definitionId)
+        {
+            if (string.IsNullOrWhiteSpace(definitionId))
+            {
+                return null;
+            }
+
+            for (int i = 0; i < GridFurnitureDefinitions.Length; i++)
+            {
+                if (string.Equals(GridFurnitureDefinitions[i].id, definitionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return GridFurnitureDefinitions[i];
+                }
+            }
+
+            return null;
+        }
+
+        private bool TryGetSelectedGridFurniture(out GridFurnitureInstanceData furniture, out GridFurnitureDefinition definition)
+        {
+            EnsureGridRoomLayoutLists();
+            if (selectedGridFurnitureInstanceIndex < 0 || selectedGridFurnitureInstanceIndex >= gridRoomLayout.furniture.Count)
+            {
+                furniture = null;
+                definition = null;
+                return false;
+            }
+
+            furniture = gridRoomLayout.furniture[selectedGridFurnitureInstanceIndex];
+            definition = GetGridFurnitureDefinition(furniture?.definitionId);
+            return furniture != null && definition != null;
+        }
+
+        private void BeginMoveSelectedGridFurniture()
+        {
+            if (!TryGetSelectedGridFurniture(out var furniture, out var definition))
+            {
+                return;
+            }
+
+            movingGridFurnitureInstanceIndex = selectedGridFurnitureInstanceIndex;
+            hoveredGridFurnitureInstanceIndex = -1;
+            selectedGridFurnitureDefinitionIndex = GetGridFurnitureDefinitionIndex(definition.id);
+            gridGhostRotation = NormalizeGridRotation(furniture.rotation);
+            gridEditorMode = GridEditorMode.Furniture;
+            gridEditorStatus = $"Move {definition.displayName}: click a valid ghost location.";
+            UpdateGridFurniturePreview(true);
+        }
+
+        private void CancelGridFurnitureMove(string message)
+        {
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridEditorStatus = message;
+            BuildRoomBuilderPreview();
+        }
+
+        private int GetGridFurnitureDefinitionIndex(string definitionId)
+        {
+            for (int i = 0; i < GridFurnitureDefinitions.Length; i++)
+            {
+                if (string.Equals(GridFurnitureDefinitions[i].id, definitionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return 0;
+        }
+
+        private void RotateSelectedGridFurniture()
+        {
+            if (!TryGetSelectedGridFurniture(out var furniture, out var definition) || !definition.canRotate)
+            {
+                return;
+            }
+
+            PushGridRoomUndo();
+            furniture.rotation = NormalizeGridRotation(furniture.rotation + 90);
+            gridGhostRotation = furniture.rotation;
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = $"Rotated {definition.displayName}.";
+        }
+
+        private void DeleteSelectedGridFurniture()
+        {
+            EnsureGridRoomLayoutLists();
+            if (selectedGridFurnitureInstanceIndex < 0 || selectedGridFurnitureInstanceIndex >= gridRoomLayout.furniture.Count)
+            {
+                return;
+            }
+
+            var label = GetGridFurnitureDefinition(gridRoomLayout.furniture[selectedGridFurnitureInstanceIndex].definitionId)?.displayName ?? "Furniture";
+            PushGridRoomUndo();
+            gridRoomLayout.furniture.RemoveAt(selectedGridFurnitureInstanceIndex);
+            selectedGridFurnitureInstanceIndex = gridRoomLayout.furniture.Count > 0
+                ? Mathf.Clamp(selectedGridFurnitureInstanceIndex, 0, gridRoomLayout.furniture.Count - 1)
+                : -1;
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = $"Deleted {label}.";
+        }
+
+        private void EnsureGridRoomLayoutLists()
+        {
+            gridRoomLayout ??= new GridRoomLayoutModel();
+            gridRoomLayout.floorCells ??= new List<GridFloorCellData>();
+            gridRoomLayout.manualWalls ??= new List<GridWallSegmentData>();
+            gridRoomLayout.furniture ??= new List<GridFurnitureInstanceData>();
+            if (gridRoomLayout.gridSize <= 0f)
+            {
+                gridRoomLayout.gridSize = GridRoomCellSize;
+            }
+        }
+
+        private void NormalizeGridRoomLayout()
+        {
+            EnsureGridRoomLayoutLists();
+            var uniqueCells = new HashSet<Vector2Int>();
+            for (int i = gridRoomLayout.floorCells.Count - 1; i >= 0; i--)
+            {
+                var cell = gridRoomLayout.floorCells[i];
+                if (cell == null || !uniqueCells.Add(new Vector2Int(cell.x, cell.z)))
+                {
+                    gridRoomLayout.floorCells.RemoveAt(i);
+                }
+            }
+
+            var uniqueWalls = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = gridRoomLayout.manualWalls.Count - 1; i >= 0; i--)
+            {
+                var wall = gridRoomLayout.manualWalls[i];
+                if (wall == null
+                    || wall.direction < 0
+                    || wall.direction > 3
+                    || !uniqueCells.Contains(new Vector2Int(wall.gridX, wall.gridZ)))
+                {
+                    gridRoomLayout.manualWalls.RemoveAt(i);
+                    continue;
+                }
+
+                var key = BuildGridWallKey(wall.gridX, wall.gridZ, wall.direction);
+                if (!uniqueWalls.Add(key))
+                {
+                    gridRoomLayout.manualWalls.RemoveAt(i);
+                    continue;
+                }
+
+                wall.id = string.IsNullOrWhiteSpace(wall.id)
+                    ? "wall_" + key.Replace('|', '_')
+                    : wall.id;
+            }
+
+            var knownIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var maxNumber = 0;
+            for (int i = gridRoomLayout.furniture.Count - 1; i >= 0; i--)
+            {
+                var item = gridRoomLayout.furniture[i];
+                var definition = GetGridFurnitureDefinition(item?.definitionId);
+                if (item == null || definition == null)
+                {
+                    gridRoomLayout.furniture.RemoveAt(i);
+                    continue;
+                }
+
+                item.anchorType = string.IsNullOrWhiteSpace(item.anchorType) ? definition.anchorType : item.anchorType;
+                item.rotation = NormalizeGridRotation(item.rotation);
+                item.height = item.height > 0f ? item.height : definition.fixedHeight;
+                if (string.IsNullOrWhiteSpace(item.id) || knownIds.Contains(item.id))
+                {
+                    item.id = $"{definition.id}_{gridRoomLayout.nextFurnitureNumber++}";
+                }
+
+                knownIds.Add(item.id);
+                var underscore = item.id.LastIndexOf('_');
+                if (underscore >= 0 && int.TryParse(item.id.Substring(underscore + 1), out var suffix))
+                {
+                    maxNumber = Mathf.Max(maxNumber, suffix);
+                }
+            }
+
+            gridRoomLayout.nextFurnitureNumber = Mathf.Max(gridRoomLayout.nextFurnitureNumber, maxNumber + 1, 1);
+            if (gridRoomLayout.floorCells.Count == 0)
+            {
+                gridRoomLayout.floorCells.Add(new GridFloorCellData { x = 0, z = 0 });
+            }
+        }
+
+        private HashSet<Vector2Int> BuildGridFloorSet()
+        {
+            EnsureGridRoomLayoutLists();
+            var floorSet = new HashSet<Vector2Int>();
+            for (int i = 0; i < gridRoomLayout.floorCells.Count; i++)
+            {
+                var cell = gridRoomLayout.floorCells[i];
+                if (cell != null)
+                {
+                    floorSet.Add(new Vector2Int(cell.x, cell.z));
+                }
+            }
+
+            return floorSet;
+        }
+
+        private bool HasGridFloorCell(Vector2Int cell)
+        {
+            for (int i = 0; i < gridRoomLayout.floorCells.Count; i++)
+            {
+                var floorCell = gridRoomLayout.floorCells[i];
+                if (floorCell != null && floorCell.x == cell.x && floorCell.z == cell.y)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private Vector2Int WorldToGridCell(Vector3 point)
+        {
+            return new Vector2Int(
+                Mathf.FloorToInt(point.x / GridRoomCellSize),
+                Mathf.FloorToInt(point.z / GridRoomCellSize));
+        }
+
+        private Vector3 GridCellCenter(Vector2Int cell, float y)
+        {
+            return new Vector3((cell.x + 0.5f) * GridRoomCellSize, y, (cell.y + 0.5f) * GridRoomCellSize);
+        }
+
+        private int NormalizeGridRotation(int rotation)
+        {
+            var normalized = rotation % 360;
+            if (normalized < 0)
+            {
+                normalized += 360;
+            }
+
+            return Mathf.RoundToInt(normalized / 90f) * 90 % 360;
+        }
+
+        private void GetGridBounds(HashSet<Vector2Int> floorSet, out int minX, out int maxX, out int minZ, out int maxZ)
+        {
+            minX = 0;
+            maxX = 0;
+            minZ = 0;
+            maxZ = 0;
+
+            if (floorSet == null || floorSet.Count == 0)
+            {
+                return;
+            }
+
+            var initialized = false;
+            foreach (var cell in floorSet)
+            {
+                if (!initialized)
+                {
+                    minX = maxX = cell.x;
+                    minZ = maxZ = cell.y;
+                    initialized = true;
+                    continue;
+                }
+
+                minX = Mathf.Min(minX, cell.x);
+                maxX = Mathf.Max(maxX, cell.x);
+                minZ = Mathf.Min(minZ, cell.y);
+                maxZ = Mathf.Max(maxZ, cell.y);
+            }
         }
 
         private void DrawGuidedRoomBuilderWizard()
@@ -1899,6 +3297,8 @@ namespace MemPalaceLLM
                     position = GetGuidedFurniturePlacement(label, zoneIndex, ordinal, roomWidth, roomDepth, template, out rotationEuler);
                 }
 
+                position = SnapFurniturePositionToGrid(position);
+                rotationEuler = SnapFurnitureRotationToGrid(rotationEuler);
                 var anchor = CreateGuidedAnchor(room, template, position, rotationEuler);
                 if (appliedSuggestion != null && appliedSuggestion.scale != default)
                 {
@@ -2029,6 +3429,7 @@ namespace MemPalaceLLM
                 label = template.Label,
                 primitiveShape = template.Shape,
                 colorHex = template.ColorHex,
+                modelKey = template.ModelKey,
                 position = position,
                 scale = template.Scale,
                 rotationEuler = rotationEuler,
@@ -2121,12 +3522,54 @@ namespace MemPalaceLLM
         private void OpenRoomBuilder()
         {
             ClearStudyRoom();
+            if (!IsCurrentRoomGridEditorRoom())
+            {
+                ResetGridRoomBuilderDraft();
+            }
+
+            EnsureGridRoomEditorInitialized();
+            ApplyGridRoomLayoutToCurrentRoom(false);
             selectedBuilderAnchorIndex = RoomSpecCatalog.AnchorCount > 0 ? 0 : -1;
+            selectedGridFurnitureInstanceIndex = selectedBuilderAnchorIndex;
             builderWizardStep = BuilderWizardStep.Layout;
             stage = ExperimentStage.RoomBuilder;
             BuildRoomBuilderPreview();
             MoveCameraToPlanView();
-            statusMessage = "Room builder opened. Start with the guided layout step, or use Q/W/E/R to edit existing anchors.";
+            statusMessage = "Grid room builder opened. Paint floor cells and place fixed furniture anchors.";
+        }
+
+        private void ReloadDefaultRoomForSetup()
+        {
+            RoomSpecCatalog.ReloadResourceRoom();
+            ResetGridRoomBuilderDraft();
+            ClearStudyRoom();
+            MoveCameraToOverview();
+            selectedBuilderAnchorIndex = -1;
+            selectedGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            movingGridFurnitureInstanceIndex = -1;
+            selectedRoomPrimitiveIndex = -1;
+            statusMessage = $"Default furnished resource room reloaded: {RoomSpecCatalog.RoomName}. Builder will still start from a clear room.";
+        }
+
+        private bool IsCurrentRoomGridEditorRoom()
+        {
+            return string.Equals(RoomSpecCatalog.CurrentRoom?.generatedBy, "Deterministic grid room editor", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ResetGridRoomBuilderDraft()
+        {
+            gridRoomLayout = new GridRoomLayoutModel();
+            gridRoomInitialized = false;
+            gridUndoStack.Clear();
+            gridRedoStack.Clear();
+            selectedGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            movingGridFurnitureInstanceIndex = -1;
+            selectedBuilderAnchorIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridWallPreview = new GridWallPlacementPreview();
+            gridEditorStatus = "Builder draft reset. Open Room Builder to start from a clear room.";
         }
 
         private void CancelRoomGeneration()
@@ -3447,6 +4890,11 @@ namespace MemPalaceLLM
                 return "sitting on the desk surface beside the keyboard area";
             }
 
+            if (ContainsAny(anchorText, "bathtub", "bath tub", "tub", "浴槽", "風呂"))
+            {
+                return "resting on the bathtub rim beside the basin";
+            }
+
             if (ContainsAny(anchorText, "table"))
             {
                 return "placed in the center of the table surface";
@@ -4559,6 +6007,7 @@ namespace MemPalaceLLM
                 label = HumanizeAnchorType(anchorType),
                 primitiveShape = "Cube",
                 colorHex = "#8B7A65",
+                modelKey = RoomSpecCatalog.ResolveModelKey(anchorType, HumanizeAnchorType(anchorType)),
                 position = Vector3.zero,
                 scale = Vector3.one,
                 rotationEuler = Vector3.zero,
@@ -5942,6 +7391,7 @@ namespace MemPalaceLLM
             var concreteCueSubject = BuildConcreteCueSubjectPhrase(item, anchor);
             var anchorRequirement = BuildAnchorVisualRequirement(item, anchor);
             var cueRequirement = BuildCueVisualRequirement(item, concreteCueSubject);
+            prompt = ApplyAnchorSpecificImagePromptRepair(item, anchor, concreteCueSubject, prompt);
             prompt += " Mandatory two-subject frame: the assigned room object and " + concreteCueSubject + " must both be clearly visible, close together, and dominate the image; do not show only one of them.";
             prompt += " " + anchorRequirement;
             if (!string.IsNullOrWhiteSpace(cueRequirement))
@@ -6801,12 +8251,80 @@ namespace MemPalaceLLM
             var smallCueSafety = BuildSmallCueVisibilityImageSafetyClause(item, backgroundScene, foregroundFocus, foregroundObjects);
             var anchorRequirement = BuildAnchorVisualRequirement(item, anchor);
             var cueRequirement = BuildCueVisualRequirement(item, concreteCueSubject);
+            var placementRequirement = BuildCuePlacementAndScaleImageRequirement(item, anchor, concreteCueSubject);
 
             var composition = layoutVariant >= 0
                 ? BuildImagePromptCandidateComposition(layoutVariant)
                 : "anchor and " + concreteCueSubject + " share a tight foreground frame, clear contact point, simple background.";
 
-            return $"Single close-up image, one continuous scene from one camera view, {subjects}. {composition} The assigned room object and {concreteCueSubject} must be separate, large, sharp, and visible together. {concreteCueSubject} is smaller than the room object but large enough to inspect, positioned beside, on, under, hanging from, attached to, or leaning against the assigned room object according to the cue description. The room object should occupy about 30-45 percent of the image, and {concreteCueSubject} should occupy about 35-55 percent. {anchorRequirement} {cueRequirement} Main visible action or state: {foregroundFocus}. {proxySafety}{smallCueSafety}Scene context for accuracy: {backgroundScene}. Simple background, no readable text, no captions, no logos, no watermark, no split-screen, no collage, no contact sheet.";
+            return $"Single close-up image, one continuous scene from one camera view, {subjects}. {composition} The assigned room object and {concreteCueSubject} must be separate, large, sharp, and visible together. {placementRequirement} {anchorRequirement} {cueRequirement} Main visible action or state: {foregroundFocus}. {proxySafety}{smallCueSafety}Scene context for accuracy: {backgroundScene}. Simple background, no readable text, no captions, no logos, no watermark, no split-screen, no collage, no contact sheet.";
+        }
+
+        private static string ApplyAnchorSpecificImagePromptRepair(MnemonicItemData item, string anchor, string concreteCueSubject, string prompt)
+        {
+            if (!IsBathtubAnchor(item, anchor) || string.IsNullOrWhiteSpace(prompt))
+            {
+                return prompt;
+            }
+
+            var repaired = ReplaceCaseInsensitive(
+                prompt,
+                $"{concreteCueSubject} is smaller than the room object but large enough to inspect, positioned beside, on, under, hanging from, attached to, or leaning against the assigned room object according to the cue description. The room object should occupy about 30-45 percent of the image, and {concreteCueSubject} should occupy about 35-55 percent.",
+                BuildBathtubCuePlacementAndScaleImageRequirement(item, concreteCueSubject));
+
+            repaired = ReplaceCaseInsensitive(
+                repaired,
+                "Anchor visual requirement: show a recognizable bathtub with an oval or rectangular basin, raised rim, and visible inner tub surface, not a generic white box or bathroom wall.",
+                BuildAnchorVisualRequirement(item, anchor));
+
+            return repaired;
+        }
+
+        private static string BuildCuePlacementAndScaleImageRequirement(MnemonicItemData item, string anchor, string concreteCueSubject)
+        {
+            if (IsBathtubAnchor(item, anchor))
+            {
+                return BuildBathtubCuePlacementAndScaleImageRequirement(item, concreteCueSubject);
+            }
+
+            return $"{concreteCueSubject} is smaller than the room object but large enough to inspect, positioned beside, on, under, hanging from, attached to, or leaning against the assigned room object according to the cue description. The room object should occupy about 30-45 percent of the image, and {concreteCueSubject} should occupy about 35-55 percent.";
+        }
+
+        private static string BuildBathtubCuePlacementAndScaleImageRequirement(MnemonicItemData item, string concreteCueSubject)
+        {
+            var text = BuildImageCueSearchText(item, concreteCueSubject);
+            if (ContainsAny(text, "filled", "full of", "packed", "stuffed", "overflow", "piled", "spilling", "inside the bathtub", "inside the tub", "inside the basin", "in the bathtub", "in the tub", "in the basin"))
+            {
+                return $"Bathtub-specific composition requirement: {concreteCueSubject} may fill, cover, or dominate the bathtub basin if the cue says it is inside, packed, or overflowing. Keep the bathtub recognizable through the raised rim, faucet, outer wall, and a partial basin edge; the inner tub surface does not need to remain empty. {concreteCueSubject} should occupy about 40-70 percent of the image and physically touch the bathtub interior, rim, or basin edge.";
+            }
+
+            if (ContainsAny(text, "rim", "faucet", "tap", "side wall", "outside wall", "across", "taped", "tape", "draped", "laid", "leaning", "hanging", "balanced", "resting", "floating"))
+            {
+                return $"Bathtub-specific composition requirement: use a tight local view of the bathtub rim, faucet, outside wall, or partial basin edge nearest the cue. {concreteCueSubject} should be large and dominant, physically touching the bathtub exactly as described, while enough rim, faucet, and curved basin edge remain visible to identify the bathtub.";
+            }
+
+            return $"Bathtub-specific composition requirement: use a tight bathtub contact view instead of a wide empty bathroom view. {concreteCueSubject} should be large, sharp, and visibly touching the bathtub, while the raised rim, faucet, outer wall, and partial basin edge keep the bathtub recognizable.";
+        }
+
+        private static string BuildImageCueSearchText(MnemonicItemData item, string concreteCueSubject)
+        {
+            return ((item?.word ?? string.Empty) + " "
+                + (item?.meaning ?? string.Empty) + " "
+                + (item?.visualCue ?? string.Empty) + " "
+                + (item?.mainCueObject ?? string.Empty) + " "
+                + (item?.associationPrompt ?? string.Empty) + " "
+                + (item?.imagePrompt ?? string.Empty) + " "
+                + (concreteCueSubject ?? string.Empty)).ToLowerInvariant();
+        }
+
+        private static bool IsBathtubAnchor(MnemonicItemData item, string anchor)
+        {
+            var text = ((item?.anchorType ?? string.Empty) + " "
+                + (item?.anchorId ?? string.Empty) + " "
+                + (item?.anchorLabel ?? string.Empty) + " "
+                + (anchor ?? string.Empty)).ToLowerInvariant();
+
+            return ContainsAny(text, "bathtub", "bath tub", "tub", "浴槽", "風呂");
         }
 
         private static string BuildAnchorVisualRequirement(MnemonicItemData item, string anchor)
@@ -6839,6 +8357,11 @@ namespace MemPalaceLLM
             if (ContainsAny(text, "bookshelf", "shelf"))
             {
                 return "Anchor visual requirement: show a recognizable shelf or bookshelf with horizontal shelves visible.";
+            }
+
+            if (ContainsAny(text, "bathtub", "bath tub", "tub", "浴槽", "風呂"))
+            {
+                return "Anchor visual requirement: show a recognizable bathtub using its raised rim, faucet, curved basin edge, and outer wall; the cue object may cover or fill the basin, so do not require an empty inner tub surface.";
             }
 
             return "Anchor visual requirement: show the assigned room object as a recognizable real object, not an icon, logo, abstract symbol, or unrelated part.";
@@ -6962,35 +8485,39 @@ namespace MemPalaceLLM
 
         private static string BuildNatureOutdoorProxyImageSafetyClause(MnemonicItemData item, string anchor, string backgroundScene, string foregroundFocus)
         {
-            var text = ((item?.word ?? string.Empty) + " "
-                + (item?.meaning ?? string.Empty) + " "
-                + (item?.visualCue ?? string.Empty) + " "
-                + (item?.associationPrompt ?? string.Empty) + " "
-                + (item?.imagePrompt ?? string.Empty) + " "
-                + (backgroundScene ?? string.Empty) + " "
-                + (foregroundFocus ?? string.Empty)).ToLowerInvariant();
+            var text = BuildNatureProxyTriggerText(item);
 
-            if (ContainsAny(text, "cloud", "nube", "rain", "snow", "sky", "storm", "wind"))
+            if (ContainsAnyWholeToken(text, "cloud", "clouds", "nube", "nubes", "rain", "lluvia", "snow", "nieve", "sky", "storm", "wind", "viento"))
             {
                 return $"Nature proxy requirement: show a crafted indoor weather proxy at the {anchor}, such as a cotton cloud mobile clipped to the room object with paper raindrops; do not show a real sky or a vague floating cloud. ";
             }
 
-            if (ContainsAny(text, "sun", "moon", "star"))
+            if (ContainsAnyWholeToken(text, "sun", "sol", "moon", "luna", "star", "stars", "estrella", "estrellas"))
             {
                 return $"Nature proxy requirement: show a crafted indoor sky-object proxy at the {anchor}, such as a felt sun, moon ornament, or hanging star mobile; do not show a real sky. ";
             }
 
-            if (ContainsAny(text, "waterfall", "cascada", "river", "stream", "ocean", "sea", "beach"))
+            if (ContainsAnyWholeToken(text, "waterfall", "waterfalls", "cascada", "cascadas", "river", "rivers", "stream", "streams", "ocean", "oceans", "sea", "seas", "mar", "beach", "beaches", "playa", "playas", "island", "islands", "isla", "islas"))
             {
                 return $"Nature proxy requirement: show a contained indoor water/landscape proxy at the {anchor}, such as a miniature waterfall model pouring into a bowl or bucket; do not show a real outdoor landscape. ";
             }
 
-            if (ContainsAny(text, "neighborhood", "barrio", "city", "street", "village", "market", "park", "plaza"))
+            if (ContainsAnyWholeToken(text, "neighborhood", "neighborhoods", "barrio", "barrios", "city", "cities", "ciudad", "street", "streets", "calle", "village", "villages", "market", "markets", "mercado", "park", "parks", "parque", "plaza", "plazas"))
             {
                 return $"Outdoor-place proxy requirement: show a tiny diorama or prop cluster at the {anchor}, such as miniature houses and neighbors on a mat; do not show a real street or city view. ";
             }
 
             return string.Empty;
+        }
+
+        private static string BuildNatureProxyTriggerText(MnemonicItemData item)
+        {
+            if (item == null)
+            {
+                return string.Empty;
+            }
+
+            return ((item.word ?? string.Empty) + " " + (item.meaning ?? string.Empty)).ToLowerInvariant();
         }
 
         private string BuildImageForegroundObjectList(MnemonicItemData item, string anchor)
@@ -7116,7 +8643,7 @@ namespace MemPalaceLLM
                 return;
             }
 
-            var lower = text.ToLowerInvariant();
+            var lower = RemoveNegatedForegroundObjectPhrases(text).ToLowerInvariant();
             AddKnownForegroundObject(lower, labels, "suitcase");
             AddKnownForegroundObject(lower, labels, "passport");
             AddKnownForegroundObject(lower, labels, "wallet");
@@ -7157,28 +8684,28 @@ namespace MemPalaceLLM
             AddKnownForegroundObject(lower, labels, "boarding pass");
             AddKnownForegroundObject(lower, labels, "ticket");
             AddKnownForegroundObject(lower, labels, "luggage tag");
-            if (ContainsAny(lower, "cloud", "nube", "rain", "sky", "storm"))
+            if (ContainsAnyWholeToken(lower, "cloud", "clouds", "nube", "nubes", "rain", "lluvia", "sky", "storm"))
             {
                 AddRequiredForegroundObject(labels, "cotton cloud mobile");
                 AddRequiredForegroundObject(labels, "paper raindrops");
             }
-            if (ContainsAny(lower, "sun"))
+            if (ContainsAnyWholeToken(lower, "sun", "sol"))
             {
                 AddRequiredForegroundObject(labels, "felt sun");
             }
-            if (ContainsAny(lower, "moon"))
+            if (ContainsAnyWholeToken(lower, "moon", "luna"))
             {
                 AddRequiredForegroundObject(labels, "moon ornament");
             }
-            if (ContainsAny(lower, "star"))
+            if (ContainsAnyWholeToken(lower, "star", "stars", "estrella", "estrellas"))
             {
                 AddRequiredForegroundObject(labels, "hanging star mobile");
             }
-            if (ContainsAny(lower, "mist", "fog"))
+            if (ContainsAnyWholeToken(lower, "mist", "fog", "niebla"))
             {
                 AddRequiredForegroundObject(labels, "mist jar");
             }
-            if (ContainsAny(lower, "waterfall", "cascada", "river", "stream"))
+            if (ContainsAnyWholeToken(lower, "waterfall", "waterfalls", "cascada", "cascadas", "river", "rivers", "stream", "streams"))
             {
                 AddRequiredForegroundObject(labels, "miniature waterfall model");
                 AddRequiredForegroundObject(labels, "bucket");
@@ -7190,6 +8717,39 @@ namespace MemPalaceLLM
                 AddRequiredForegroundObject(labels, "neighbors");
                 AddRequiredForegroundObject(labels, "doormat");
             }
+        }
+
+        private static string RemoveNegatedForegroundObjectPhrases(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            var result = text;
+            var objectTerms = new[]
+            {
+                "suitcase", "suitcases", "luggage", "bag", "bags",
+                "passport", "passports", "boarding pass", "boarding passes",
+                "coin", "coins", "card", "cards", "key", "keys",
+                "drain", "drains", "towel", "towels", "foam", "bubbles",
+                "person", "people", "hand", "hands", "logo", "logos",
+                "caption", "captions", "watermark", "watermarks"
+            };
+
+            for (int i = 0; i < objectTerms.Length; i++)
+            {
+                var term = objectTerms[i];
+                result = ReplaceCaseInsensitive(result, "do not show " + term, string.Empty);
+                result = ReplaceCaseInsensitive(result, "do not include " + term, string.Empty);
+                result = ReplaceCaseInsensitive(result, "without " + term, string.Empty);
+                result = ReplaceCaseInsensitive(result, "not a " + term, string.Empty);
+                result = ReplaceCaseInsensitive(result, "not an " + term, string.Empty);
+                result = ReplaceCaseInsensitive(result, "not " + term, string.Empty);
+                result = ReplaceCaseInsensitive(result, "no " + term, string.Empty);
+            }
+
+            return result;
         }
 
         private static void AddRequiredForegroundObject(List<string> labels, string label)
@@ -7241,6 +8801,24 @@ namespace MemPalaceLLM
                 }
 
                 startIndex = index + 1;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsAnyWholeToken(string value, params string[] terms)
+        {
+            if (string.IsNullOrWhiteSpace(value) || terms == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < terms.Length; i++)
+            {
+                if (ContainsWholeToken(value, terms[i]))
+                {
+                    return true;
+                }
             }
 
             return false;
@@ -8017,6 +9595,11 @@ namespace MemPalaceLLM
                 return "the desk edge";
             }
 
+            if (normalized.Contains("bathtub") || normalized.Contains("bath tub") || normalized.Contains("tub"))
+            {
+                return "the bathtub rim";
+            }
+
             if (normalized.Contains("table"))
             {
                 return "the tabletop";
@@ -8148,6 +9731,11 @@ namespace MemPalaceLLM
             if (normalized.Contains("desk"))
             {
                 return "the desk edge";
+            }
+
+            if (normalized.Contains("bathtub") || normalized.Contains("bath tub") || normalized.Contains("tub"))
+            {
+                return "the bathtub rim";
             }
 
             if (normalized.Contains("table"))
@@ -8553,7 +10141,7 @@ namespace MemPalaceLLM
             {
                 "balcony window", "kitchen counter", "bathroom sink", "ceiling lamp", "dining table",
                 "refrigerator", "television", "computer", "bookshelf", "display shelf", "window", "fridge",
-                "counter", "toilet", "door", "plant", "shelf", "table", "desk", "chair", "sofa", "couch",
+                "counter", "toilet", "bathtub", "bath tub", "tub", "door", "plant", "shelf", "table", "desk", "chair", "sofa", "couch",
                 "bed", "lamp", "sink", "cabinet", "wardrobe", "closet"
             };
 
@@ -8619,6 +10207,11 @@ namespace MemPalaceLLM
             if (normalized.Contains("sink"))
             {
                 return new[] { normalized, "sink", "bathroom sink" };
+            }
+
+            if (normalized.Contains("bathtub") || normalized.Contains("bath tub") || normalized.Contains("tub"))
+            {
+                return new[] { normalized, "bathtub", "bath tub", "tub" };
             }
 
             if (normalized.Contains("table"))
@@ -9987,6 +11580,126 @@ namespace MemPalaceLLM
             CreateShellWallDrawPreview(roomRoot);
             CreateFloorPatchDropPreview(roomRoot);
             CreateWallSegmentDropPreview(roomRoot);
+            CreateGridRoomEditorOverlays(roomRoot);
+        }
+
+        private void CreateGridRoomEditorOverlays(Transform parent)
+        {
+            if (stage != ExperimentStage.RoomBuilder || showAdvancedRoomEditing || parent == null)
+            {
+                return;
+            }
+
+            var overlayRoot = new GameObject("GridEditorOverlays").transform;
+            overlayRoot.SetParent(parent);
+
+            if (hasGridHoverCell && gridEditorMode == GridEditorMode.Floor)
+            {
+                var cellExists = HasGridFloorCell(gridHoverCell);
+                var color = cellExists
+                    ? new Color(1.0f, 0.45f, 0.28f, 0.38f)
+                    : new Color(0.34f, 0.92f, 0.58f, 0.36f);
+                var hover = CreatePrimitive(
+                    "GridHoverCell",
+                    PrimitiveType.Cube,
+                    GridCellCenter(gridHoverCell, GridRoomFloorThickness + 0.025f),
+                    new Vector3(GridRoomCellSize * 0.92f, 0.035f, GridRoomCellSize * 0.92f),
+                    color,
+                    overlayRoot);
+                DestroyGridOverlayCollider(hover);
+            }
+
+            if (gridEditorMode == GridEditorMode.Wall && gridWallPreview.hasPreview)
+            {
+                var color = gridWallPreview.isValid
+                    ? gridWallPreview.wallExists
+                        ? new Color(1.0f, 0.62f, 0.24f, 0.44f)
+                        : new Color(0.28f, 0.86f, 1.0f, 0.42f)
+                    : new Color(1.0f, 0.28f, 0.22f, 0.38f);
+                var wallGhost = CreatePrimitive(
+                    "GridWallSnapGhost",
+                    PrimitiveType.Cube,
+                    gridWallPreview.position,
+                    gridWallPreview.scale,
+                    color,
+                    overlayRoot);
+                DestroyGridOverlayCollider(wallGhost);
+                CreateWorldLabel(
+                    gridWallPreview.wallExists ? "Right click removes wall" : "Click to add wall",
+                    gridWallPreview.position + Vector3.up * Mathf.Max(0.75f, gridWallPreview.scale.y + 0.12f),
+                    0.026f,
+                    new Color(0.82f, 0.96f, 1.0f, 0.9f),
+                    overlayRoot);
+            }
+
+            if (gridEditorMode != GridEditorMode.Furniture || !gridFurniturePreview.hasPreview)
+            {
+                return;
+            }
+
+            var definition = movingGridFurnitureInstanceIndex >= 0 && TryGetSelectedGridFurniture(out _, out var movingDefinition)
+                ? movingDefinition
+                : GetSelectedGridFurnitureDefinition();
+            if (definition == null)
+            {
+                return;
+            }
+
+            var ghostColor = gridFurniturePreview.isValid
+                ? new Color(0.32f, 0.92f, 0.58f, 0.38f)
+                : new Color(1.0f, 0.28f, 0.22f, 0.42f);
+            var ghostRoot = new GameObject("GridFurnitureGhost").transform;
+            ghostRoot.SetParent(overlayRoot);
+            ghostRoot.position = gridFurniturePreview.position;
+            ghostRoot.rotation = Quaternion.Euler(gridFurniturePreview.rotationEuler);
+
+            var ghost = CreatePrimitiveLocal(
+                "GridFurnitureGhostBody",
+                RoomSpecCatalog.ParsePrimitiveType(definition.primitiveShape),
+                Vector3.zero,
+                definition.scale,
+                ghostColor,
+                ghostRoot);
+            DestroyGridOverlayCollider(ghost);
+
+            var proxyAnchor = new AnchorDefinition
+            {
+                id = "grid_preview",
+                label = definition.displayName,
+                primitiveShape = definition.primitiveShape,
+                colorHex = definition.colorHex,
+                modelKey = definition.modelKey,
+                position = gridFurniturePreview.position,
+                scale = definition.scale,
+                rotationEuler = gridFurniturePreview.rotationEuler,
+                labelHeight = Mathf.Max(0.75f, definition.scale.y + 0.25f),
+                mnemonicOffset = Vector3.up
+            };
+            CreatePlacementGhost(proxyAnchor, ghostRoot, ghostColor);
+
+            if (!gridFurniturePreview.isValid && !string.IsNullOrWhiteSpace(gridFurniturePreview.reason))
+            {
+                CreateWorldLabel(
+                    gridFurniturePreview.reason,
+                    gridFurniturePreview.position + Vector3.up * Mathf.Max(0.85f, definition.scale.y + 0.25f),
+                    0.026f,
+                    new Color(1.0f, 0.72f, 0.62f, 0.95f),
+                    overlayRoot);
+            }
+        }
+
+        private void DestroyGridOverlayCollider(GameObject go)
+        {
+            if (go == null)
+            {
+                return;
+            }
+
+            var collider = go.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Destroy(collider);
+            }
         }
 
         private bool ShouldHidePrimitiveInBuilderPreview(RoomPrimitiveDefinition primitive)
@@ -10085,6 +11798,7 @@ namespace MemPalaceLLM
                 label = template.Label,
                 primitiveShape = template.Shape,
                 colorHex = template.ColorHex,
+                modelKey = template.ModelKey,
                 position = position,
                 scale = template.Scale,
                 rotationEuler = rotationEuler,
@@ -10299,6 +12013,7 @@ namespace MemPalaceLLM
                 label = primitive.label,
                 primitiveShape = primitive.primitiveShape,
                 colorHex = primitive.colorHex,
+                modelKey = RoomSpecCatalog.ResolveModelKey(primitive.id, primitive.label),
                 position = primitive.position,
                 scale = primitive.scale,
                 rotationEuler = primitive.rotationEuler,
@@ -10309,30 +12024,92 @@ namespace MemPalaceLLM
 
         private void CreateEditableAnchorPrimitive(AnchorDefinition anchor, int index, Transform parent)
         {
-            var root = CreateFurnitureModel(anchor, parent, index == selectedBuilderAnchorIndex, true, index);
+            var gridEditorActive = stage == ExperimentStage.RoomBuilder && !showAdvancedRoomEditing;
+            var isPickedUp = gridEditorActive && index == movingGridFurnitureInstanceIndex;
+            var isHovered = gridEditorActive && index == hoveredGridFurnitureInstanceIndex && index != selectedBuilderAnchorIndex;
+            var renderAnchor = isPickedUp ? BuildLiftedGridAnchor(anchor) : anchor;
+            CreateFurnitureModel(renderAnchor, parent, index == selectedBuilderAnchorIndex || isHovered, true, index);
             if (index == selectedBuilderAnchorIndex)
             {
                 var overlayRoot = new GameObject($"EditorOverlay_{anchor.id}").transform;
                 overlayRoot.SetParent(parent);
-                overlayRoot.position = anchor.position;
-                overlayRoot.rotation = Quaternion.Euler(anchor.rotationEuler);
-                CreateWorldLabel(anchor.label, anchor.position + Vector3.up * (anchor.labelHeight + 0.2f), 0.035f, Color.white, parent);
-                CreatePlacementGhost(anchor, overlayRoot);
-                CreateSelectionRing(anchor, overlayRoot);
-                CreateBuilderGizmo(anchor, overlayRoot);
-                CreateBuilderFeedbackPulse(index, anchor, overlayRoot);
+                overlayRoot.position = renderAnchor.position;
+                overlayRoot.rotation = Quaternion.Euler(renderAnchor.rotationEuler);
+                CreateWorldLabel(
+                    isPickedUp ? $"{anchor.label} - picked up" : anchor.label,
+                    renderAnchor.position + Vector3.up * (renderAnchor.labelHeight + 0.2f),
+                    0.035f,
+                    Color.white,
+                    parent);
+                CreatePlacementGhost(renderAnchor, overlayRoot, isPickedUp
+                    ? new Color(1.0f, 0.76f, 0.22f, 0.46f)
+                    : new Color(0.35f, 0.85f, 1.0f, 0.28f));
+                CreateSelectionRing(renderAnchor, overlayRoot);
+                if (!gridEditorActive)
+                {
+                    CreateBuilderGizmo(renderAnchor, overlayRoot);
+                }
+                CreateBuilderFeedbackPulse(index, renderAnchor, overlayRoot);
             }
+            else if (isHovered)
+            {
+                CreateGridFurnitureHoverOverlay(anchor, index, parent);
+            }
+        }
+
+        private AnchorDefinition BuildLiftedGridAnchor(AnchorDefinition source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            return new AnchorDefinition
+            {
+                id = source.id,
+                label = source.label,
+                primitiveShape = source.primitiveShape,
+                colorHex = source.colorHex,
+                modelKey = source.modelKey,
+                position = source.position + Vector3.up * 0.65f,
+                scale = source.scale,
+                rotationEuler = source.rotationEuler,
+                mnemonicOffset = source.mnemonicOffset,
+                labelHeight = source.labelHeight,
+                modelParts = source.modelParts
+            };
+        }
+
+        private void CreateGridFurnitureHoverOverlay(AnchorDefinition anchor, int index, Transform parent)
+        {
+            if (anchor == null || parent == null || index == selectedBuilderAnchorIndex)
+            {
+                return;
+            }
+
+            var overlayRoot = new GameObject($"GridHoverOverlay_{anchor.id}").transform;
+            overlayRoot.SetParent(parent);
+            overlayRoot.position = anchor.position;
+            overlayRoot.rotation = Quaternion.Euler(anchor.rotationEuler);
+            CreatePlacementGhost(anchor, overlayRoot, new Color(0.32f, 0.92f, 0.88f, 0.36f));
+            CreateWorldLabel(
+                "Click to pick up",
+                anchor.position + Vector3.up * Mathf.Max(0.85f, anchor.labelHeight + 0.22f),
+                0.026f,
+                new Color(0.78f, 1.0f, 0.95f, 0.92f),
+                parent);
         }
 
         private void AddFurnitureAnchor(FurnitureTemplate template)
         {
-            var position = GetCameraPlacementPosition(template.DefaultY);
+            var position = SnapFurniturePositionToGrid(GetCameraPlacementPosition(template.DefaultY));
             var anchor = new AnchorDefinition
             {
                 id = BuildUniqueAnchorId(template.IdPrefix),
                 label = template.Label,
                 primitiveShape = template.Shape,
                 colorHex = template.ColorHex,
+                modelKey = template.ModelKey,
                 position = position,
                 scale = template.Scale,
                 rotationEuler = Vector3.zero,
@@ -10477,7 +12254,7 @@ namespace MemPalaceLLM
 
             if (ContainsAny(lower, "wardrobe", "closet", "cabinet", "\u8863\u67dc", "\u30af\u30ed\u30fc\u30bc\u30c3\u30c8"))
             {
-                return new FurnitureTemplate(label, "cabinet", "Cube", "#7E6B55", new Vector3(0.68f, 1.34f, 0.30f), 0.67f, 0.84f);
+                return new FurnitureTemplate(label, "wardrobe", "Cube", "#7E6B55", new Vector3(0.68f, 1.34f, 0.30f), 0.67f, 0.84f);
             }
 
             return new FurnitureTemplate(label, SanitizeIdPrefix(label), "Cube", "#8B7A65", new Vector3(0.56f, 0.56f, 0.44f), 0.36f, 0.60f);
@@ -11112,11 +12889,33 @@ namespace MemPalaceLLM
 
         private Vector3 SnapShellPointToGrid(Vector3 point)
         {
-            const float grid = 0.25f;
-            point.x = Mathf.Round(point.x / grid) * grid;
+            point.x = Mathf.Round(point.x / BuilderGridSize) * BuilderGridSize;
             point.y = 0f;
-            point.z = Mathf.Round(point.z / grid) * grid;
+            point.z = Mathf.Round(point.z / BuilderGridSize) * BuilderGridSize;
             return point;
+        }
+
+        private Vector3 SnapFurniturePositionToGrid(Vector3 position)
+        {
+            if (!snapBuilderFurnitureToGrid)
+            {
+                return position;
+            }
+
+            position.x = Mathf.Round(position.x / BuilderGridSize) * BuilderGridSize;
+            position.z = Mathf.Round(position.z / BuilderGridSize) * BuilderGridSize;
+            return position;
+        }
+
+        private Vector3 SnapFurnitureRotationToGrid(Vector3 rotationEuler)
+        {
+            if (!snapBuilderFurnitureToGrid)
+            {
+                return rotationEuler;
+            }
+
+            rotationEuler.y = Mathf.Round(rotationEuler.y / BuilderRotationSnapDegrees) * BuilderRotationSnapDegrees;
+            return rotationEuler;
         }
 
         private Vector3 GetSnappedFloorPatchPosition(RoomPrimitiveDefinition patch, int patchIndex, Vector3 candidate)
@@ -11327,6 +13126,7 @@ namespace MemPalaceLLM
                 Mathf.Clamp(anchor.position.x, -5.6f, 5.6f),
                 Mathf.Clamp(anchor.position.y, 0.05f, 3.8f),
                 Mathf.Clamp(anchor.position.z, -5.6f, 5.6f));
+            anchor.position = SnapFurniturePositionToGrid(anchor.position);
             GetCurrentRoomFootprint(out var roomWidth, out var roomDepth);
             ConstrainAnchorPlacement(anchor, selectedBuilderAnchorIndex, roomWidth, roomDepth);
             BuildRoomBuilderPreview();
@@ -11340,6 +13140,7 @@ namespace MemPalaceLLM
             }
 
             anchor.rotationEuler = new Vector3(anchor.rotationEuler.x, anchor.rotationEuler.y + degrees, anchor.rotationEuler.z);
+            anchor.rotationEuler = SnapFurnitureRotationToGrid(anchor.rotationEuler);
             BuildRoomBuilderPreview();
         }
 
@@ -11391,6 +13192,8 @@ namespace MemPalaceLLM
             var anchors = RoomSpecCatalog.CurrentRoom.anchors;
             for (int i = 0; i < anchors.Count; i++)
             {
+                anchors[i].position = SnapFurniturePositionToGrid(anchors[i].position);
+                anchors[i].rotationEuler = SnapFurnitureRotationToGrid(anchors[i].rotationEuler);
                 ConstrainAnchorPlacement(anchors[i], i, roomWidth, roomDepth);
             }
 
@@ -11401,6 +13204,10 @@ namespace MemPalaceLLM
             for (int i = 0; i < anchors.Count; i++)
             {
                 ConstrainAnchorPlacement(anchors[i], i, roomWidth, roomDepth);
+                if (!IsWallMountedAnchor(anchors[i]))
+                {
+                    anchors[i].position = SnapFurniturePositionToGrid(anchors[i].position);
+                }
             }
 
             BuildRoomBuilderPreview();
@@ -11425,7 +13232,8 @@ namespace MemPalaceLLM
             {
                 var primitive = room.environmentPrimitives[i];
                 var label = ((primitive.id ?? string.Empty) + " " + (primitive.label ?? string.Empty)).ToLowerInvariant();
-                if (!ContainsAny(label, "floor", "rug") || primitive.scale.x < 2f || primitive.scale.z < 2f)
+                var isGridFloor = (primitive.id ?? string.Empty).StartsWith("grid_floor_", StringComparison.OrdinalIgnoreCase);
+                if (!ContainsAny(label, "floor", "rug") || (!isGridFloor && (primitive.scale.x < 2f || primitive.scale.z < 2f)))
                 {
                     continue;
                 }
@@ -12066,50 +13874,117 @@ namespace MemPalaceLLM
             root.transform.SetParent(parent);
             root.transform.position = anchor.position;
             root.transform.rotation = Quaternion.Euler(anchor.rotationEuler);
+            root.transform.localScale = Vector3.one;
+
+            var modelRoot = new GameObject("Model").transform;
+            modelRoot.SetParent(root.transform, false);
 
             var label = ((anchor.label ?? string.Empty) + " " + (anchor.id ?? string.Empty)).ToLowerInvariant();
             var color = selected
                 ? Color.Lerp(RoomSpecCatalog.Hex(anchor.colorHex), Color.white, 0.28f)
                 : RoomSpecCatalog.Hex(anchor.colorHex);
 
+            if (TryCreateFurniturePrefabModel(anchor, modelRoot, editable, editableIndex))
+            {
+                return root;
+            }
+
             if (anchor.modelParts != null && anchor.modelParts.Count > 0)
             {
-                CreateFurnitureModelFromParts(root.transform, anchor.modelParts, color, editable, editableIndex);
+                CreateFurnitureModelFromParts(modelRoot, anchor.modelParts, color, editable, editableIndex);
             }
             else if (ContainsAny(label, "toilet", "wc", "\u9a6c\u6876", "\u99ac\u6876", "\u4fbf\u5668", "\u30c8\u30a4\u30ec")
                 && !ContainsAny(label, "door", "\u30c9\u30a2", "\u95e8", "\u9580"))
             {
-                AddFurnitureParts(root.transform, editable, editableIndex, Prop("Tank", PrimitiveType.Cube, V(0f, 0.20f, 0.28f), V(0.62f, 0.38f, 0.18f), color), Prop("Bowl", PrimitiveType.Sphere, V(0f, -0.05f, -0.04f), V(0.58f, 0.34f, 0.68f), Color.Lerp(color, Color.white, 0.2f)), Prop("Base", PrimitiveType.Cylinder, V(0f, -0.32f, -0.04f), V(0.34f, 0.16f, 0.34f), color));
+                AddFurnitureParts(modelRoot, editable, editableIndex, Prop("Tank", PrimitiveType.Cube, V(0f, 0.20f, 0.28f), V(0.62f, 0.38f, 0.18f), color), Prop("Bowl", PrimitiveType.Sphere, V(0f, -0.05f, -0.04f), V(0.58f, 0.34f, 0.68f), Color.Lerp(color, Color.white, 0.2f)), Prop("Base", PrimitiveType.Cylinder, V(0f, -0.32f, -0.04f), V(0.34f, 0.16f, 0.34f), color));
             }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("sink", "\u6d17\u9762", "\u6d41\u3057"), Prop("Cabinet", PrimitiveType.Cube, V(0f, -0.20f, 0f), V(0.82f, 0.56f, 0.62f), color), Prop("CounterTop", PrimitiveType.Cube, V(0f, 0.14f, 0f), V(0.92f, 0.10f, 0.70f), Color.Lerp(color, Color.white, 0.25f)), Prop("Basin", PrimitiveType.Cube, V(0f, 0.23f, -0.04f), V(0.56f, 0.10f, 0.42f), C(0.88f, 0.92f, 0.95f)), Prop("FaucetStem", PrimitiveType.Cylinder, V(0f, 0.42f, 0.18f), V(0.07f, 0.22f, 0.07f), C(0.65f, 0.70f, 0.72f)), Prop("FaucetHead", PrimitiveType.Cube, V(0f, 0.52f, 0.04f), V(0.24f, 0.05f, 0.08f), C(0.65f, 0.70f, 0.72f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("bath", "bathtub", "tub", "\u6d74\u69fd", "\u98a8\u5442"), Prop("Tub", PrimitiveType.Cube, Vector3.zero, V(1.0f, 0.34f, 0.58f), color), Prop("Water", PrimitiveType.Cube, V(0f, 0.20f, 0f), V(0.82f, 0.04f, 0.42f), C(0.45f, 0.68f, 0.88f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"), Prop("Screen", PrimitiveType.Cube, V(0f, 0.18f, 0f), V(1.0f, 0.62f, 0.08f), C(0.05f, 0.06f, 0.08f)), Prop("ScreenGlow", PrimitiveType.Cube, V(0f, 0.18f, -0.05f), V(0.86f, 0.48f, 0.03f), C(0.18f, 0.30f, 0.42f)), Prop("StandNeck", PrimitiveType.Cube, V(0f, -0.20f, 0.02f), V(0.10f, 0.32f, 0.10f), Color.Lerp(color, Color.black, 0.1f)), Prop("StandBase", PrimitiveType.Cube, V(0f, -0.38f, 0.02f), V(0.46f, 0.08f, 0.28f), Color.Lerp(color, Color.black, 0.1f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"), Prop("MonitorFrame", PrimitiveType.Cube, V(0f, 0.24f, 0.03f), V(0.76f, 0.52f, 0.08f), C(0.06f, 0.07f, 0.09f)), Prop("MonitorGlow", PrimitiveType.Cube, V(0f, 0.24f, -0.02f), V(0.62f, 0.38f, 0.035f), C(0.18f, 0.45f, 0.70f)), Prop("MonitorStand", PrimitiveType.Cube, V(0f, -0.08f, 0.04f), V(0.10f, 0.28f, 0.10f), Color.Lerp(color, Color.black, 0.12f)), Prop("Keyboard", PrimitiveType.Cube, V(0f, -0.28f, -0.26f), V(0.72f, 0.06f, 0.22f), C(0.12f, 0.13f, 0.15f)), Prop("Mouse", PrimitiveType.Sphere, V(0.42f, -0.26f, -0.24f), V(0.18f, 0.08f, 0.24f), C(0.16f, 0.17f, 0.19f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("air conditioner", "aircon", "air conditioning", "ac unit", "a/c"), Prop("UnitBody", PrimitiveType.Cube, Vector3.zero, V(1.0f, 0.72f, 0.9f), color), Prop("VentLineA", PrimitiveType.Cube, V(0f, -0.20f, -0.48f), V(0.86f, 0.04f, 0.05f), C(0.45f, 0.52f, 0.56f)), Prop("VentLineB", PrimitiveType.Cube, V(0f, -0.08f, -0.48f), V(0.86f, 0.035f, 0.05f), C(0.60f, 0.66f, 0.70f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("stove", "cooktop", "range", "hob"), Prop("StoveBody", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(1.0f, 0.76f, 0.92f), color), Prop("Cooktop", PrimitiveType.Cube, V(0f, 0.32f, -0.02f), V(0.92f, 0.08f, 0.82f), C(0.12f, 0.13f, 0.14f)), Prop("BurnerA", PrimitiveType.Cylinder, V(-0.25f, 0.39f, -0.18f), V(0.22f, 0.03f, 0.22f), C(0.72f, 0.72f, 0.68f)), Prop("BurnerB", PrimitiveType.Cylinder, V(0.25f, 0.39f, 0.16f), V(0.22f, 0.03f, 0.22f), C(0.72f, 0.72f, 0.68f)), Prop("OvenDoor", PrimitiveType.Cube, V(0f, -0.20f, -0.48f), V(0.72f, 0.36f, 0.04f), C(0.16f, 0.18f, 0.20f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("bed", "\u30d9\u30c3\u30c9", "\u5e8a"), Prop("Frame", PrimitiveType.Cube, V(0f, -0.20f, 0f), V(1.0f, 0.20f, 1.0f), Color.Lerp(color, Color.black, 0.16f)), Prop("Mattress", PrimitiveType.Cube, V(0f, 0.02f, 0f), V(0.92f, 0.22f, 0.92f), color), Prop("Blanket", PrimitiveType.Cube, V(0f, 0.17f, -0.10f), V(0.88f, 0.08f, 0.58f), C(0.64f, 0.48f, 0.36f)), Prop("Pillow", PrimitiveType.Cube, V(0f, 0.20f, 0.34f), V(0.62f, 0.13f, 0.22f), C(0.92f, 0.89f, 0.80f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("sofa", "couch", "\u30bd\u30d5\u30a1"), Prop("Seat", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(1.0f, 0.36f, 0.72f), color), Prop("Back", PrimitiveType.Cube, V(0f, 0.20f, 0.34f), V(1.0f, 0.62f, 0.18f), Color.Lerp(color, Color.black, 0.08f)), Prop("LeftArm", PrimitiveType.Cube, V(-0.56f, 0.05f, 0f), V(0.14f, 0.48f, 0.72f), color), Prop("RightArm", PrimitiveType.Cube, V(0.56f, 0.05f, 0f), V(0.14f, 0.48f, 0.72f), color))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("chair", "\u6905\u5b50", "\u30a4\u30b9"), Prop("Seat", PrimitiveType.Cube, Vector3.zero, V(0.78f, 0.18f, 0.78f), color), Prop("Back", PrimitiveType.Cube, V(0f, 0.46f, 0.32f), V(0.78f, 0.74f, 0.16f), Color.Lerp(color, Color.black, 0.08f)), Prop("LegFL", PrimitiveType.Cube, V(-0.25f, -0.34f, -0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegFR", PrimitiveType.Cube, V(0.25f, -0.34f, -0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegBL", PrimitiveType.Cube, V(-0.25f, -0.34f, 0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegBR", PrimitiveType.Cube, V(0.25f, -0.34f, 0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("sink", "\u6d17\u9762", "\u6d41\u3057"), Prop("Cabinet", PrimitiveType.Cube, V(0f, -0.20f, 0f), V(0.82f, 0.56f, 0.62f), color), Prop("CounterTop", PrimitiveType.Cube, V(0f, 0.14f, 0f), V(0.92f, 0.10f, 0.70f), Color.Lerp(color, Color.white, 0.25f)), Prop("Basin", PrimitiveType.Cube, V(0f, 0.23f, -0.04f), V(0.56f, 0.10f, 0.42f), C(0.88f, 0.92f, 0.95f)), Prop("FaucetStem", PrimitiveType.Cylinder, V(0f, 0.42f, 0.18f), V(0.07f, 0.22f, 0.07f), C(0.65f, 0.70f, 0.72f)), Prop("FaucetHead", PrimitiveType.Cube, V(0f, 0.52f, 0.04f), V(0.24f, 0.05f, 0.08f), C(0.65f, 0.70f, 0.72f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("bath", "bathtub", "tub", "\u6d74\u69fd", "\u98a8\u5442"), Prop("Tub", PrimitiveType.Cube, Vector3.zero, V(1.0f, 0.34f, 0.58f), color), Prop("Water", PrimitiveType.Cube, V(0f, 0.20f, 0f), V(0.82f, 0.04f, 0.42f), C(0.45f, 0.68f, 0.88f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"), Prop("Screen", PrimitiveType.Cube, V(0f, 0.18f, 0f), V(1.0f, 0.62f, 0.08f), C(0.05f, 0.06f, 0.08f)), Prop("ScreenGlow", PrimitiveType.Cube, V(0f, 0.18f, -0.05f), V(0.86f, 0.48f, 0.03f), C(0.18f, 0.30f, 0.42f)), Prop("StandNeck", PrimitiveType.Cube, V(0f, -0.20f, 0.02f), V(0.10f, 0.32f, 0.10f), Color.Lerp(color, Color.black, 0.1f)), Prop("StandBase", PrimitiveType.Cube, V(0f, -0.38f, 0.02f), V(0.46f, 0.08f, 0.28f), Color.Lerp(color, Color.black, 0.1f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"), Prop("MonitorFrame", PrimitiveType.Cube, V(0f, 0.24f, 0.03f), V(0.76f, 0.52f, 0.08f), C(0.06f, 0.07f, 0.09f)), Prop("MonitorGlow", PrimitiveType.Cube, V(0f, 0.24f, -0.02f), V(0.62f, 0.38f, 0.035f), C(0.18f, 0.45f, 0.70f)), Prop("MonitorStand", PrimitiveType.Cube, V(0f, -0.08f, 0.04f), V(0.10f, 0.28f, 0.10f), Color.Lerp(color, Color.black, 0.12f)), Prop("Keyboard", PrimitiveType.Cube, V(0f, -0.28f, -0.26f), V(0.72f, 0.06f, 0.22f), C(0.12f, 0.13f, 0.15f)), Prop("Mouse", PrimitiveType.Sphere, V(0.42f, -0.26f, -0.24f), V(0.18f, 0.08f, 0.24f), C(0.16f, 0.17f, 0.19f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("air conditioner", "aircon", "air conditioning", "ac unit", "a/c"), Prop("UnitBody", PrimitiveType.Cube, Vector3.zero, V(1.0f, 0.72f, 0.9f), color), Prop("VentLineA", PrimitiveType.Cube, V(0f, -0.20f, -0.48f), V(0.86f, 0.04f, 0.05f), C(0.45f, 0.52f, 0.56f)), Prop("VentLineB", PrimitiveType.Cube, V(0f, -0.08f, -0.48f), V(0.86f, 0.035f, 0.05f), C(0.60f, 0.66f, 0.70f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("stove", "cooktop", "range", "hob"), Prop("StoveBody", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(1.0f, 0.76f, 0.92f), color), Prop("Cooktop", PrimitiveType.Cube, V(0f, 0.32f, -0.02f), V(0.92f, 0.08f, 0.82f), C(0.12f, 0.13f, 0.14f)), Prop("BurnerA", PrimitiveType.Cylinder, V(-0.25f, 0.39f, -0.18f), V(0.22f, 0.03f, 0.22f), C(0.72f, 0.72f, 0.68f)), Prop("BurnerB", PrimitiveType.Cylinder, V(0.25f, 0.39f, 0.16f), V(0.22f, 0.03f, 0.22f), C(0.72f, 0.72f, 0.68f)), Prop("OvenDoor", PrimitiveType.Cube, V(0f, -0.20f, -0.48f), V(0.72f, 0.36f, 0.04f), C(0.16f, 0.18f, 0.20f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("bed", "\u30d9\u30c3\u30c9", "\u5e8a"), Prop("Frame", PrimitiveType.Cube, V(0f, -0.20f, 0f), V(1.0f, 0.20f, 1.0f), Color.Lerp(color, Color.black, 0.16f)), Prop("Mattress", PrimitiveType.Cube, V(0f, 0.02f, 0f), V(0.92f, 0.22f, 0.92f), color), Prop("Blanket", PrimitiveType.Cube, V(0f, 0.17f, -0.10f), V(0.88f, 0.08f, 0.58f), C(0.64f, 0.48f, 0.36f)), Prop("Pillow", PrimitiveType.Cube, V(0f, 0.20f, 0.34f), V(0.62f, 0.13f, 0.22f), C(0.92f, 0.89f, 0.80f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("sofa", "couch", "\u30bd\u30d5\u30a1"), Prop("Seat", PrimitiveType.Cube, V(0f, -0.10f, 0f), V(1.0f, 0.36f, 0.72f), color), Prop("Back", PrimitiveType.Cube, V(0f, 0.20f, 0.34f), V(1.0f, 0.62f, 0.18f), Color.Lerp(color, Color.black, 0.08f)), Prop("LeftArm", PrimitiveType.Cube, V(-0.56f, 0.05f, 0f), V(0.14f, 0.48f, 0.72f), color), Prop("RightArm", PrimitiveType.Cube, V(0.56f, 0.05f, 0f), V(0.14f, 0.48f, 0.72f), color))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("chair", "\u6905\u5b50", "\u30a4\u30b9"), Prop("Seat", PrimitiveType.Cube, Vector3.zero, V(0.78f, 0.18f, 0.78f), color), Prop("Back", PrimitiveType.Cube, V(0f, 0.46f, 0.32f), V(0.78f, 0.74f, 0.16f), Color.Lerp(color, Color.black, 0.08f)), Prop("LegFL", PrimitiveType.Cube, V(-0.25f, -0.34f, -0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegFR", PrimitiveType.Cube, V(0.25f, -0.34f, -0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegBL", PrimitiveType.Cube, V(-0.25f, -0.34f, 0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)), Prop("LegBR", PrimitiveType.Cube, V(0.25f, -0.34f, 0.25f), V(0.08f, 0.58f, 0.08f), Color.Lerp(color, Color.black, 0.18f)))) { }
             else if (ContainsAny(label, "table", "desk", "counter", "\u673a", "\u30c6\u30fc\u30d6\u30eb", "\u30ab\u30a6\u30f3\u30bf\u30fc"))
             {
-                AddFurnitureParts(root.transform, editable, editableIndex, Prop("Top", PrimitiveType.Cube, V(0f, 0.22f, 0f), V(1.0f, 0.14f, 1.0f), color), Prop("LegFL", PrimitiveType.Cube, V(-0.38f, -0.25f, -0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegFR", PrimitiveType.Cube, V(0.38f, -0.25f, -0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegBL", PrimitiveType.Cube, V(-0.38f, -0.25f, 0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegBR", PrimitiveType.Cube, V(0.38f, -0.25f, 0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)));
+                AddFurnitureParts(modelRoot, editable, editableIndex, Prop("Top", PrimitiveType.Cube, V(0f, 0.22f, 0f), V(1.0f, 0.14f, 1.0f), color), Prop("LegFL", PrimitiveType.Cube, V(-0.38f, -0.25f, -0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegFR", PrimitiveType.Cube, V(0.38f, -0.25f, -0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegBL", PrimitiveType.Cube, V(-0.38f, -0.25f, 0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)), Prop("LegBR", PrimitiveType.Cube, V(0.38f, -0.25f, 0.34f), V(0.08f, 0.78f, 0.08f), Color.Lerp(color, Color.black, 0.2f)));
                 if (ContainsAny(label, "desk", "counter", "\u30ab\u30a6\u30f3\u30bf\u30fc"))
                 {
-                    AddFurniturePart(root.transform, "Drawer", PrimitiveType.Cube, V(0.23f, -0.05f, -0.42f), V(0.34f, 0.22f, 0.08f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
+                    AddFurniturePart(modelRoot, "Drawer", PrimitiveType.Cube, V(0.23f, -0.05f, -0.42f), V(0.34f, 0.22f, 0.08f), Color.Lerp(color, Color.black, 0.08f), editable, editableIndex);
                 }
             }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("shelf", "book", "cabinet", "wardrobe", "closet", "\u68da", "\u672c\u68da", "\u8863\u67dc", "\u30af\u30ed\u30fc\u30bc\u30c3\u30c8"), Prop("Frame", PrimitiveType.Cube, Vector3.zero, V(1.0f, 1.0f, 0.42f), color), Prop("OpenFace", PrimitiveType.Cube, V(0f, 0f, -0.24f), V(0.82f, 0.86f, 0.05f), Color.Lerp(color, Color.white, 0.20f)), Prop("ShelfLine1", PrimitiveType.Cube, V(0f, 0.22f, -0.29f), V(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f)), Prop("ShelfLine2", PrimitiveType.Cube, V(0f, -0.20f, -0.29f), V(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f)), Prop("BookA", PrimitiveType.Cube, V(-0.25f, 0.42f, -0.34f), V(0.10f, 0.28f, 0.10f), C(0.65f, 0.22f, 0.18f)), Prop("BookB", PrimitiveType.Cube, V(-0.12f, 0.40f, -0.34f), V(0.09f, 0.24f, 0.10f), C(0.20f, 0.38f, 0.65f)), Prop("BookC", PrimitiveType.Cube, V(0.03f, -0.02f, -0.34f), V(0.12f, 0.30f, 0.10f), C(0.75f, 0.62f, 0.24f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("plant", "\u690d\u7269", "\u89b3\u8449"), Prop("Pot", PrimitiveType.Cylinder, V(0f, -0.30f, 0f), V(0.5f, 0.35f, 0.5f), C(0.48f, 0.30f, 0.20f)), Prop("Stem", PrimitiveType.Cylinder, V(0f, 0.08f, 0f), V(0.08f, 0.62f, 0.08f), C(0.35f, 0.55f, 0.28f)), Prop("LeafA", PrimitiveType.Sphere, V(-0.18f, 0.34f, 0f), V(0.46f, 0.25f, 0.30f), color), Prop("LeafB", PrimitiveType.Sphere, V(0.18f, 0.48f, 0.02f), V(0.46f, 0.25f, 0.30f), color), Prop("LeafC", PrimitiveType.Sphere, V(0f, 0.62f, -0.12f), V(0.40f, 0.24f, 0.28f), Color.Lerp(color, Color.white, 0.1f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("lamp", "light", "\u7167\u660e", "\u30e9\u30a4\u30c8", "\u30e9\u30f3\u30d7"), Prop("Pole", PrimitiveType.Cylinder, V(0f, -0.12f, 0f), V(0.12f, 0.78f, 0.12f), C(0.55f, 0.55f, 0.58f)), Prop("Shade", PrimitiveType.Sphere, V(0f, 0.48f, 0f), V(0.72f, 0.42f, 0.72f), color))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("fridge", "refrigerator", "\u51b7\u8535", "\u51b0\u7bb1"), Prop("Body", PrimitiveType.Cube, Vector3.zero, Vector3.one, color), Prop("FreezerDoor", PrimitiveType.Cube, V(0f, 0.24f, -0.52f), V(0.94f, 0.42f, 0.05f), Color.Lerp(color, Color.white, 0.12f)), Prop("FridgeDoor", PrimitiveType.Cube, V(0f, -0.25f, -0.52f), V(0.94f, 0.50f, 0.05f), Color.Lerp(color, Color.white, 0.06f)), Prop("Handle", PrimitiveType.Cube, V(0.42f, 0.05f, -0.52f), V(0.06f, 0.62f, 0.06f), C(0.65f, 0.68f, 0.70f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("door", "\u30c9\u30a2", "\u95e8", "\u9580"), Prop("Panel", PrimitiveType.Cube, Vector3.zero, V(0.92f, 1.0f, 0.58f), color), Prop("FrameTop", PrimitiveType.Cube, V(0f, 0.48f, 0f), V(1.0f, 0.06f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("FrameLeft", PrimitiveType.Cube, V(-0.46f, 0f, 0f), V(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("FrameRight", PrimitiveType.Cube, V(0.46f, 0f, 0f), V(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("Knob", PrimitiveType.Sphere, V(0.34f, -0.02f, -0.34f), V(0.10f, 0.10f, 0.10f), C(0.86f, 0.70f, 0.38f)))) { }
-            else if (TryAddFurnitureParts(label, root.transform, editable, editableIndex, K("window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"), Prop("Glass", PrimitiveType.Cube, Vector3.zero, V(0.84f, 0.78f, 0.28f), C(0.60f, 0.76f, 0.92f, 0.72f)), Prop("FrameTop", PrimitiveType.Cube, V(0f, 0.39f, 0f), V(0.94f, 0.055f, 0.46f), Color.white), Prop("FrameBottom", PrimitiveType.Cube, V(0f, -0.39f, 0f), V(0.94f, 0.055f, 0.46f), Color.white), Prop("FrameLeft", PrimitiveType.Cube, V(-0.44f, 0f, 0f), V(0.055f, 0.84f, 0.46f), Color.white), Prop("FrameRight", PrimitiveType.Cube, V(0.44f, 0f, 0f), V(0.055f, 0.84f, 0.46f), Color.white), Prop("FrameMid", PrimitiveType.Cube, Vector3.zero, V(0.045f, 0.78f, 0.42f), Color.white), Prop("Sill", PrimitiveType.Cube, V(0f, -0.46f, 0f), V(0.96f, 0.07f, 0.64f), C(0.72f, 0.68f, 0.58f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("shelf", "book", "cabinet", "wardrobe", "closet", "\u68da", "\u672c\u68da", "\u8863\u67dc", "\u30af\u30ed\u30fc\u30bc\u30c3\u30c8"), Prop("Frame", PrimitiveType.Cube, Vector3.zero, V(1.0f, 1.0f, 0.42f), color), Prop("OpenFace", PrimitiveType.Cube, V(0f, 0f, -0.24f), V(0.82f, 0.86f, 0.05f), Color.Lerp(color, Color.white, 0.20f)), Prop("ShelfLine1", PrimitiveType.Cube, V(0f, 0.22f, -0.29f), V(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f)), Prop("ShelfLine2", PrimitiveType.Cube, V(0f, -0.20f, -0.29f), V(0.9f, 0.04f, 0.08f), Color.Lerp(color, Color.black, 0.12f)), Prop("BookA", PrimitiveType.Cube, V(-0.25f, 0.42f, -0.34f), V(0.10f, 0.28f, 0.10f), C(0.65f, 0.22f, 0.18f)), Prop("BookB", PrimitiveType.Cube, V(-0.12f, 0.40f, -0.34f), V(0.09f, 0.24f, 0.10f), C(0.20f, 0.38f, 0.65f)), Prop("BookC", PrimitiveType.Cube, V(0.03f, -0.02f, -0.34f), V(0.12f, 0.30f, 0.10f), C(0.75f, 0.62f, 0.24f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("plant", "\u690d\u7269", "\u89b3\u8449"), Prop("Pot", PrimitiveType.Cylinder, V(0f, -0.30f, 0f), V(0.5f, 0.35f, 0.5f), C(0.48f, 0.30f, 0.20f)), Prop("Stem", PrimitiveType.Cylinder, V(0f, 0.08f, 0f), V(0.08f, 0.62f, 0.08f), C(0.35f, 0.55f, 0.28f)), Prop("LeafA", PrimitiveType.Sphere, V(-0.18f, 0.34f, 0f), V(0.46f, 0.25f, 0.30f), color), Prop("LeafB", PrimitiveType.Sphere, V(0.18f, 0.48f, 0.02f), V(0.46f, 0.25f, 0.30f), color), Prop("LeafC", PrimitiveType.Sphere, V(0f, 0.62f, -0.12f), V(0.40f, 0.24f, 0.28f), Color.Lerp(color, Color.white, 0.1f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("lamp", "light", "\u7167\u660e", "\u30e9\u30a4\u30c8", "\u30e9\u30f3\u30d7"), Prop("Pole", PrimitiveType.Cylinder, V(0f, -0.12f, 0f), V(0.12f, 0.78f, 0.12f), C(0.55f, 0.55f, 0.58f)), Prop("Shade", PrimitiveType.Sphere, V(0f, 0.48f, 0f), V(0.72f, 0.42f, 0.72f), color))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("fridge", "refrigerator", "\u51b7\u8535", "\u51b0\u7bb1"), Prop("Body", PrimitiveType.Cube, Vector3.zero, Vector3.one, color), Prop("FreezerDoor", PrimitiveType.Cube, V(0f, 0.24f, -0.52f), V(0.94f, 0.42f, 0.05f), Color.Lerp(color, Color.white, 0.12f)), Prop("FridgeDoor", PrimitiveType.Cube, V(0f, -0.25f, -0.52f), V(0.94f, 0.50f, 0.05f), Color.Lerp(color, Color.white, 0.06f)), Prop("Handle", PrimitiveType.Cube, V(0.42f, 0.05f, -0.52f), V(0.06f, 0.62f, 0.06f), C(0.65f, 0.68f, 0.70f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("door", "\u30c9\u30a2", "\u95e8", "\u9580"), Prop("Panel", PrimitiveType.Cube, Vector3.zero, V(0.92f, 1.0f, 0.58f), color), Prop("FrameTop", PrimitiveType.Cube, V(0f, 0.48f, 0f), V(1.0f, 0.06f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("FrameLeft", PrimitiveType.Cube, V(-0.46f, 0f, 0f), V(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("FrameRight", PrimitiveType.Cube, V(0.46f, 0f, 0f), V(0.06f, 0.94f, 0.76f), Color.Lerp(color, Color.black, 0.14f)), Prop("Knob", PrimitiveType.Sphere, V(0.34f, -0.02f, -0.34f), V(0.10f, 0.10f, 0.10f), C(0.86f, 0.70f, 0.38f)))) { }
+            else if (TryAddFurnitureParts(label, modelRoot, editable, editableIndex, K("window", "balcony", "\u7a93", "\u7a97", "\u30d9\u30e9\u30f3\u30c0"), Prop("Glass", PrimitiveType.Cube, Vector3.zero, V(0.84f, 0.78f, 0.28f), C(0.60f, 0.76f, 0.92f, 0.72f)), Prop("FrameTop", PrimitiveType.Cube, V(0f, 0.39f, 0f), V(0.94f, 0.055f, 0.46f), Color.white), Prop("FrameBottom", PrimitiveType.Cube, V(0f, -0.39f, 0f), V(0.94f, 0.055f, 0.46f), Color.white), Prop("FrameLeft", PrimitiveType.Cube, V(-0.44f, 0f, 0f), V(0.055f, 0.84f, 0.46f), Color.white), Prop("FrameRight", PrimitiveType.Cube, V(0.44f, 0f, 0f), V(0.055f, 0.84f, 0.46f), Color.white), Prop("FrameMid", PrimitiveType.Cube, Vector3.zero, V(0.045f, 0.78f, 0.42f), Color.white), Prop("Sill", PrimitiveType.Cube, V(0f, -0.46f, 0f), V(0.96f, 0.07f, 0.64f), C(0.72f, 0.68f, 0.58f)))) { }
             else
             {
-                AddFurniturePart(root.transform, "Generic", RoomSpecCatalog.ParsePrimitiveType(anchor.primitiveShape), Vector3.zero, Vector3.one, color, editable, editableIndex);
+                AddFurniturePart(modelRoot, "Generic", RoomSpecCatalog.ParsePrimitiveType(anchor.primitiveShape), Vector3.zero, Vector3.one, color, editable, editableIndex);
             }
 
             return root;
+        }
+
+        private bool TryCreateFurniturePrefabModel(AnchorDefinition anchor, Transform modelRoot, bool editable, int editableIndex)
+        {
+            var modelKey = string.IsNullOrWhiteSpace(anchor?.modelKey)
+                ? RoomSpecCatalog.ResolveModelKey(anchor?.id, anchor?.label)
+                : SanitizeIdPrefix(anchor.modelKey);
+            if (string.IsNullOrWhiteSpace(modelKey))
+            {
+                return false;
+            }
+
+            var prefab = Resources.Load<GameObject>($"FurniturePrefabs/{modelKey}");
+            if (prefab == null)
+            {
+                return false;
+            }
+
+            var instance = Instantiate(prefab, modelRoot);
+            instance.name = modelKey + "_Prefab";
+            instance.transform.localPosition = Vector3.zero;
+            instance.transform.localRotation = Quaternion.identity;
+            instance.transform.localScale = GetFurnitureRenderScale(anchor);
+            RegisterFurniturePrefabInteractables(instance, editable, editableIndex);
+            return true;
+        }
+
+        private void RegisterFurniturePrefabInteractables(GameObject instance, bool editable, int editableIndex)
+        {
+            if (instance == null || !editable)
+            {
+                return;
+            }
+
+            var colliders = instance.GetComponentsInChildren<Collider>(true);
+            if (colliders == null || colliders.Length == 0)
+            {
+                var fallback = instance.AddComponent<BoxCollider>();
+                fallback.center = Vector3.zero;
+                fallback.size = Vector3.one;
+                colliders = new Collider[] { fallback };
+            }
+
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                if (colliders[i] == null)
+                {
+                    continue;
+                }
+
+                var interactable = colliders[i].GetComponent<RoomAnchorInteractable>();
+                if (interactable == null)
+                {
+                    interactable = colliders[i].gameObject.AddComponent<RoomAnchorInteractable>();
+                }
+
+                interactable.Index = editableIndex;
+            }
         }
 
         private bool TryAddFurnitureParts(string label, Transform root, bool editable, int editableIndex, string[] terms, params PrimitivePartSpec[] parts)
@@ -13652,7 +15527,7 @@ namespace MemPalaceLLM
                 return;
             }
 
-            if (!IsPointerOverGui())
+            if (showAdvancedRoomEditing && !IsPointerOverGui())
             {
                 if (keyboard.qKey.wasPressedThisFrame) SetBuilderTool(BuilderToolMode.Select);
                 if (keyboard.wKey.wasPressedThisFrame) SetBuilderTool(BuilderToolMode.Move);
@@ -13664,7 +15539,8 @@ namespace MemPalaceLLM
             var moveSpeed = StudyMoveSpeed * (keyboard.leftShiftKey.isPressed ? 1.8f : 1f);
             var move = Vector3.zero;
 
-            if (mouse.rightButton.isPressed && !IsPointerOverGui())
+            var rightDragNavigates = showAdvancedRoomEditing;
+            if (mouse.rightButton.isPressed && !IsPointerOverGui() && rightDragNavigates)
             {
                 if (keyboard.wKey.isPressed) move += runtimeCamera.transform.forward;
                 if (keyboard.sKey.isPressed) move -= runtimeCamera.transform.forward;
@@ -13686,6 +15562,12 @@ namespace MemPalaceLLM
             {
                 Cursor.visible = true;
                 Cursor.lockState = CursorLockMode.None;
+            }
+
+            if (!showAdvancedRoomEditing)
+            {
+                HandleGridRoomEditorControls(mouse, keyboard);
+                return;
             }
 
             if (isDrawingShellWall)
@@ -13763,6 +15645,761 @@ namespace MemPalaceLLM
                     }
                 }
             }
+        }
+
+        private void HandleGridRoomEditorControls(Mouse mouse, Keyboard keyboard)
+        {
+            EnsureGridRoomEditorInitialized();
+
+            var ctrlPressed = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
+            if (ctrlPressed && keyboard.zKey.wasPressedThisFrame)
+            {
+                UndoGridRoomEdit();
+                return;
+            }
+
+            if (ctrlPressed && keyboard.yKey.wasPressedThisFrame)
+            {
+                RedoGridRoomEdit();
+                return;
+            }
+
+            if ((keyboard.deleteKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame)
+                && selectedGridFurnitureInstanceIndex >= 0)
+            {
+                DeleteSelectedGridFurniture();
+                return;
+            }
+
+            if (keyboard.escapeKey.wasPressedThisFrame && movingGridFurnitureInstanceIndex >= 0)
+            {
+                CancelGridFurnitureMove("Move cancelled.");
+                return;
+            }
+
+            if (gridEditorMode == GridEditorMode.Furniture && keyboard.rKey.wasPressedThisFrame && !IsPointerOverGui())
+            {
+                var definition = movingGridFurnitureInstanceIndex >= 0 && TryGetSelectedGridFurniture(out _, out var selectedDefinition)
+                    ? selectedDefinition
+                    : GetSelectedGridFurnitureDefinition();
+                if (definition != null && definition.canRotate && definition.snapType == GridFurnitureSnapType.Floor)
+                {
+                    gridGhostRotation = NormalizeGridRotation(gridGhostRotation + 90);
+                    UpdateGridFurniturePreview(true);
+                    gridEditorStatus = $"Ghost rotated: {gridGhostRotation} degrees.";
+                }
+            }
+
+            var rightMouseLookActive = IsGridRoomCameraLookActive(mouse, keyboard);
+            HandleGridRoomCameraControls(mouse, keyboard, rightMouseLookActive);
+
+            if (IsPointerOverGui())
+            {
+                return;
+            }
+
+            var furnitureSelectionMode = gridEditorMode == GridEditorMode.Furniture || gridEditorMode == GridEditorMode.Select;
+            var hoverChanged = furnitureSelectionMode
+                ? UpdateHoveredGridFurniture(mouse.position.ReadValue())
+                : ClearHoveredGridFurniture();
+            if (hoveredGridFurnitureInstanceIndex >= 0
+                && movingGridFurnitureInstanceIndex < 0
+                && mouse.leftButton.wasPressedThisFrame)
+            {
+                SelectAndPickUpGridFurniture(hoveredGridFurnitureInstanceIndex);
+                return;
+            }
+
+            var hadHover = hasGridHoverCell;
+            var previousHover = gridHoverCell;
+            if (TryGetMousePlanePoint(mouse.position.ReadValue(), 0f, out var planePoint))
+            {
+                gridHoverCell = WorldToGridCell(planePoint);
+                hasGridHoverCell = true;
+            }
+            else
+            {
+                hasGridHoverCell = false;
+            }
+
+            hoverChanged = hoverChanged || hadHover != hasGridHoverCell || (hasGridHoverCell && previousHover != gridHoverCell);
+            if (gridEditorMode == GridEditorMode.Furniture)
+            {
+                UpdateGridFurniturePreview(hoverChanged);
+            }
+            else if (gridEditorMode == GridEditorMode.Wall)
+            {
+                UpdateGridWallPreview(hoverChanged);
+            }
+            else if (hoverChanged)
+            {
+                BuildRoomBuilderPreview();
+            }
+
+            if (!hasGridHoverCell)
+            {
+                return;
+            }
+
+            if (gridEditorMode == GridEditorMode.Floor)
+            {
+                if (mouse.leftButton.isPressed)
+                {
+                    PaintGridFloorCell(gridHoverCell);
+                }
+                else if (mouse.rightButton.isPressed && !rightMouseLookActive)
+                {
+                    RemoveGridFloorCell(gridHoverCell);
+                }
+
+                return;
+            }
+
+            if (gridEditorMode == GridEditorMode.Wall)
+            {
+                if (mouse.leftButton.wasPressedThisFrame)
+                {
+                    AddGridManualWallFromPreview();
+                }
+                else if (mouse.rightButton.wasPressedThisFrame)
+                {
+                    RemoveGridManualWallFromPreview();
+                }
+
+                return;
+            }
+
+            if (gridEditorMode == GridEditorMode.Furniture)
+            {
+                if (mouse.leftButton.wasPressedThisFrame)
+                {
+                    PlaceGridFurnitureFromPreview();
+                }
+
+                return;
+            }
+
+            if (gridEditorMode == GridEditorMode.Select && mouse.leftButton.wasPressedThisFrame)
+            {
+                ClearGridFurnitureSelection();
+            }
+        }
+
+        private bool UpdateHoveredGridFurniture(Vector2 mousePosition)
+        {
+            var previous = hoveredGridFurnitureInstanceIndex;
+            if (movingGridFurnitureInstanceIndex >= 0 || IsPointerOverGui())
+            {
+                hoveredGridFurnitureInstanceIndex = -1;
+            }
+            else if (TryGetGridFurnitureIndexUnderMouse(mousePosition, out var index))
+            {
+                hoveredGridFurnitureInstanceIndex = index;
+            }
+            else
+            {
+                hoveredGridFurnitureInstanceIndex = -1;
+            }
+
+            return previous != hoveredGridFurnitureInstanceIndex;
+        }
+
+        private bool ClearHoveredGridFurniture()
+        {
+            var changed = hoveredGridFurnitureInstanceIndex >= 0;
+            hoveredGridFurnitureInstanceIndex = -1;
+            return changed;
+        }
+
+        private bool TryGetGridFurnitureIndexUnderMouse(Vector2 mousePosition, out int index)
+        {
+            index = -1;
+            if (!TryGetBuilderRaycastHit(mousePosition, out var hit))
+            {
+                return false;
+            }
+
+            var interactable = hit.collider.GetComponent<RoomAnchorInteractable>();
+            if (interactable == null || interactable.Index < 0 || interactable.Index >= gridRoomLayout.furniture.Count)
+            {
+                return false;
+            }
+
+            index = interactable.Index;
+            return true;
+        }
+
+        private void SelectAndPickUpGridFurniture(int index)
+        {
+            if (index < 0 || index >= gridRoomLayout.furniture.Count)
+            {
+                return;
+            }
+
+            selectedGridFurnitureInstanceIndex = index;
+            selectedBuilderAnchorIndex = index;
+            selectedRoomPrimitiveIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+
+            var furniture = gridRoomLayout.furniture[index];
+            var definition = GetGridFurnitureDefinition(furniture?.definitionId);
+            if (definition != null)
+            {
+                selectedGridFurnitureDefinitionIndex = GetGridFurnitureDefinitionIndex(definition.id);
+                gridGhostRotation = NormalizeGridRotation(furniture.rotation);
+                movingGridFurnitureInstanceIndex = index;
+                gridEditorMode = GridEditorMode.Furniture;
+                gridEditorStatus = $"Picked up {definition.displayName}. Move the mouse to a valid cell, then click the green ghost to drop.";
+                if (Mouse.current != null && TryGetMousePlanePoint(Mouse.current.position.ReadValue(), 0f, out var planePoint))
+                {
+                    gridHoverCell = WorldToGridCell(planePoint);
+                    hasGridHoverCell = true;
+                }
+                UpdateGridFurniturePreview(true);
+            }
+            else
+            {
+                movingGridFurnitureInstanceIndex = -1;
+                gridFurniturePreview = new GridFurniturePlacementPreview();
+                BuildRoomBuilderPreview();
+            }
+        }
+
+        private void ClearGridFurnitureSelection()
+        {
+            selectedGridFurnitureInstanceIndex = -1;
+            selectedBuilderAnchorIndex = -1;
+            movingGridFurnitureInstanceIndex = -1;
+            hoveredGridFurnitureInstanceIndex = -1;
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridEditorStatus = "No furniture selected.";
+            BuildRoomBuilderPreview();
+        }
+
+        private bool IsGridRoomCameraLookActive(Mouse mouse, Keyboard keyboard)
+        {
+            if (mouse == null || keyboard == null || IsPointerOverGui() || !mouse.rightButton.isPressed)
+            {
+                return false;
+            }
+
+            return gridEditorMode == GridEditorMode.Furniture
+                || gridEditorMode == GridEditorMode.Select
+                || keyboard.leftAltKey.isPressed
+                || keyboard.rightAltKey.isPressed;
+        }
+
+        private void HandleGridRoomCameraControls(Mouse mouse, Keyboard keyboard, bool rightMouseLookActive)
+        {
+            if (keyboard == null || runtimeCamera == null || IsPointerOverGui())
+            {
+                return;
+            }
+
+            var deltaTime = Time.unscaledDeltaTime;
+            var moveSpeed = StudyMoveSpeed * (keyboard.leftShiftKey.isPressed ? 1.8f : 1f);
+            var flatForward = runtimeCamera.transform.forward;
+            flatForward.y = 0f;
+            if (flatForward.sqrMagnitude < 0.001f)
+            {
+                flatForward = Vector3.forward;
+            }
+
+            var flatRight = runtimeCamera.transform.right;
+            flatRight.y = 0f;
+            if (flatRight.sqrMagnitude < 0.001f)
+            {
+                flatRight = Vector3.right;
+            }
+
+            var move = Vector3.zero;
+            if (keyboard.wKey.isPressed) move += flatForward.normalized;
+            if (keyboard.sKey.isPressed) move -= flatForward.normalized;
+            if (keyboard.dKey.isPressed) move += flatRight.normalized;
+            if (keyboard.aKey.isPressed) move -= flatRight.normalized;
+            if (keyboard.eKey.isPressed) move += Vector3.up;
+            if (keyboard.qKey.isPressed) move -= Vector3.up;
+
+            if (move.sqrMagnitude > 0.001f)
+            {
+                runtimeCamera.transform.position += move.normalized * moveSpeed * deltaTime;
+            }
+
+            if (!rightMouseLookActive || mouse == null)
+            {
+                return;
+            }
+
+            var delta = mouse.delta.ReadValue();
+            cameraYaw += delta.x * StudyLookSpeed;
+            cameraPitch = Mathf.Clamp(cameraPitch - delta.y * StudyLookSpeed, -70f, 70f);
+            runtimeCamera.transform.rotation = Quaternion.Euler(cameraPitch, cameraYaw, 0f);
+            Cursor.visible = false;
+            Cursor.lockState = CursorLockMode.Locked;
+        }
+
+        private void PaintGridFloorCell(Vector2Int cell)
+        {
+            if (HasGridFloorCell(cell))
+            {
+                return;
+            }
+
+            PushGridRoomUndo();
+            gridRoomLayout.floorCells.Add(new GridFloorCellData { x = cell.x, z = cell.y });
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = $"Added floor cell ({cell.x}, {cell.y}).";
+        }
+
+        private void RemoveGridFloorCell(Vector2Int cell)
+        {
+            if (!HasGridFloorCell(cell))
+            {
+                return;
+            }
+
+            if (gridRoomLayout.floorCells.Count <= 1)
+            {
+                gridEditorStatus = "Keep at least one floor cell.";
+                return;
+            }
+
+            if (!CanRemoveGridFloorCell(cell, out var reason))
+            {
+                gridEditorStatus = reason;
+                return;
+            }
+
+            PushGridRoomUndo();
+            for (int i = gridRoomLayout.floorCells.Count - 1; i >= 0; i--)
+            {
+                var floorCell = gridRoomLayout.floorCells[i];
+                if (floorCell != null && floorCell.x == cell.x && floorCell.z == cell.y)
+                {
+                    gridRoomLayout.floorCells.RemoveAt(i);
+                    break;
+                }
+            }
+
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = $"Removed floor cell ({cell.x}, {cell.y}).";
+        }
+
+        private void UpdateGridWallPreview(bool force)
+        {
+            if (gridEditorMode != GridEditorMode.Wall || !hasGridHoverCell)
+            {
+                if (gridWallPreview.hasPreview)
+                {
+                    gridWallPreview = new GridWallPlacementPreview();
+                    BuildRoomBuilderPreview();
+                }
+                return;
+            }
+
+            var nextPreview = BuildGridWallPlacementPreview();
+            if (!force && gridWallPreview.Matches(nextPreview))
+            {
+                return;
+            }
+
+            gridWallPreview = nextPreview;
+            BuildRoomBuilderPreview();
+        }
+
+        private GridWallPlacementPreview BuildGridWallPlacementPreview()
+        {
+            var preview = new GridWallPlacementPreview
+            {
+                hasPreview = true,
+                gridX = gridHoverCell.x,
+                gridZ = gridHoverCell.y
+            };
+
+            if (!HasGridFloorCell(gridHoverCell))
+            {
+                preview.isValid = false;
+                preview.reason = "No floor cell under cursor.";
+                return preview;
+            }
+
+            preview.direction = FindNearestGridCellEdge(gridHoverCell);
+            preview.wallExists = GridManualWallExists(gridHoverCell.x, gridHoverCell.y, preview.direction);
+            preview.isValid = true;
+            var primitive = BuildGridWallPrimitive(
+                "grid_wall_preview",
+                "Grid Wall Preview",
+                "#FFFFFF",
+                gridHoverCell,
+                preview.direction,
+                RoomSpecCatalog.DefaultShellWallHeight * 0.5f,
+                RoomSpecCatalog.DefaultShellWallHeight);
+            if (primitive != null)
+            {
+                preview.position = primitive.position;
+                preview.scale = primitive.scale;
+            }
+
+            return preview;
+        }
+
+        private int FindNearestGridCellEdge(Vector2Int cell)
+        {
+            if (Mouse.current != null && TryGetMousePlanePoint(Mouse.current.position.ReadValue(), 0f, out var point))
+            {
+                var xMin = cell.x * GridRoomCellSize;
+                var xMax = (cell.x + 1) * GridRoomCellSize;
+                var zMin = cell.y * GridRoomCellSize;
+                var zMax = (cell.y + 1) * GridRoomCellSize;
+                var left = Mathf.Abs(point.x - xMin);
+                var right = Mathf.Abs(point.x - xMax);
+                var bottom = Mathf.Abs(point.z - zMin);
+                var top = Mathf.Abs(point.z - zMax);
+                var best = left;
+                var direction = 0;
+                if (right < best)
+                {
+                    best = right;
+                    direction = 1;
+                }
+
+                if (bottom < best)
+                {
+                    best = bottom;
+                    direction = 2;
+                }
+
+                if (top < best)
+                {
+                    direction = 3;
+                }
+
+                return direction;
+            }
+
+            return 3;
+        }
+
+        private bool GridManualWallExists(int gridX, int gridZ, int direction)
+        {
+            var key = BuildGridWallKey(gridX, gridZ, direction);
+            for (int i = 0; i < gridRoomLayout.manualWalls.Count; i++)
+            {
+                var wall = gridRoomLayout.manualWalls[i];
+                if (wall != null && string.Equals(BuildGridWallKey(wall.gridX, wall.gridZ, wall.direction), key, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private string BuildGridWallKey(int gridX, int gridZ, int direction)
+        {
+            return direction switch
+            {
+                0 => $"v|{gridX}|{gridZ}",
+                1 => $"v|{gridX + 1}|{gridZ}",
+                2 => $"h|{gridZ}|{gridX}",
+                3 => $"h|{gridZ + 1}|{gridX}",
+                _ => $"invalid|{gridX}|{gridZ}|{direction}"
+            };
+        }
+
+        private void AddGridManualWallFromPreview()
+        {
+            if (!gridWallPreview.hasPreview || !gridWallPreview.isValid)
+            {
+                gridEditorStatus = string.IsNullOrWhiteSpace(gridWallPreview.reason)
+                    ? "Move over a valid floor-cell edge first."
+                    : gridWallPreview.reason;
+                return;
+            }
+
+            if (GridManualWallExists(gridWallPreview.gridX, gridWallPreview.gridZ, gridWallPreview.direction))
+            {
+                gridEditorStatus = "A manual wall is already snapped to that edge.";
+                return;
+            }
+
+            PushGridRoomUndo();
+            var key = BuildGridWallKey(gridWallPreview.gridX, gridWallPreview.gridZ, gridWallPreview.direction);
+            gridRoomLayout.manualWalls.Add(new GridWallSegmentData
+            {
+                id = "manual_wall_" + key.Replace('|', '_'),
+                gridX = gridWallPreview.gridX,
+                gridZ = gridWallPreview.gridZ,
+                direction = gridWallPreview.direction
+            });
+            gridWallPreview.wallExists = true;
+            ApplyGridRoomLayoutToCurrentRoom(true);
+            gridEditorStatus = "Added snapped wall segment.";
+        }
+
+        private void RemoveGridManualWallFromPreview()
+        {
+            if (!gridWallPreview.hasPreview || !gridWallPreview.isValid)
+            {
+                gridEditorStatus = "Move over a manual wall edge before removing.";
+                return;
+            }
+
+            var key = BuildGridWallKey(gridWallPreview.gridX, gridWallPreview.gridZ, gridWallPreview.direction);
+            for (int i = gridRoomLayout.manualWalls.Count - 1; i >= 0; i--)
+            {
+                var wall = gridRoomLayout.manualWalls[i];
+                if (wall != null && string.Equals(BuildGridWallKey(wall.gridX, wall.gridZ, wall.direction), key, StringComparison.Ordinal))
+                {
+                    PushGridRoomUndo();
+                    gridRoomLayout.manualWalls.RemoveAt(i);
+                    gridWallPreview.wallExists = false;
+                    ApplyGridRoomLayoutToCurrentRoom(true);
+                    gridEditorStatus = "Removed snapped wall segment.";
+                    return;
+                }
+            }
+
+            gridEditorStatus = "No manual wall is snapped to that edge.";
+        }
+
+        private bool CanRemoveGridFloorCell(Vector2Int cell, out string reason)
+        {
+            for (int i = 0; i < gridRoomLayout.furniture.Count; i++)
+            {
+                var furniture = gridRoomLayout.furniture[i];
+                var definition = GetGridFurnitureDefinition(furniture?.definitionId);
+                if (furniture == null || definition == null)
+                {
+                    continue;
+                }
+
+                if (definition.snapType == GridFurnitureSnapType.Wall)
+                {
+                    if (furniture.gridX == cell.x && furniture.gridZ == cell.y)
+                    {
+                        reason = $"Move or delete {definition.displayName} before removing that cell.";
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                if (GridFurnitureOccupiesCell(furniture, definition, cell))
+                {
+                    reason = $"Move or delete {definition.displayName} before removing that cell.";
+                    return false;
+                }
+            }
+
+            reason = string.Empty;
+            return true;
+        }
+
+        private void UpdateGridFurniturePreview(bool force)
+        {
+            if (gridEditorMode != GridEditorMode.Furniture || !hasGridHoverCell)
+            {
+                if (gridFurniturePreview.hasPreview)
+                {
+                    gridFurniturePreview = new GridFurniturePlacementPreview();
+                    BuildRoomBuilderPreview();
+                }
+                return;
+            }
+
+            var definition = movingGridFurnitureInstanceIndex >= 0 && TryGetSelectedGridFurniture(out _, out var movingDefinition)
+                ? movingDefinition
+                : GetSelectedGridFurnitureDefinition();
+            if (definition == null)
+            {
+                return;
+            }
+
+            var floorSet = BuildGridFloorSet();
+            var rotation = definition.snapType == GridFurnitureSnapType.Floor ? gridGhostRotation : 0;
+            var wallDirection = -1;
+            var mousePosition = Mouse.current != null ? Mouse.current.position.ReadValue() : Vector2.zero;
+            if (definition.snapType == GridFurnitureSnapType.Wall
+                && !TryFindNearestGridBoundaryDirection(gridHoverCell, mousePosition, floorSet, out wallDirection))
+            {
+                wallDirection = -1;
+            }
+
+            var nextPreview = BuildGridFurniturePlacement(definition, gridHoverCell.x, gridHoverCell.y, rotation, wallDirection, floorSet);
+            if (nextPreview.isValid && WouldGridFurnitureOverlap(definition, nextPreview, movingGridFurnitureInstanceIndex, out var overlapReason))
+            {
+                nextPreview.isValid = false;
+                nextPreview.reason = overlapReason;
+            }
+
+            if (!force && gridFurniturePreview.Matches(nextPreview))
+            {
+                return;
+            }
+
+            gridFurniturePreview = nextPreview;
+            BuildRoomBuilderPreview();
+        }
+
+        private bool TryFindNearestGridBoundaryDirection(Vector2Int cell, Vector2 mousePosition, HashSet<Vector2Int> floorSet, out int wallDirection)
+        {
+            wallDirection = -1;
+            if (!floorSet.Contains(cell))
+            {
+                return false;
+            }
+
+            var hasPoint = TryGetMousePlanePoint(mousePosition, 0f, out var point);
+            var bestDistance = float.PositiveInfinity;
+            var bestDirection = -1;
+            ConsiderDirection(0, hasPoint ? Mathf.Abs(point.x - cell.x * GridRoomCellSize) : 0f);
+            ConsiderDirection(1, hasPoint ? Mathf.Abs(point.x - (cell.x + 1) * GridRoomCellSize) : 0f);
+            ConsiderDirection(2, hasPoint ? Mathf.Abs(point.z - cell.y * GridRoomCellSize) : 0f);
+            ConsiderDirection(3, hasPoint ? Mathf.Abs(point.z - (cell.y + 1) * GridRoomCellSize) : 0f);
+            wallDirection = bestDirection;
+            return wallDirection >= 0;
+
+            void ConsiderDirection(int direction, float distance)
+            {
+                if (!IsGridBoundaryEdge(cell, direction, floorSet))
+                {
+                    return;
+                }
+
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestDirection = direction;
+                }
+            }
+        }
+
+        private void PlaceGridFurnitureFromPreview()
+        {
+            if (!gridFurniturePreview.hasPreview || !gridFurniturePreview.isValid)
+            {
+                gridEditorStatus = string.IsNullOrWhiteSpace(gridFurniturePreview.reason)
+                    ? "Pick a valid floor or wall location first."
+                    : gridFurniturePreview.reason;
+                return;
+            }
+
+            var definition = movingGridFurnitureInstanceIndex >= 0 && TryGetSelectedGridFurniture(out var movingFurniture, out var movingDefinition)
+                ? movingDefinition
+                : GetSelectedGridFurnitureDefinition();
+            if (definition == null)
+            {
+                return;
+            }
+
+            PushGridRoomUndo();
+            if (movingGridFurnitureInstanceIndex >= 0)
+            {
+                var furniture = gridRoomLayout.furniture[movingGridFurnitureInstanceIndex];
+                furniture.gridX = gridFurniturePreview.gridX;
+                furniture.gridZ = gridFurniturePreview.gridZ;
+                furniture.rotation = gridFurniturePreview.rotation;
+                furniture.wallDirection = gridFurniturePreview.wallDirection;
+                selectedGridFurnitureInstanceIndex = movingGridFurnitureInstanceIndex;
+                movingGridFurnitureInstanceIndex = -1;
+                gridEditorStatus = $"Moved {definition.displayName}.";
+            }
+            else
+            {
+                var furniture = CreateGridFurnitureInstance(
+                    definition,
+                    gridFurniturePreview.gridX,
+                    gridFurniturePreview.gridZ,
+                    gridFurniturePreview.rotation,
+                    gridFurniturePreview.wallDirection);
+                gridRoomLayout.furniture.Add(furniture);
+                selectedGridFurnitureInstanceIndex = gridRoomLayout.furniture.Count - 1;
+                gridEditorStatus = $"Placed {definition.displayName}.";
+            }
+
+            gridFurniturePreview = new GridFurniturePlacementPreview();
+            gridEditorMode = GridEditorMode.Select;
+            ApplyGridRoomLayoutToCurrentRoom(true);
+        }
+
+        private bool WouldGridFurnitureOverlap(
+            GridFurnitureDefinition definition,
+            GridFurniturePlacementPreview preview,
+            int ignoreFurnitureIndex,
+            out string reason)
+        {
+            reason = string.Empty;
+            for (int i = 0; i < gridRoomLayout.furniture.Count; i++)
+            {
+                if (i == ignoreFurnitureIndex)
+                {
+                    continue;
+                }
+
+                var other = gridRoomLayout.furniture[i];
+                var otherDefinition = GetGridFurnitureDefinition(other?.definitionId);
+                if (other == null || otherDefinition == null)
+                {
+                    continue;
+                }
+
+                if (definition.snapType == GridFurnitureSnapType.Wall || otherDefinition.snapType == GridFurnitureSnapType.Wall)
+                {
+                    if (definition.snapType == GridFurnitureSnapType.Wall
+                        && otherDefinition.snapType == GridFurnitureSnapType.Wall
+                        && other.gridX == preview.gridX
+                        && other.gridZ == preview.gridZ
+                        && other.wallDirection == preview.wallDirection)
+                    {
+                        reason = $"That wall edge already has {otherDefinition.displayName}.";
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                var footprint = GetGridFurnitureFootprint(definition, preview.rotation);
+                for (int x = 0; x < footprint.x; x++)
+                {
+                    for (int z = 0; z < footprint.y; z++)
+                    {
+                        var cell = new Vector2Int(preview.gridX + x, preview.gridZ + z);
+                        if (GridFurnitureOccupiesCell(other, otherDefinition, cell))
+                        {
+                            reason = $"Overlaps {otherDefinition.displayName}.";
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool GridFurnitureOccupiesCell(GridFurnitureInstanceData furniture, GridFurnitureDefinition definition, Vector2Int cell)
+        {
+            if (furniture == null || definition == null || definition.snapType == GridFurnitureSnapType.Wall)
+            {
+                return false;
+            }
+
+            var footprint = GetGridFurnitureFootprint(definition, furniture.rotation);
+            return cell.x >= furniture.gridX
+                && cell.x < furniture.gridX + footprint.x
+                && cell.y >= furniture.gridZ
+                && cell.y < furniture.gridZ + footprint.y;
+        }
+
+        private void SelectGridFurnitureUnderMouse(Vector2 mousePosition)
+        {
+            if (TryGetGridFurnitureIndexUnderMouse(mousePosition, out var index))
+            {
+                SelectAndPickUpGridFurniture(index);
+                return;
+            }
+
+            ClearGridFurnitureSelection();
         }
 
         private void HandleShellWallDrawing(Mouse mouse, Keyboard keyboard)
@@ -14057,10 +16694,13 @@ namespace MemPalaceLLM
                         var scalar = (mouseDelta.x - mouseDelta.y) * BuilderAxisDragScale;
                         anchor.position = builderDragStartPosition + builderDragAxis * scalar;
                     }
+
+                    anchor.position = SnapFurniturePositionToGrid(anchor.position);
                 }
                 else if (builderToolMode == BuilderToolMode.Rotate)
                 {
                     anchor.rotationEuler = builderDragStartRotation + Vector3.up * (mouseDelta.x * BuilderRotateDragScale);
+                    anchor.rotationEuler = SnapFurnitureRotationToGrid(anchor.rotationEuler);
                 }
                 else if (builderToolMode == BuilderToolMode.Scale)
                 {
@@ -14195,10 +16835,17 @@ namespace MemPalaceLLM
             if (placedAnchorIndex >= 0 && placedAnchorIndex < RoomSpecCatalog.CurrentRoom.anchors.Count)
             {
                 GetCurrentRoomFootprint(out var roomWidth, out var roomDepth);
-                ConstrainAnchorPlacement(RoomSpecCatalog.CurrentRoom.anchors[placedAnchorIndex], placedAnchorIndex, roomWidth, roomDepth);
+                var placedAnchor = RoomSpecCatalog.CurrentRoom.anchors[placedAnchorIndex];
+                placedAnchor.position = SnapFurniturePositionToGrid(placedAnchor.position);
+                placedAnchor.rotationEuler = SnapFurnitureRotationToGrid(placedAnchor.rotationEuler);
+                ConstrainAnchorPlacement(placedAnchor, placedAnchorIndex, roomWidth, roomDepth);
+                if (!IsWallMountedAnchor(placedAnchor))
+                {
+                    placedAnchor.position = SnapFurniturePositionToGrid(placedAnchor.position);
+                }
                 ResolveCurrentAnchorOverlaps(roomWidth, roomDepth);
                 TriggerBuilderFeedback(placedAnchorIndex, 0.28f);
-                statusMessage = $"Placed {RoomSpecCatalog.CurrentRoom.anchors[placedAnchorIndex].label}.";
+                statusMessage = $"Placed {placedAnchor.label}.";
                 BuildRoomBuilderPreview();
                 return;
             }
@@ -14769,6 +17416,157 @@ namespace MemPalaceLLM
             return value;
         }
 
+        [Serializable]
+        private sealed class GridRoomLayoutModel
+        {
+            public string roomId = "grid_room";
+            public string roomName = "Grid Memory Bedroom";
+            public float gridSize = GridRoomCellSize;
+            public int nextFurnitureNumber = 1;
+            public List<GridFloorCellData> floorCells = new();
+            public List<GridWallSegmentData> manualWalls = new();
+            public List<GridFurnitureInstanceData> furniture = new();
+        }
+
+        [Serializable]
+        private sealed class GridFloorCellData
+        {
+            public int x;
+            public int z;
+        }
+
+        [Serializable]
+        private sealed class GridFurnitureInstanceData
+        {
+            public string id;
+            public string definitionId;
+            public string anchorType;
+            public int gridX;
+            public int gridZ;
+            public int rotation;
+            public int wallDirection = -1;
+            public float height;
+        }
+
+        [Serializable]
+        private sealed class GridWallSegmentData
+        {
+            public string id;
+            public int gridX;
+            public int gridZ;
+            public int direction;
+        }
+
+        private sealed class GridFurniturePlacementPreview
+        {
+            public bool hasPreview;
+            public bool isValid;
+            public int gridX;
+            public int gridZ;
+            public int rotation;
+            public int wallDirection = -1;
+            public Vector3 position;
+            public Vector3 rotationEuler;
+            public string reason = string.Empty;
+
+            public bool Matches(GridFurniturePlacementPreview other)
+            {
+                return other != null
+                    && hasPreview == other.hasPreview
+                    && isValid == other.isValid
+                    && gridX == other.gridX
+                    && gridZ == other.gridZ
+                    && rotation == other.rotation
+                    && wallDirection == other.wallDirection
+                    && reason == other.reason;
+            }
+
+            public GridFurniturePlacementPreview Clone()
+            {
+                return new GridFurniturePlacementPreview
+                {
+                    hasPreview = hasPreview,
+                    isValid = isValid,
+                    gridX = gridX,
+                    gridZ = gridZ,
+                    rotation = rotation,
+                    wallDirection = wallDirection,
+                    position = position,
+                    rotationEuler = rotationEuler,
+                    reason = reason
+                };
+            }
+        }
+
+        private sealed class GridWallPlacementPreview
+        {
+            public bool hasPreview;
+            public bool isValid;
+            public bool wallExists;
+            public int gridX;
+            public int gridZ;
+            public int direction;
+            public Vector3 position;
+            public Vector3 scale;
+            public string reason = string.Empty;
+
+            public bool Matches(GridWallPlacementPreview other)
+            {
+                return other != null
+                    && hasPreview == other.hasPreview
+                    && isValid == other.isValid
+                    && wallExists == other.wallExists
+                    && gridX == other.gridX
+                    && gridZ == other.gridZ
+                    && direction == other.direction
+                    && reason == other.reason;
+            }
+        }
+
+        private sealed class GridFurnitureDefinition
+        {
+            public GridFurnitureDefinition(
+                string id,
+                string displayName,
+                string anchorType,
+                string modelKey,
+                GridFurnitureSnapType snapType,
+                Vector2Int footprint,
+                Vector3 scale,
+                string colorHex,
+                bool canRotate,
+                float fixedHeight,
+                bool prefersWall = false,
+                string primitiveShape = "Cube")
+            {
+                this.id = id;
+                this.displayName = displayName;
+                this.anchorType = anchorType;
+                this.modelKey = modelKey;
+                this.snapType = snapType;
+                this.footprint = footprint;
+                this.scale = scale;
+                this.colorHex = colorHex;
+                this.canRotate = canRotate;
+                this.fixedHeight = fixedHeight;
+                this.prefersWall = prefersWall;
+                this.primitiveShape = primitiveShape;
+            }
+
+            public string id;
+            public string displayName;
+            public string anchorType;
+            public string modelKey;
+            public GridFurnitureSnapType snapType;
+            public Vector2Int footprint;
+            public Vector3 scale;
+            public string colorHex;
+            public bool canRotate;
+            public float fixedHeight;
+            public bool prefersWall;
+            public string primitiveShape;
+        }
+
         private sealed class FurnitureTemplate
         {
             public FurnitureTemplate(
@@ -14779,10 +17577,14 @@ namespace MemPalaceLLM
                 Vector3 scale,
                 float defaultY,
                 float mnemonicYOffset,
-                IEnumerable<VisualObjectSpec> modelParts = null)
+                IEnumerable<VisualObjectSpec> modelParts = null,
+                string modelKey = null)
             {
                 Label = label;
                 IdPrefix = idPrefix;
+                ModelKey = string.IsNullOrWhiteSpace(modelKey)
+                    ? RoomSpecCatalog.ResolveModelKey(idPrefix, label)
+                    : SanitizeIdPrefix(modelKey);
                 Shape = shape;
                 ColorHex = colorHex;
                 Scale = scale;
@@ -14794,6 +17596,7 @@ namespace MemPalaceLLM
 
             public string Label { get; }
             public string IdPrefix { get; }
+            public string ModelKey { get; }
             public string Shape { get; }
             public string ColorHex { get; }
             public Vector3 Scale { get; }

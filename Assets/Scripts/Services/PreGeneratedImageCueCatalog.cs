@@ -10,7 +10,7 @@ namespace MemPalaceLLM
         public const int RequiredImagesPerPair = 4;
         public static readonly string[] FormalAnchorTypes =
         {
-            "door", "bed", "desk", "chair", "table",
+            "door", "bed", "desk", "chair", "bathtub",
             "sofa", "wardrobe", "bookshelf", "air_conditioner", "television"
         };
 

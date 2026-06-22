@@ -32,6 +32,7 @@ namespace MemPalaceLLM
         public string label;
         public string primitiveShape;
         public string colorHex;
+        public string modelKey;
         public Vector3 position;
         public Vector3 scale;
         public Vector3 rotationEuler;
@@ -239,6 +240,9 @@ namespace MemPalaceLLM
                 room.anchors[i].colorHex = string.IsNullOrWhiteSpace(room.anchors[i].colorHex)
                     ? "#FFFFFF"
                     : room.anchors[i].colorHex;
+                room.anchors[i].modelKey = string.IsNullOrWhiteSpace(room.anchors[i].modelKey)
+                    ? ResolveModelKey(room.anchors[i].id, room.anchors[i].label)
+                    : SanitizeIdPart(room.anchors[i].modelKey);
                 if (room.anchors[i].mnemonicOffset == default)
                 {
                     room.anchors[i].mnemonicOffset = new Vector3(0f, 0.9f, 0f);
@@ -249,6 +253,57 @@ namespace MemPalaceLLM
                     room.anchors[i].labelHeight = 0.85f;
                 }
             }
+        }
+
+        public static string ResolveModelKey(string anchorId, string anchorLabel)
+        {
+            var text = ((anchorId ?? string.Empty) + " " + (anchorLabel ?? string.Empty)).ToLowerInvariant();
+            if (ContainsAny(text, "air conditioner", "air_conditioner", "aircon", "air conditioning", "a/c", " ac "))
+            {
+                return "air_conditioner";
+            }
+
+            if (ContainsAny(text, "bookcase", "bookshelf", "book shelf"))
+            {
+                return "bookshelf";
+            }
+
+            if (ContainsAny(text, "wardrobe", "closet", "cabinet", "armario"))
+            {
+                return "wardrobe";
+            }
+
+            if (ContainsAny(text, "television", "tv", "monitor", "screen"))
+            {
+                return "television";
+            }
+
+            if (ContainsAny(text, "bathtub", "bath tub", "tub", "浴槽", "風呂"))
+            {
+                return "bathtub";
+            }
+
+            if (ContainsAny(text, "dining table", "coffee table"))
+            {
+                return "table";
+            }
+
+            var knownTypes = new[]
+            {
+                "door", "bed", "desk", "computer", "window", "chair", "table", "sofa",
+                "toilet", "stove", "sink", "counter", "fridge", "refrigerator", "lamp",
+                "plant", "shelf", "bathtub"
+            };
+            for (int i = 0; i < knownTypes.Length; i++)
+            {
+                if (ContainsAny(text, knownTypes[i]))
+                {
+                    return knownTypes[i] == "refrigerator" ? "fridge" : knownTypes[i];
+                }
+            }
+
+            var fallbackSource = string.IsNullOrWhiteSpace(anchorLabel) ? anchorId : anchorLabel;
+            return string.IsNullOrWhiteSpace(fallbackSource) ? "anchor" : SanitizeIdPart(fallbackSource);
         }
 
         private static void EnsureShellStructure(RoomSpecDefinition room)
@@ -605,6 +660,7 @@ namespace MemPalaceLLM
                 label = label,
                 primitiveShape = primitiveShape,
                 colorHex = colorHex,
+                modelKey = ResolveModelKey(id, label),
                 position = position,
                 scale = scale,
                 rotationEuler = rotationEuler,
