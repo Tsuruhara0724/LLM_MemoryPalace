@@ -20,6 +20,11 @@ namespace MemPalaceLLM
 
         public string GeminiModelsUsedSummary => string.Join(", ", geminiModelsUsed);
 
+        private static bool IsStoryOnlyRedesignEnabled()
+        {
+            return true;
+        }
+
         [Serializable]
         private class OllamaRequestOptions
         {
@@ -103,6 +108,21 @@ namespace MemPalaceLLM
             public int code;
             public string message;
             public string status;
+        }
+
+        [Serializable]
+        private class GeneratedStoryEnvelope
+        {
+            public string fullStory;
+            public GeneratedStoryItem[] items;
+        }
+
+        [Serializable]
+        private class GeneratedStoryItem
+        {
+            public string word;
+            public int storyOrder;
+            public string storySegment;
         }
 
         [Serializable]
@@ -199,6 +219,1051 @@ namespace MemPalaceLLM
         private class GuidedFurnitureLayoutEnvelope
         {
             public GuidedFurniturePlacementSuggestion[] items;
+        }
+
+        public IEnumerator GenerateStory(
+            string endpoint,
+            string model,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            Action<StorySessionData> onSuccess,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                onError?.Invoke("Ollama endpoint is empty.");
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                onError?.Invoke("Ollama model is empty.");
+                yield break;
+            }
+
+            if (words == null || words.Count == 0)
+            {
+                onError?.Invoke("No words were provided for story generation.");
+                yield break;
+            }
+
+            if (assignedAnchors == null || assignedAnchors.Count < words.Count)
+            {
+                onError?.Invoke("Anchor assignments are incomplete.");
+                yield break;
+            }
+
+            var requestBody = new OllamaGenerateRequest
+            {
+                model = model.Trim(),
+                prompt = BuildStoryPrompt(words),
+                system = "You are a JSON API for a memory-palace learning experiment. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                format = "json",
+                stream = false,
+                options = new OllamaRequestOptions
+                {
+                    temperature = 0.7f,
+                    num_predict = 1800
+                }
+            };
+
+            var json = JsonUtility.ToJson(requestBody);
+            using (var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
+            {
+                var bodyRaw = Encoding.UTF8.GetBytes(json);
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.timeout = RequestTimeoutSeconds;
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    onError?.Invoke($"Ollama story request failed: {request.error}\n{request.downloadHandler.text}");
+                    yield break;
+                }
+
+                OllamaGenerateResponse response = null;
+                try
+                {
+                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
+                }
+                catch (Exception ex)
+                {
+                    onError?.Invoke("Failed to parse Ollama story response envelope: " + ex.Message);
+                    yield break;
+                }
+
+                if (response == null)
+                {
+                    onError?.Invoke("Ollama story response was empty.");
+                    yield break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(response.error))
+                {
+                    onError?.Invoke("Ollama returned a story error: " + response.error);
+                    yield break;
+                }
+
+                if (string.IsNullOrWhiteSpace(response.response))
+                {
+                    onError?.Invoke("Ollama story response text was empty.");
+                    yield break;
+                }
+
+                if (!TryParseStoryEnvelope(response.response, out var envelope, out var parseError))
+                {
+                    onError?.Invoke("Failed to parse story JSON: " + parseError + "\nRaw response preview:\n" + BuildPreview(response.response));
+                    yield break;
+                }
+
+                if (!TryBuildStorySession(envelope, words, assignedAnchors, model.Trim(), out var story, out var validationError))
+                {
+                    onError?.Invoke(validationError + "\nRaw response preview:\n" + BuildPreview(response.response));
+                    yield break;
+                }
+
+                onSuccess?.Invoke(story);
+            }
+        }
+
+        private static string BuildStoryPrompt(List<WordEntry> words)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Create one high-quality, imaginative English micro-story using exactly the " + words.Count + " distinct target Spanish words listed below.");
+            builder.AppendLine("This must be a real continuous story, not a row of separate dream images or isolated object scenes.");
+            builder.AppendLine("The story should feel like a polished short scene, not a room tour, shopping list, packing list, scavenger hunt, or sequence of collected objects.");
+            builder.AppendLine("Give the story one concrete premise, one consistent setting, and one satisfying ending. It can be playful and strange, but the reader should never feel lost.");
+            builder.AppendLine("Before writing, silently choose one simple story premise, such as a moonlit festival, a tiny sea performance, a friendly dream parade, or a magical accident. Keep that same premise from the first word to the last word.");
+            builder.AppendLine("Write in second person. The main character is always 'you'. Do not name a protagonist and do not use he, she, his, or her for the main character.");
+            builder.AppendLine("Do not give the story a blunt task such as finding, collecting, packing, organizing, or preparing the objects.");
+            builder.AppendLine("You may choose the best narrative order for the target words. Choose the order that creates the most natural and memorable story.");
+            builder.AppendLine("Each target object should matter inside the same unfolding episode. Do not reset the scene for each object.");
+            builder.AppendLine("Avoid a mechanical chain of 'X causes Y causes Z', but do let earlier story details echo later so the story feels continuous.");
+            builder.AppendLine("Good style: concrete, visual, slightly surprising, warm or playful, easy to picture. Bad style: item inventory, direct route tour, checklist, object pile, clue hunt, or generic 'this helps your plan'.");
+            builder.AppendLine("Important: the room, furniture, anchors, assigned locations, route cues, and walking directions are not part of this writing task. Do not mention them.");
+            builder.AppendLine("Example phrase: a shoe (zapato).");
+            builder.AppendLine("Every target route word must appear at least once in fullStory as the exact English meaning followed by the Spanish word in parentheses.");
+            builder.AppendLine("If you use a target meaning, immediately write the Spanish word in parentheses, for example bottle (botella), not just bottle.");
+            builder.AppendLine("Use each target route word for one memorable moment in the continuous story. It is okay for a sentence to reference earlier target words if that improves continuity.");
+            builder.AppendLine("Avoid repeating target words in fullStory. If a target word appears again for narrative continuity, that later mention is not a route item.");
+            builder.AppendLine("Avoid vague phrases like truth, destiny, hidden meaning, impossible danger, final message, or mystery unless they are concrete and easy to picture.");
+            builder.AppendLine("Avoid overusing these verbs: pack, place, find, bring, grab, collect, organize, prepare, pay, check, add, use.");
+            builder.AppendLine("Do not begin most story beats with formulas like 'You notice', 'You see', 'You spot', 'A target object...', or 'The target object...'. Vary the prose and keep a single narrative thread.");
+            builder.AppendLine("Do not write isolated lines like: a shell glows, then a bell rings, then a kite dances. That is not a story.");
+            builder.AppendLine("Do not create mnemonics, hooks, image prompts, image-generation instructions, or per-word cue objects.");
+            builder.AppendLine("Return JSON exactly in this minimal shape:");
+            builder.AppendLine("{\"fullStory\":\"one continuous story paragraph with no route instructions\",\"items\":[{\"word\":\"zapato\",\"storyOrder\":1}]}");
+            builder.AppendLine("Do not include storySegment or any other long text inside items.");
+            builder.AppendLine("Do not use quotation marks inside fullStory.");
+            builder.AppendLine("items is only the route index: include exactly one item for each target word, with no duplicated or missing target words.");
+            builder.AppendLine("storyOrder must start at 1 and follow your chosen order. Do not add extra items for repeated later mentions.");
+            builder.AppendLine("fullStory must be one continuous paragraph with no route instructions, no furniture names, and no assigned location names.");
+            builder.AppendLine();
+            builder.AppendLine("Selected target words:");
+            for (int i = 0; i < words.Count; i++)
+            {
+                var word = words[i];
+                builder.Append(i + 1)
+                    .Append(". Spanish word: ")
+                    .Append(word.word)
+                    .Append("; English meaning: ")
+                    .Append(word.meaning)
+                    .AppendLine(".");
+            }
+
+            return builder.ToString();
+        }
+
+        private static bool TryBuildStorySession(
+            GeneratedStoryEnvelope envelope,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            string model,
+            out StorySessionData story,
+            out string error)
+        {
+            story = null;
+            error = string.Empty;
+
+            if (envelope == null || string.IsNullOrWhiteSpace(envelope.fullStory))
+            {
+                error = "Story JSON must contain fullStory.";
+                return false;
+            }
+
+            if (!TryValidateDistinctRouteWords(words, out error))
+            {
+                return false;
+            }
+
+            envelope.fullStory = RepairFullStoryMissingRouteWords(envelope.fullStory, words, out var repairedWords);
+            var storySource = repairedWords.Count > 0 ? "ollama_story_repaired" : "ollama_story";
+            if (ContainsStoryRouteCue(envelope.fullStory, out var routeCueError))
+            {
+                error = routeCueError;
+                return false;
+            }
+
+            if (ContainsAssignedAnchorLeak(envelope.fullStory, assignedAnchors, words, out var anchorLeakError))
+            {
+                error = anchorLeakError;
+                return false;
+            }
+
+            if (LooksLikeFragmentedObjectScenes(envelope.fullStory, words, out var qualityError))
+            {
+                error = qualityError;
+                return false;
+            }
+
+            if (TryBuildOrderedStoryItemsFromResponse(envelope, words, assignedAnchors, out var ordered, out var strictError))
+            {
+                story = CreateStorySession(envelope.fullStory, ordered, storySource, model);
+                return true;
+            }
+
+            var recoveredSource = repairedWords.Count > 0 ? "ollama_story_repaired_recovered" : "ollama_story_recovered";
+            if (TryBuildStorySessionFromFullStory(envelope.fullStory, words, assignedAnchors, model, recoveredSource, out story, out var recoveryError))
+            {
+                return true;
+            }
+
+            error = strictError + " Could not recover story order from fullStory: " + recoveryError;
+            return false;
+        }
+
+        private static bool TryValidateDistinctRouteWords(List<WordEntry> words, out string error)
+        {
+            error = string.Empty;
+            if (words == null || words.Count == 0)
+            {
+                error = "Story generation requires at least one selected route word.";
+                return false;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < words.Count; i++)
+            {
+                var word = words[i]?.word;
+                if (string.IsNullOrWhiteSpace(word))
+                {
+                    error = "Selected route word " + (i + 1) + " is empty.";
+                    return false;
+                }
+
+                if (!seen.Add(word.Trim()))
+                {
+                    error = "Selected route words must be different. Duplicate word: " + word + ".";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static string RepairFullStoryMissingRouteWords(string fullStory, List<WordEntry> words, out List<WordEntry> repairedWords)
+        {
+            repairedWords = new List<WordEntry>();
+            var repairedStory = string.IsNullOrWhiteSpace(fullStory) ? string.Empty : fullStory.Trim();
+            for (int i = 0; i < words.Count; i++)
+            {
+                var word = words[i];
+                if (FindStoryWordIndex(repairedStory, word.meaning, word.word) >= 0)
+                {
+                    continue;
+                }
+
+                if (TryAnnotateExistingMeaningMention(ref repairedStory, word.meaning, word.word))
+                {
+                    continue;
+                }
+
+                if (FindStoryWordIndex(repairedStory, word.meaning, word.word) < 0)
+                {
+                    repairedWords.Add(word);
+                }
+            }
+
+            if (repairedWords.Count == 0)
+            {
+                return repairedStory;
+            }
+
+            if (repairedStory.Length > 0 && !IsSentenceBoundary(repairedStory[repairedStory.Length - 1]))
+            {
+                repairedStory += ".";
+            }
+
+            for (int i = 0; i < repairedWords.Count; i++)
+            {
+                if (repairedStory.Length > 0)
+                {
+                    repairedStory += " ";
+                }
+
+                repairedStory += BuildMissingRouteWordRepairSentence(repairedWords[i], i, repairedWords.Count);
+            }
+
+            return repairedStory.Trim();
+        }
+
+        private static bool TryAnnotateExistingMeaningMention(ref string story, string meaning, string word)
+        {
+            if (string.IsNullOrWhiteSpace(story) || string.IsNullOrWhiteSpace(meaning) || string.IsNullOrWhiteSpace(word))
+            {
+                return false;
+            }
+
+            var escapedMeaning = Regex.Escape(meaning.Trim()).Replace("\\ ", "\\s+");
+            var pluralSuffix = meaning.Trim().IndexOf(' ') < 0 && !meaning.Trim().EndsWith("s", StringComparison.OrdinalIgnoreCase)
+                ? "s?"
+                : string.Empty;
+            var pattern = @"\b" + escapedMeaning + pluralSuffix + @"\b(?!\s*\()";
+            var match = Regex.Match(story, pattern, RegexOptions.IgnoreCase);
+            if (!match.Success)
+            {
+                return false;
+            }
+
+            var annotated = match.Value + " (" + word.Trim() + ")";
+            story = story.Substring(0, match.Index) + annotated + story.Substring(match.Index + match.Length);
+            return true;
+        }
+
+        private static string BuildMissingRouteWordRepairSentence(WordEntry word, int repairIndex, int repairCount)
+        {
+            var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "target meaning" : word.meaning.Trim();
+            var spanish = string.IsNullOrWhiteSpace(word?.word) ? "word" : word.word.Trim();
+            var phrase = meaning + " (" + spanish + ")";
+            if (repairCount == 1)
+            {
+                return "For one bright moment, the " + phrase + " steals the scene and leaves an image too odd to forget.";
+            }
+
+            switch (repairIndex % 3)
+            {
+                case 0:
+                    return "The " + phrase + " drifts into view with a strange little flourish, changing the mood of the scene.";
+                case 1:
+                    return "You notice the " + phrase + " behaving as if it belongs in a dream, vivid enough to stay in memory.";
+                default:
+                    return "Near the end, the " + phrase + " becomes the one playful detail that makes the whole story easy to picture.";
+            }
+        }
+
+        private static bool ContainsStoryRouteCue(string fullStory, out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return false;
+            }
+
+            var disallowedPatterns = new[]
+            {
+                @"\bnow\s+walk\s+to\b",
+                @"\bwalk\s+to\s+the\b",
+                @"\byou\s+see\s+a\s+picture\s+of\b",
+                @"\bassigned\s+location\b",
+                @"\banchor\b",
+                @"\bfurniture\b"
+            };
+
+            for (int i = 0; i < disallowedPatterns.Length; i++)
+            {
+                if (Regex.IsMatch(fullStory, disallowedPatterns[i], RegexOptions.IgnoreCase))
+                {
+                    error = "Story contains route/anchor instruction text. The story must be independent from room anchors.";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ContainsAssignedAnchorLeak(
+            string fullStory,
+            List<AnchorDefinition> assignedAnchors,
+            List<WordEntry> words,
+            out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(fullStory) || assignedAnchors == null || assignedAnchors.Count == 0)
+            {
+                return false;
+            }
+
+            var targetTerms = BuildTargetTermSet(words);
+            var seenAnchorTerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < assignedAnchors.Count; i++)
+            {
+                var label = assignedAnchors[i]?.label;
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    continue;
+                }
+
+                var term = label.Trim();
+                if (term.Length < 3 || targetTerms.Contains(term) || !seenAnchorTerms.Add(term))
+                {
+                    continue;
+                }
+
+                var escapedTerm = Regex.Escape(term).Replace("\\ ", "\\s+");
+                if (Regex.IsMatch(fullStory, @"\b" + escapedTerm + @"\b", RegexOptions.IgnoreCase))
+                {
+                    error = "Story includes assigned anchor/furniture term '" + term + "'. Anchors must not influence the story text.";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static HashSet<string> BuildTargetTermSet(List<WordEntry> words)
+        {
+            var terms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (words == null)
+            {
+                return terms;
+            }
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(words[i]?.word))
+                {
+                    terms.Add(words[i].word.Trim());
+                }
+
+                if (!string.IsNullOrWhiteSpace(words[i]?.meaning))
+                {
+                    terms.Add(words[i].meaning.Trim());
+                }
+            }
+
+            return terms;
+        }
+
+        private static bool LooksLikeFragmentedObjectScenes(string fullStory, List<WordEntry> words, out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(fullStory) || words == null || words.Count < 4)
+            {
+                return false;
+            }
+
+            var narrativeOnly = StripRouteCueSentences(fullStory);
+            var sentences = SplitStorySentences(narrativeOnly);
+            var targetSentenceCount = 0;
+            var weakBeatCount = 0;
+            for (int i = 0; i < sentences.Count; i++)
+            {
+                var sentence = sentences[i];
+                if (!ContainsAnyTargetWordPair(sentence, words))
+                {
+                    continue;
+                }
+
+                targetSentenceCount++;
+                if (StartsLikeFragmentedObjectBeat(sentence, words))
+                {
+                    weakBeatCount++;
+                }
+            }
+
+            var targetThreshold = Mathf.Min(5, Mathf.Max(3, words.Count - 2));
+            var weakThreshold = Mathf.Max(4, words.Count / 2);
+            if (targetSentenceCount >= targetThreshold && weakBeatCount >= weakThreshold)
+            {
+                error = "Story reads like separate object scenes rather than one continuous story. Regenerate with a stronger single-premise narrative.";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string StripRouteCueSentences(string story)
+        {
+            if (string.IsNullOrWhiteSpace(story))
+            {
+                return string.Empty;
+            }
+
+            var cleaned = Regex.Replace(
+                story,
+                @"\bNow\s+walk\s+to\s+the\s+[^.?!]+[.?!]\s*You\s+see\s+a\s+picture\s+of\s+[^.?!]+[.?!]",
+                " ",
+                RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, @"\s+", " ");
+            return cleaned.Trim();
+        }
+
+        private static List<string> SplitStorySentences(string story)
+        {
+            var sentences = new List<string>();
+            if (string.IsNullOrWhiteSpace(story))
+            {
+                return sentences;
+            }
+
+            var matches = Regex.Matches(story, @"[^.!?]+[.!?]?");
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var sentence = matches[i].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(sentence))
+                {
+                    sentences.Add(sentence);
+                }
+            }
+
+            return sentences;
+        }
+
+        private static bool ContainsAnyTargetWordPair(string sentence, List<WordEntry> words)
+        {
+            if (string.IsNullOrWhiteSpace(sentence) || words == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                var word = words[i];
+                if (word != null && FindStoryWordIndex(sentence, word.meaning, word.word) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool StartsLikeFragmentedObjectBeat(string sentence, List<WordEntry> words)
+        {
+            if (string.IsNullOrWhiteSpace(sentence))
+            {
+                return false;
+            }
+
+            var trimmed = sentence.Trim();
+            if (Regex.IsMatch(trimmed, @"^(Next|Then|Finally|Lastly|After that|At last)\b", RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            if (Regex.IsMatch(trimmed, @"^You\s+(notice|see|spot|find|observe|reach|enter|go|walk|grab)\b", RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                var meaning = words[i]?.meaning;
+                if (string.IsNullOrWhiteSpace(meaning))
+                {
+                    continue;
+                }
+
+                var escapedMeaning = Regex.Escape(meaning.Trim()).Replace("\\ ", "\\s+");
+                if (Regex.IsMatch(trimmed, @"^(A|An|The|Your)\s+" + escapedMeaning + @"\b", RegexOptions.IgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryParseStoryEnvelope(string rawText, out GeneratedStoryEnvelope envelope, out string error)
+        {
+            envelope = null;
+            error = string.Empty;
+
+            var cleaned = NormalizeJsonCandidate(rawText);
+            try
+            {
+                envelope = JsonUtility.FromJson<GeneratedStoryEnvelope>(cleaned);
+                if (envelope != null && !string.IsNullOrWhiteSpace(envelope.fullStory))
+                {
+                    return true;
+                }
+
+                error = "Parsed JSON did not contain fullStory.";
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+
+            if (TryRecoverStoryEnvelopeFromRawText(rawText, out envelope, out var recoveryError))
+            {
+                return true;
+            }
+
+            error = error + " Recovery failed: " + recoveryError;
+            return false;
+        }
+
+        private static bool TryRecoverStoryEnvelopeFromRawText(string rawText, out GeneratedStoryEnvelope envelope, out string error)
+        {
+            envelope = null;
+            error = string.Empty;
+
+            if (!TryExtractJsonStringProperty(rawText, "fullStory", out var fullStory))
+            {
+                error = "Could not extract fullStory from malformed JSON.";
+                return false;
+            }
+
+            envelope = new GeneratedStoryEnvelope
+            {
+                fullStory = fullStory,
+                items = Array.Empty<GeneratedStoryItem>()
+            };
+            return true;
+        }
+
+        private static bool TryExtractJsonStringProperty(string rawText, string propertyName, out string value)
+        {
+            value = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawText) || string.IsNullOrWhiteSpace(propertyName))
+            {
+                return false;
+            }
+
+            var pattern = "\"" + Regex.Escape(propertyName) + "\"\\s*:\\s*\"(?<value>.*?)(?=\"\\s*,\\s*\"[A-Za-z_][A-Za-z0-9_]*\"|\"\\s*})";
+            var match = Regex.Match(rawText, pattern, RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (!match.Success)
+            {
+                return false;
+            }
+
+            value = UnescapeJsonString(match.Groups["value"].Value).Trim();
+            return !string.IsNullOrWhiteSpace(value);
+        }
+
+        private static string UnescapeJsonString(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            return value
+                .Replace("\\\"", "\"")
+                .Replace("\\n", " ")
+                .Replace("\\r", " ")
+                .Replace("\\t", " ")
+                .Replace("\\\\", "\\");
+        }
+
+        private static bool TryBuildOrderedStoryItemsFromResponse(
+            GeneratedStoryEnvelope envelope,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            out List<WordImageItemData> ordered,
+            out string error)
+        {
+            ordered = null;
+            error = string.Empty;
+
+            if (envelope.items == null || envelope.items.Length == 0)
+            {
+                error = "Story JSON must contain non-empty items.";
+                return false;
+            }
+
+            var remainingByWord = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < words.Count; i++)
+            {
+                remainingByWord[words[i].word] = i;
+            }
+
+            ordered = new List<WordImageItemData>();
+            var usedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < envelope.items.Length; i++)
+            {
+                var generated = envelope.items[i];
+                if (generated == null || string.IsNullOrWhiteSpace(generated.word))
+                {
+                    error = "Story item " + (i + 1) + " is missing word.";
+                    return false;
+                }
+
+                var wordKey = generated.word.Trim();
+                if (!remainingByWord.TryGetValue(wordKey, out var sourceIndex))
+                {
+                    error = "Story item uses an unknown word: " + generated.word;
+                    return false;
+                }
+
+                if (!usedWords.Add(wordKey))
+                {
+                    error = "Story item repeats word: " + generated.word;
+                    return false;
+                }
+
+                var sourceWord = words[sourceIndex];
+                var anchor = assignedAnchors[sourceIndex];
+                if (!TryResolveStoryBeat(envelope.fullStory, generated.storySegment, sourceWord, out var storyBeat))
+                {
+                    error = "Could not resolve a story beat for " + sourceWord.word + " from fullStory.";
+                    return false;
+                }
+
+                ordered.Add(new WordImageItemData
+                {
+                    word = sourceWord.word,
+                    meaning = sourceWord.meaning,
+                    anchorId = anchor.id,
+                    anchorLabel = anchor.label,
+                    anchorType = RoomSpecCatalog.ResolveModelKey(anchor.id, anchor.label),
+                    storyOrder = generated.storyOrder <= 0 ? i + 1 : generated.storyOrder,
+                    storySegment = BuildStorySegment(sourceWord, storyBeat),
+                    imageResourcePath = WordImageCatalog.BuildResourcePath(sourceWord.word),
+                    imageFilePath = string.Empty,
+                    imageLoaded = false
+                });
+            }
+
+            if (usedWords.Count != words.Count)
+            {
+                error = "Story JSON must include each selected word exactly once.";
+                return false;
+            }
+
+            SortStoryItemsByFullStoryOccurrence(envelope.fullStory, ordered);
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].storyOrder = i + 1;
+            }
+
+            return true;
+        }
+
+        private static void SortStoryItemsByFullStoryOccurrence(string fullStory, List<WordImageItemData> ordered)
+        {
+            if (ordered == null || ordered.Count <= 1 || string.IsNullOrWhiteSpace(fullStory))
+            {
+                ordered?.Sort((a, b) => a.storyOrder.CompareTo(b.storyOrder));
+                return;
+            }
+
+            ordered.Sort((a, b) =>
+            {
+                var aIndex = FindStoryWordIndex(fullStory, a?.meaning, a?.word);
+                var bIndex = FindStoryWordIndex(fullStory, b?.meaning, b?.word);
+                if (aIndex < 0 && bIndex < 0)
+                {
+                    return a.storyOrder.CompareTo(b.storyOrder);
+                }
+
+                if (aIndex < 0)
+                {
+                    return 1;
+                }
+
+                if (bIndex < 0)
+                {
+                    return -1;
+                }
+
+                var indexCompare = aIndex.CompareTo(bIndex);
+                return indexCompare != 0 ? indexCompare : a.storyOrder.CompareTo(b.storyOrder);
+            });
+        }
+
+        private static bool TryResolveStoryBeat(string fullStory, string generatedSegment, WordEntry sourceWord, out string storyBeat)
+        {
+            storyBeat = ExtractStoryBeatText(generatedSegment);
+            if (ContainsMeaningWordPair(storyBeat, sourceWord.meaning, sourceWord.word))
+            {
+                return true;
+            }
+
+            var storyIndex = FindStoryWordIndex(fullStory, sourceWord.meaning, sourceWord.word);
+            if (storyIndex < 0)
+            {
+                storyBeat = string.Empty;
+                return false;
+            }
+
+            storyBeat = ExtractStorySentence(fullStory, storyIndex);
+            if (IsRoutePictureSentence(storyBeat))
+            {
+                var followingSentence = ExtractFollowingStorySentence(fullStory, storyIndex);
+                if (!string.IsNullOrWhiteSpace(followingSentence))
+                {
+                    storyBeat = followingSentence;
+                    return true;
+                }
+            }
+
+            if (!ContainsMeaningWordPair(storyBeat, sourceWord.meaning, sourceWord.word))
+            {
+                storyBeat = sourceWord.meaning + " (" + sourceWord.word + "): " + storyBeat;
+            }
+
+            return true;
+        }
+
+        private static string ExtractStoryBeatText(string segment)
+        {
+            if (string.IsNullOrWhiteSpace(segment))
+            {
+                return string.Empty;
+            }
+
+            const string marker = "Story beat:";
+            var markerIndex = segment.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            return markerIndex >= 0
+                ? segment.Substring(markerIndex + marker.Length).Trim()
+                : segment.Trim();
+        }
+
+        private static string BuildStorySegment(WordEntry sourceWord, string storyBeat)
+        {
+            var meaning = string.IsNullOrWhiteSpace(sourceWord?.meaning) ? "target meaning" : sourceWord.meaning.Trim();
+            var word = string.IsNullOrWhiteSpace(sourceWord?.word) ? "word" : sourceWord.word.Trim();
+            var beat = string.IsNullOrWhiteSpace(storyBeat) ? meaning + " (" + word + ")." : storyBeat.Trim();
+            return beat;
+        }
+
+        private static bool TryBuildStorySessionFromFullStory(
+            string fullStory,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            string model,
+            string source,
+            out StorySessionData story,
+            out string error)
+        {
+            story = null;
+            error = string.Empty;
+
+            var occurrences = new List<RecoveredStoryOccurrence>();
+            for (int i = 0; i < words.Count; i++)
+            {
+                var word = words[i];
+                var storyIndex = FindStoryWordIndex(fullStory, word.meaning, word.word);
+                if (storyIndex < 0)
+                {
+                    error = "fullStory does not contain " + word.meaning + " (" + word.word + ").";
+                    return false;
+                }
+
+                occurrences.Add(new RecoveredStoryOccurrence
+                {
+                    WordIndex = i,
+                    StoryIndex = storyIndex,
+                    Segment = ExtractStorySentence(fullStory, storyIndex)
+                });
+            }
+
+            occurrences.Sort((a, b) => a.StoryIndex.CompareTo(b.StoryIndex));
+            var ordered = new List<WordImageItemData>();
+            for (int order = 0; order < occurrences.Count; order++)
+            {
+                var occurrence = occurrences[order];
+                var sourceWord = words[occurrence.WordIndex];
+                var anchor = assignedAnchors[Mathf.Clamp(occurrence.WordIndex, 0, assignedAnchors.Count - 1)];
+                var storyBeat = string.IsNullOrWhiteSpace(occurrence.Segment) ? fullStory.Trim() : occurrence.Segment.Trim();
+                if (IsRoutePictureSentence(storyBeat))
+                {
+                    var followingSentence = ExtractFollowingStorySentence(fullStory, occurrence.StoryIndex);
+                    if (!string.IsNullOrWhiteSpace(followingSentence))
+                    {
+                        storyBeat = followingSentence.Trim();
+                    }
+                }
+
+                if (!ContainsMeaningWordPair(storyBeat, sourceWord.meaning, sourceWord.word))
+                {
+                    storyBeat = sourceWord.meaning + " (" + sourceWord.word + "): " + storyBeat;
+                }
+
+                ordered.Add(new WordImageItemData
+                {
+                    word = sourceWord.word,
+                    meaning = sourceWord.meaning,
+                    anchorId = anchor.id,
+                    anchorLabel = anchor.label,
+                    anchorType = RoomSpecCatalog.ResolveModelKey(anchor.id, anchor.label),
+                    storyOrder = order + 1,
+                    storySegment = BuildStorySegment(sourceWord, storyBeat),
+                    imageResourcePath = WordImageCatalog.BuildResourcePath(sourceWord.word),
+                    imageFilePath = string.Empty,
+                    imageLoaded = false
+                });
+            }
+
+            story = CreateStorySession(fullStory, ordered, source, model);
+            return true;
+        }
+
+        private static StorySessionData CreateStorySession(
+            string fullStory,
+            List<WordImageItemData> ordered,
+            string source,
+            string model)
+        {
+            return new StorySessionData
+            {
+                fullStory = NormalizeDisplayStory(fullStory),
+                storySource = source,
+                storyProvider = "Ollama Local",
+                storyModel = model,
+                generatedAtUtc = DateTime.UtcNow.ToString("o"),
+                orderedItems = ordered
+            };
+        }
+
+        private static string NormalizeDisplayStory(string fullStory)
+        {
+            return ConvertStoryToSecondPerson(fullStory).Trim();
+        }
+
+        private static string ConvertStoryToSecondPerson(string story)
+        {
+            if (string.IsNullOrWhiteSpace(story))
+            {
+                return string.Empty;
+            }
+
+            var cleaned = story.Trim();
+            cleaned = Regex.Replace(cleaned, @"\b([A-Z][a-z]{2,})\s+is\s+getting\s+ready\b", "You are getting ready");
+            cleaned = Regex.Replace(cleaned, @"\b([A-Z][a-z]{2,})\s+starts\b", "You start");
+            cleaned = Regex.Replace(cleaned, @"\b([A-Z][a-z]{2,})\s+finds\b", "You find");
+            cleaned = Regex.Replace(cleaned, @"\b([A-Z][a-z]{2,})\s+adds\b", "You add");
+            cleaned = Regex.Replace(cleaned, @"\b([A-Z][a-z]{2,})\s+packs\b", "You pack");
+            cleaned = Regex.Replace(cleaned, @"\b[Ss]he\b", m => char.IsUpper(m.Value[0]) ? "You" : "you");
+            cleaned = Regex.Replace(cleaned, @"\b[Hh]e\b", m => char.IsUpper(m.Value[0]) ? "You" : "you");
+            cleaned = Regex.Replace(cleaned, @"\b[Hh]er\b", m => char.IsUpper(m.Value[0]) ? "Your" : "your");
+            cleaned = Regex.Replace(cleaned, @"\b[Hh]is\b", m => char.IsUpper(m.Value[0]) ? "Your" : "your");
+            cleaned = Regex.Replace(cleaned, @"\bherself\b", "yourself", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, @"\bhimself\b", "yourself", RegexOptions.IgnoreCase);
+            return Regex.Replace(cleaned, @"\s+", " ");
+        }
+
+        private sealed class RecoveredStoryOccurrence
+        {
+            public int WordIndex;
+            public int StoryIndex;
+            public string Segment;
+        }
+
+        private static int FindStoryWordIndex(string fullStory, string meaning, string word)
+        {
+            if (string.IsNullOrWhiteSpace(fullStory) || string.IsNullOrWhiteSpace(word))
+            {
+                return -1;
+            }
+
+            var wordPair = "(" + word.Trim() + ")";
+            if (!string.IsNullOrWhiteSpace(meaning))
+            {
+                var meaningPair = meaning.Trim() + " " + wordPair;
+                var meaningPairIndex = fullStory.IndexOf(meaningPair, StringComparison.OrdinalIgnoreCase);
+                if (meaningPairIndex >= 0)
+                {
+                    return meaningPairIndex;
+                }
+            }
+
+            return fullStory.IndexOf(wordPair, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ExtractStorySentence(string fullStory, int index)
+        {
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return string.Empty;
+            }
+
+            var start = FindSentenceStart(fullStory, index);
+            var end = FindSentenceEnd(fullStory, index);
+
+            return fullStory.Substring(start, end - start).Trim();
+        }
+
+        private static string ExtractFollowingStorySentence(string fullStory, int index)
+        {
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return string.Empty;
+            }
+
+            var currentEnd = FindSentenceEnd(fullStory, index);
+            if (currentEnd >= fullStory.Length)
+            {
+                return string.Empty;
+            }
+
+            return ExtractStorySentence(fullStory, Mathf.Clamp(currentEnd + 1, 0, fullStory.Length - 1));
+        }
+
+        private static bool IsRoutePictureSentence(string sentence)
+        {
+            return !string.IsNullOrWhiteSpace(sentence)
+                && sentence.IndexOf("picture", StringComparison.OrdinalIgnoreCase) >= 0
+                && sentence.IndexOf("see", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static int FindSentenceStart(string fullStory, int index)
+        {
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return 0;
+            }
+
+            for (int i = Mathf.Clamp(index - 1, 0, fullStory.Length - 1); i >= 0; i--)
+            {
+                if (IsSentenceBoundary(fullStory[i]))
+                {
+                    return Mathf.Clamp(i + 1, 0, fullStory.Length);
+                }
+            }
+
+            return 0;
+        }
+
+        private static int FindSentenceEnd(string fullStory, int index)
+        {
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return 0;
+            }
+
+            for (int i = Mathf.Clamp(index, 0, fullStory.Length - 1); i < fullStory.Length; i++)
+            {
+                if (IsSentenceBoundary(fullStory[i]))
+                {
+                    return Mathf.Clamp(i + 1, 0, fullStory.Length);
+                }
+            }
+
+            return fullStory.Length;
+        }
+
+        private static bool IsSentenceBoundary(char value)
+        {
+            return value == '.' || value == '!' || value == '?';
+        }
+
+        private static bool ContainsMeaningWordPair(string text, string meaning, string word)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(word))
+            {
+                return false;
+            }
+
+            var normalized = text.ToLowerInvariant();
+            var wordPair = "(" + word.Trim().ToLowerInvariant() + ")";
+            return normalized.Contains(wordPair)
+                   && (string.IsNullOrWhiteSpace(meaning) || normalized.Contains(meaning.Trim().ToLowerInvariant()));
         }
 
         public IEnumerator GenerateGuidedFurnitureLayout(
@@ -542,6 +1607,12 @@ namespace MemPalaceLLM
             Action<string> onError,
             List<AnchorDefinition> assignedAnchors = null)
         {
+            if (IsStoryOnlyRedesignEnabled())
+            {
+                onError?.Invoke("Mnemonic generation is disabled in the story-only redesign. Use GenerateStory instead.");
+                yield break;
+            }
+
             if (string.IsNullOrWhiteSpace(endpoint))
             {
                 onError?.Invoke("Ollama endpoint is empty.");
@@ -604,6 +1675,12 @@ namespace MemPalaceLLM
             Action<string> onError,
             List<AnchorDefinition> assignedAnchors = null)
         {
+            if (IsStoryOnlyRedesignEnabled())
+            {
+                onError?.Invoke("Gemini mnemonic generation is disabled in the story-only redesign. Use GenerateStory instead.");
+                yield break;
+            }
+
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 onError?.Invoke("Gemini API key is empty.");
@@ -719,6 +1796,12 @@ namespace MemPalaceLLM
             Action<MnemonicItemData> onSuccess,
             Action<string> onError)
         {
+            if (IsStoryOnlyRedesignEnabled())
+            {
+                onError?.Invoke("Mnemonic regeneration is disabled in the story-only redesign.");
+                yield break;
+            }
+
             if (string.IsNullOrWhiteSpace(endpoint))
             {
                 onError?.Invoke("Ollama endpoint is empty.");
@@ -831,6 +1914,12 @@ namespace MemPalaceLLM
             Action<MnemonicItemData> onSuccess,
             Action<string> onError)
         {
+            if (IsStoryOnlyRedesignEnabled())
+            {
+                onError?.Invoke("Gemini mnemonic regeneration is disabled in the story-only redesign.");
+                yield break;
+            }
+
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 onError?.Invoke("Gemini API key is empty.");

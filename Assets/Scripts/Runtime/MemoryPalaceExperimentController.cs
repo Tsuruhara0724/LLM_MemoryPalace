@@ -40,6 +40,11 @@ namespace MemPalaceLLM
         private const int RequiredImagePromptCandidateCount = 4;
         private const int BufferedImageCueResultCount = 4;
 
+        private static bool IsStoryOnlyRedesignEnabled()
+        {
+            return true;
+        }
+
         private enum BuilderToolMode
         {
             Select,
@@ -288,7 +293,7 @@ namespace MemPalaceLLM
         private string imageGenerationEndpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img";
         private string imageGenerationCheckpoint = string.Empty;
         private string imageCueValidationModel = "gemma3:12b";
-        private bool enableVrStudyMode = true;
+        private bool enableVrStudyMode;
         private bool showAbstractMnemonicProps = false;
         private bool preferPreGeneratedMnemonics = true;
         private bool allowLiveLlmForMissingPreGenerated = false;
@@ -362,6 +367,7 @@ namespace MemPalaceLLM
 
         private WordSetDefinition activeWordSet;
         private List<MnemonicItemData> currentItems = new();
+        private StorySessionData currentStory = new();
         private MnemonicItemData selectedStudyItem;
         private QuestionnaireResponse questionnaire = new();
 
@@ -449,7 +455,9 @@ namespace MemPalaceLLM
                     DrawGenerationView();
                     break;
                 case ExperimentStage.SelfAuthoring:
-                    DrawSelfAuthoringView();
+                    stage = ExperimentStage.Setup;
+                    statusMessage = "Self-authoring mnemonic flow is disabled in the story-only redesign.";
+                    DrawSetupView();
                     break;
                 case ExperimentStage.Study:
                     DrawStudyView();
@@ -646,9 +654,9 @@ namespace MemPalaceLLM
                 case ExperimentStage.RoomBuilder:
                     return "Room Builder";
                 case ExperimentStage.Generation:
-                    return "Mnemonic Preview";
+                    return "Story Preview";
                 case ExperimentStage.SelfAuthoring:
-                    return "Author Mnemonics";
+                    return "Author Story";
                 case ExperimentStage.Study:
                     return "Study Room";
                 case ExperimentStage.Recall:
@@ -719,12 +727,12 @@ namespace MemPalaceLLM
             setupScroll = GUILayout.BeginScrollView(setupScroll);
 
             GUILayout.Label("Step 1 of 7 - Experiment Setup", titleStyle);
-            GUILayout.Label("Configure the participant, choose the condition, and prepare the local Ollama generation settings for the mnemonic condition.", mutedStyle);
+            GUILayout.Label("Configure the participant, choose the room and words, then generate one continuous story. Word images are loaded locally.", mutedStyle);
             GUILayout.Space(10);
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Demo Flow", smallTitleStyle);
-            GUILayout.Label("1. Setup the participant and select a condition.\n2. Preview LLM-generated cues or author them manually.\n3. Enter the room and capture memory snapshots.\n4. Run a mid image-choice test.\n5. Run a final image-choice test and teleport back to the correct anchor.\n6. Collect questionnaire ratings.\n7. Export JSON and CSV results.", guideStyle);
+            GUILayout.Label("1. Setup the participant, room, and words.\n2. Generate one continuous English story containing all target words.\n3. Enter the room and study the word images above furniture.\n4. Run a mid image-choice test.\n5. Run a final image-choice test and teleport back to the correct anchor.\n6. Collect questionnaire ratings.\n7. Export JSON and CSV results.", guideStyle);
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
@@ -751,6 +759,11 @@ namespace MemPalaceLLM
             if (GUILayout.Button("Reload Default Room", buttonStyle))
             {
                 ReloadDefaultRoomForSetup();
+            }
+
+            if (GUILayout.Button("Load Example Room", buttonStyle))
+            {
+                LoadExampleRoomForSetup();
             }
             GUI.enabled = true;
             GUILayout.EndHorizontal();
@@ -795,127 +808,17 @@ namespace MemPalaceLLM
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
-            GUILayout.Label("Condition", smallTitleStyle);
-            condition = (ExperimentCondition)GUILayout.Toolbar((int)condition, new[] { "LLM Generated", "Self Generated" });
-            GUILayout.Space(8);
-
-            if (condition == ExperimentCondition.LlmGenerated)
-            {
-                providerMode = (LlmProviderMode)GUILayout.Toolbar((int)providerMode, new[] { "Ollama", "Gemini" });
-                if (providerMode == LlmProviderMode.GeminiOnline)
-                {
-                    geminiModel = DrawLabeledTextField("Gemini Mnemonic Model", geminiModel);
-                    GUILayout.BeginHorizontal();
-                    if (GUILayout.Button("Use Flash Free", buttonStyle))
-                    {
-                        geminiModel = "gemini-2.5-flash";
-                    }
-
-                    if (GUILayout.Button("Use Flash-Lite Free", buttonStyle))
-                    {
-                        geminiModel = "gemini-2.5-flash-lite";
-                    }
-
-                    if (GUILayout.Button("Use Pro Paid", buttonStyle))
-                    {
-                        geminiModel = "gemini-2.5-pro";
-                    }
-                    GUILayout.EndHorizontal();
-                    geminiApiKey = DrawLabeledTextField("Gemini API Key", geminiApiKey, true);
-                    GUILayout.Label("Free keys should use Flash or Flash-Lite; Pro usually requires billing. If the key field is blank, the app uses GEMINI_API_KEY or GOOGLE_API_KEY from the environment.", mutedStyle);
-                    GUI.enabled = !isTestingGeminiProvider;
-                    if (GUILayout.Button(isTestingGeminiProvider ? "Testing Gemini..." : "Test Gemini Connection", buttonStyle))
-                    {
-                        StartCoroutine(TestGeminiProviderRoutine());
-                    }
-                    GUI.enabled = true;
-                    if (!string.IsNullOrWhiteSpace(geminiProviderStatus))
-                    {
-                        GUILayout.Label(geminiProviderStatus, mutedStyle);
-                    }
-                }
-                else
-                {
-                    ollamaBaseUrl = DrawLabeledTextField("Ollama Endpoint", ollamaBaseUrl);
-                    ollamaModel = DrawLabeledTextField("Mnemonic Text Model", ollamaModel);
-                }
-
-                imageGenerationEndpoint = DrawLabeledTextField("Image Endpoint", imageGenerationEndpoint);
-                imageGenerationCheckpoint = DrawLabeledTextField("Image Checkpoint", imageGenerationCheckpoint);
-                imageCueValidationModel = DrawLabeledTextField("Image Cue Validation Model", imageCueValidationModel);
-                usePreGeneratedImageCueCatalog = GUILayout.Toggle(usePreGeneratedImageCueCatalog, $"Use pre-generated image cue catalog ({PreGeneratedImageCueCatalog.EntryCount} word x furniture entries)");
-                allowRuntimeImageCueGenerationForMissing = GUILayout.Toggle(allowRuntimeImageCueGenerationForMissing, "Researcher mode: allow slow local SD generation for missing image cues");
-                GUILayout.Label("Formal sessions should load pre-generated image cues. Runtime SD generation is slow and should be used only while preparing the catalog.", mutedStyle);
-                preferPreGeneratedMnemonics = GUILayout.Toggle(preferPreGeneratedMnemonics, $"Prefer pre-generated word x furniture mnemonics ({PreGeneratedMnemonicCatalog.EntryCount} loaded)");
-                GUI.enabled = preferPreGeneratedMnemonics;
-                randomizeMnemonicAnchors = GUILayout.Toggle(randomizeMnemonicAnchors, "Randomize furniture anchors before mnemonic lookup");
-                useLocalFallbackForMissingPreGenerated = GUILayout.Toggle(useLocalFallbackForMissingPreGenerated, "Use local story-only fallback for missing catalog combinations");
-                allowLiveLlmForMissingPreGenerated = GUILayout.Toggle(allowLiveLlmForMissingPreGenerated, $"Try {GetSelectedLiveMnemonicProviderLabel()} to improve missing combinations when available");
-                GUI.enabled = true;
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("Check Catalog Coverage", buttonStyle))
-                {
-                    RefreshPreGeneratedCatalogCoverage();
-                }
-
-                if (GUILayout.Button("Check 12 x 10 Mnemonic Matrix", buttonStyle))
-                {
-                    RefreshFullMnemonicMatrixCoverage();
-                }
-
-                if (GUILayout.Button("Validate Catalog", buttonStyle))
-                {
-                    ValidatePreGeneratedCatalog();
-                }
-                GUILayout.EndHorizontal();
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("Check Image Catalog Coverage", buttonStyle))
-                {
-                    RefreshPreGeneratedImageCueCatalogCoverage();
-                }
-
-                if (GUILayout.Button("Check 12 x 10 Image Matrix", buttonStyle))
-                {
-                    RefreshFullImageCueMatrixCoverage();
-                }
-
-                if (GUILayout.Button("Validate Image Catalog", buttonStyle))
-                {
-                    ValidatePreGeneratedImageCueCatalog();
-                }
-                GUILayout.EndHorizontal();
-                if (!string.IsNullOrWhiteSpace(preGeneratedCatalogStatus))
-                {
-                    GUILayout.Label(preGeneratedCatalogStatus, mutedStyle);
-                    for (int i = 0; i < preGeneratedCatalogDetails.Count; i++)
-                    {
-                        GUILayout.Label(preGeneratedCatalogDetails[i], mutedStyle);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(preGeneratedImageCueCatalogStatus))
-                {
-                    GUILayout.Label(preGeneratedImageCueCatalogStatus, mutedStyle);
-                    for (int i = 0; i < preGeneratedImageCueCatalogDetails.Count; i++)
-                    {
-                        GUILayout.Label(preGeneratedImageCueCatalogDetails[i], mutedStyle);
-                    }
-                }
-
-                DrawMnemonicCatalogReviewBuilderPanel();
-                DrawImageCueCatalogBuilderPanel();
-
-                showAbstractMnemonicProps = GUILayout.Toggle(showAbstractMnemonicProps, "Show experimental 3D proxy props in the room");
-                GUILayout.Label("Mnemonic text uses pre-generated catalog hits first. Missing text uses local story-only fallback by default. Cue images should be pre-generated and loaded from catalog for formal sessions.", mutedStyle);
-            }
-            else
-            {
-                GUILayout.Label("Self Generated condition lets the participant assign anchors and type their own bilingual scenes and memory links before entering the room.", mutedStyle);
-            }
-
+            GUILayout.Label("Story LLM", smallTitleStyle);
+            ollamaBaseUrl = DrawLabeledTextField("Ollama Endpoint", ollamaBaseUrl);
+            ollamaModel = DrawLabeledTextField("Story Model", ollamaModel);
+            GUILayout.Label("The LLM is used only for one continuous English story. It does not generate mnemonics, image prompts, or image cues.", mutedStyle);
             enableVrStudyMode = GUILayout.Toggle(enableVrStudyMode, "Use VR study runtime after entering the room");
-            GUILayout.Label("Desktop setup, room generation, and authoring stay unchanged. Study controls add XR head/controller support when a headset is active.", mutedStyle);
+            GUILayout.EndVertical();
 
+            GUILayout.BeginVertical(sectionStyle);
+            GUILayout.Label("Word Images", smallTitleStyle);
+            GUILayout.Label("Place images at Assets/Resources/WordImages/{word}.png, for example Assets/Resources/WordImages/zapato.png.", mutedStyle);
+            GUILayout.Label("If an image is missing, Assets/Resources/WordImages/_placeholder.png is shown. The Spanish word and English meaning are displayed above the picture.", mutedStyle);
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
@@ -935,10 +838,11 @@ namespace MemPalaceLLM
 
             GUILayout.Space(6);
             GUILayout.Label(activeWordSet.description, mutedStyle);
+            GUILayout.Label("Formal runs sample 8 distinct route words from the 12-word pool. Repeated mentions in the story do not create extra route items.", mutedStyle);
             GUILayout.Space(6);
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Sample {Mathf.Min(RandomAdvancedWordCount, RoomSpecCatalog.AnchorCount)} Words", buttonStyle))
+            if (GUILayout.Button($"Sample {RandomAdvancedWordCount} Distinct Words", buttonStyle))
             {
                 GenerateRandomAdvancedWordSet();
             }
@@ -971,20 +875,10 @@ namespace MemPalaceLLM
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Next Step", smallTitleStyle);
 
-            GUI.enabled = !isGeneratingRoom;
-            if (condition == ExperimentCondition.LlmGenerated)
+            GUI.enabled = !isGeneratingRoom && !isGenerating;
+            if (GUILayout.Button(isGenerating ? "Generating Continuous Story..." : "Next: Generate Continuous Story", buttonStyle))
             {
-                if (GUILayout.Button("Next: Generate Mnemonics", buttonStyle))
-                {
-                    BeginLlmFlow();
-                }
-            }
-            else
-            {
-                if (GUILayout.Button("Next: Open Authoring Workspace", buttonStyle))
-                {
-                    BeginSelfAuthoring();
-                }
+                BeginLlmFlow();
             }
             GUI.enabled = true;
 
@@ -1018,7 +912,7 @@ namespace MemPalaceLLM
             roomBuilderScroll = GUILayout.BeginScrollView(roomBuilderScroll, false, true);
 
             GUILayout.Label("Room Builder", titleStyle);
-            GUILayout.Label("Deterministic grid editor: paint floor cells, place fixed furniture anchors, then use the room for mnemonic generation.", mutedStyle);
+            GUILayout.Label("Deterministic grid editor: paint floor cells, place fixed furniture anchors, then use the room for story-guided word images.", mutedStyle);
             GUILayout.Space(8);
 
             DrawGridRoomBuilderPanel();
@@ -1036,6 +930,11 @@ namespace MemPalaceLLM
             GUILayout.Label(RoomSpecCatalog.RoomName, labelStyle);
             GUILayout.Label($"Anchors: {RoomSpecCatalog.AnchorCount}", mutedStyle);
             GUILayout.Label(RoomSpecCatalog.CurrentRoom.summary, mutedStyle);
+            if (GUILayout.Button("Load Example Room", buttonStyle))
+            {
+                LoadExampleRoomForSetup();
+                BuildRoomBuilderPreview();
+            }
             GUILayout.EndVertical();
 
             showAdvancedRoomEditing = GUILayout.Toggle(showAdvancedRoomEditing, "Show advanced manual editor (gizmos / furniture list / shell repair)");
@@ -2811,18 +2710,11 @@ namespace MemPalaceLLM
                 MoveCameraToEntrancePreview();
             }
 
-            if (GUILayout.Button(condition == ExperimentCondition.LlmGenerated ? "Start LLM Mnemonic Flow" : "Start Self Authoring", buttonStyle))
+            if (GUILayout.Button("Start Story Flow", buttonStyle))
             {
                 ClearStudyRoom();
                 selectedBuilderAnchorIndex = -1;
-                if (condition == ExperimentCondition.LlmGenerated)
-                {
-                    BeginLlmFlow();
-                }
-                else
-                {
-                    BeginSelfAuthoring();
-                }
+                BeginLlmFlow();
             }
             GUILayout.EndHorizontal();
         }
@@ -3508,7 +3400,7 @@ namespace MemPalaceLLM
             RoomSpecCatalog.SetCurrentRoom(generatedRoom);
             selectedBuilderAnchorIndex = RoomSpecCatalog.AnchorCount > 0 ? 0 : -1;
             roomGenerationError = string.Empty;
-            statusMessage = $"Generated room ready: {RoomSpecCatalog.RoomName}. Open Room Builder to inspect it, or continue to mnemonic generation.";
+            statusMessage = $"Generated room ready: {RoomSpecCatalog.RoomName}. Open Room Builder to inspect it, or continue to story generation.";
 
             ClearStudyRoom();
             MoveCameraToOverview();
@@ -3552,9 +3444,327 @@ namespace MemPalaceLLM
             statusMessage = $"Default furnished resource room reloaded: {RoomSpecCatalog.RoomName}. Builder will still start from a clear room.";
         }
 
+        private void LoadExampleRoomForSetup()
+        {
+            var textAsset = Resources.Load<TextAsset>("ExampleRooms/example_room");
+            if (textAsset == null || string.IsNullOrWhiteSpace(textAsset.text))
+            {
+                statusMessage = "Example room JSON was not found at Assets/Resources/ExampleRooms/example_room.json.";
+                return;
+            }
+
+            RoomSpecDefinition room = null;
+            try
+            {
+                room = JsonUtility.FromJson<RoomSpecDefinition>(textAsset.text);
+            }
+            catch (Exception ex)
+            {
+                statusMessage = "Failed to parse example room JSON: " + ex.Message;
+                return;
+            }
+
+            if (room == null || room.anchors == null || room.anchors.Count == 0)
+            {
+                statusMessage = "Example room JSON did not contain usable furniture anchors.";
+                return;
+            }
+
+            RoomSpecCatalog.EnsureDefaults(room);
+            RoomSpecCatalog.SetCurrentRoom(room);
+            if (TryBuildGridRoomLayoutFromRoomSpec(room, out var exampleGridLayout))
+            {
+                gridRoomLayout = exampleGridLayout;
+                gridRoomInitialized = true;
+                gridUndoStack.Clear();
+                gridRedoStack.Clear();
+                gridEditorStatus = $"Loaded editable example room: {room.roomName}.";
+            }
+            else
+            {
+                ResetGridRoomBuilderDraft();
+                gridEditorStatus = "Loaded example room, but could not reconstruct its editable grid draft.";
+            }
+            ClearStudyRoom();
+            MoveCameraToOverview();
+            selectedBuilderAnchorIndex = RoomSpecCatalog.AnchorCount > 0 ? 0 : -1;
+            selectedGridFurnitureInstanceIndex = selectedBuilderAnchorIndex;
+            hoveredGridFurnitureInstanceIndex = -1;
+            movingGridFurnitureInstanceIndex = -1;
+            selectedRoomPrimitiveIndex = -1;
+            statusMessage = $"Loaded example room: {RoomSpecCatalog.RoomName}.";
+        }
+
         private bool IsCurrentRoomGridEditorRoom()
         {
             return string.Equals(RoomSpecCatalog.CurrentRoom?.generatedBy, "Deterministic grid room editor", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool TryBuildGridRoomLayoutFromRoomSpec(RoomSpecDefinition room, out GridRoomLayoutModel layout)
+        {
+            layout = null;
+            if (room == null)
+            {
+                return false;
+            }
+
+            var floorCells = new HashSet<Vector2Int>();
+            if (room.environmentPrimitives != null)
+            {
+                for (int i = 0; i < room.environmentPrimitives.Count; i++)
+                {
+                    if (TryGetGridFloorCell(room.environmentPrimitives[i], out var cell))
+                    {
+                        floorCells.Add(cell);
+                    }
+                }
+            }
+
+            if (floorCells.Count == 0)
+            {
+                return false;
+            }
+
+            layout = new GridRoomLayoutModel
+            {
+                roomId = string.IsNullOrWhiteSpace(room.roomId) ? "grid_room" : room.roomId,
+                roomName = string.IsNullOrWhiteSpace(room.roomName) ? "Grid Memory Room" : room.roomName,
+                gridSize = GridRoomCellSize,
+                nextFurnitureNumber = 1,
+                floorCells = new List<GridFloorCellData>(),
+                manualWalls = new List<GridWallSegmentData>(),
+                furniture = new List<GridFurnitureInstanceData>()
+            };
+
+            foreach (var cell in floorCells)
+            {
+                layout.floorCells.Add(new GridFloorCellData { x = cell.x, z = cell.y });
+            }
+
+            if (room.anchors != null)
+            {
+                for (int i = 0; i < room.anchors.Count; i++)
+                {
+                    if (TryBuildGridFurnitureInstanceFromAnchor(room.anchors[i], floorCells, out var instance))
+                    {
+                        layout.furniture.Add(instance);
+                    }
+                }
+            }
+
+            layout.nextFurnitureNumber = Mathf.Max(1, layout.furniture.Count + 1);
+            return true;
+        }
+
+        private bool TryGetGridFloorCell(RoomPrimitiveDefinition primitive, out Vector2Int cell)
+        {
+            cell = default;
+            if (primitive == null)
+            {
+                return false;
+            }
+
+            var id = primitive.id ?? string.Empty;
+            const string prefix = "grid_floor_";
+            if (id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = id.Substring(prefix.Length).Split('_');
+                if (parts.Length >= 2 && int.TryParse(parts[0], out var x) && int.TryParse(parts[1], out var z))
+                {
+                    cell = new Vector2Int(x, z);
+                    return true;
+                }
+            }
+
+            if (string.Equals(primitive.label, "Grid Floor Cell", StringComparison.OrdinalIgnoreCase))
+            {
+                cell = new Vector2Int(
+                    Mathf.RoundToInt(primitive.position.x / GridRoomCellSize - 0.5f),
+                    Mathf.RoundToInt(primitive.position.z / GridRoomCellSize - 0.5f));
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryBuildGridFurnitureInstanceFromAnchor(
+            AnchorDefinition anchor,
+            HashSet<Vector2Int> floorSet,
+            out GridFurnitureInstanceData instance)
+        {
+            instance = null;
+            var definition = FindGridFurnitureDefinitionForAnchor(anchor);
+            if (anchor == null || definition == null || floorSet == null || floorSet.Count == 0)
+            {
+                return false;
+            }
+
+            var rotation = NormalizeGridRotation(Mathf.RoundToInt(anchor.rotationEuler.y / 90f) * 90);
+            var gridX = Mathf.RoundToInt(anchor.position.x / GridRoomCellSize - 0.5f);
+            var gridZ = Mathf.RoundToInt(anchor.position.z / GridRoomCellSize - 0.5f);
+            var wallDirection = -1;
+
+            if (definition.snapType == GridFurnitureSnapType.Wall)
+            {
+                if (!TryFindNearestWallMountedGridPlacement(definition, anchor, floorSet, out gridX, out gridZ, out wallDirection))
+                {
+                    return false;
+                }
+
+                rotation = NormalizeGridRotation(Mathf.RoundToInt(GetGridWallYaw(wallDirection)));
+            }
+            else
+            {
+                var footprint = GetGridFurnitureFootprint(definition, rotation);
+                gridX = Mathf.RoundToInt(anchor.position.x / GridRoomCellSize - footprint.x * 0.5f);
+                gridZ = Mathf.RoundToInt(anchor.position.z / GridRoomCellSize - footprint.y * 0.5f);
+                if (!IsValidGridFurnitureFootprint(floorSet, gridX, gridZ, footprint))
+                {
+                    FindNearestFloorGridPlacement(definition, anchor.position, floorSet, ref gridX, ref gridZ, ref rotation);
+                }
+            }
+
+            instance = new GridFurnitureInstanceData
+            {
+                id = string.IsNullOrWhiteSpace(anchor.id) ? definition.id + "_" + Mathf.Abs(anchor.GetHashCode()) : anchor.id,
+                definitionId = definition.id,
+                anchorType = definition.anchorType,
+                gridX = gridX,
+                gridZ = gridZ,
+                rotation = rotation,
+                wallDirection = wallDirection,
+                height = definition.fixedHeight
+            };
+            return true;
+        }
+
+        private GridFurnitureDefinition FindGridFurnitureDefinitionForAnchor(AnchorDefinition anchor)
+        {
+            if (anchor == null)
+            {
+                return null;
+            }
+
+            var keys = new[]
+            {
+                anchor.modelKey,
+                anchor.id,
+                anchor.label,
+                PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor)
+            };
+
+            for (int i = 0; i < GridFurnitureDefinitions.Length; i++)
+            {
+                var definition = GridFurnitureDefinitions[i];
+                for (int k = 0; k < keys.Length; k++)
+                {
+                    var key = SanitizeIdPrefix(keys[k]);
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(key, definition.id, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(key, definition.modelKey, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(key, definition.anchorType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return definition;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private bool TryFindNearestWallMountedGridPlacement(
+            GridFurnitureDefinition definition,
+            AnchorDefinition anchor,
+            HashSet<Vector2Int> floorSet,
+            out int gridX,
+            out int gridZ,
+            out int wallDirection)
+        {
+            gridX = 0;
+            gridZ = 0;
+            wallDirection = -1;
+            var bestScore = float.PositiveInfinity;
+            var yaw = anchor.rotationEuler.y;
+
+            foreach (var cell in floorSet)
+            {
+                for (int direction = 0; direction < 4; direction++)
+                {
+                    if (!IsGridBoundaryEdge(cell, direction, floorSet))
+                    {
+                        continue;
+                    }
+
+                    var expected = GetGridWallMountedPosition(definition, cell, direction);
+                    var distance = (expected - anchor.position).sqrMagnitude;
+                    var yawScore = Mathf.Abs(Mathf.DeltaAngle(yaw, GetGridWallYaw(direction))) * 0.01f;
+                    var score = distance + yawScore;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        gridX = cell.x;
+                        gridZ = cell.y;
+                        wallDirection = direction;
+                    }
+                }
+            }
+
+            return wallDirection >= 0;
+        }
+
+        private static bool IsValidGridFurnitureFootprint(HashSet<Vector2Int> floorSet, int gridX, int gridZ, Vector2Int footprint)
+        {
+            for (int x = 0; x < footprint.x; x++)
+            {
+                for (int z = 0; z < footprint.y; z++)
+                {
+                    if (!floorSet.Contains(new Vector2Int(gridX + x, gridZ + z)))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private void FindNearestFloorGridPlacement(
+            GridFurnitureDefinition definition,
+            Vector3 anchorPosition,
+            HashSet<Vector2Int> floorSet,
+            ref int gridX,
+            ref int gridZ,
+            ref int rotation)
+        {
+            var bestScore = float.PositiveInfinity;
+            foreach (var cell in floorSet)
+            {
+                for (int candidateRotation = 0; candidateRotation < 360; candidateRotation += 90)
+                {
+                    var footprint = GetGridFurnitureFootprint(definition, candidateRotation);
+                    if (!IsValidGridFurnitureFootprint(floorSet, cell.x, cell.y, footprint))
+                    {
+                        continue;
+                    }
+
+                    var center = new Vector3(
+                        (cell.x + footprint.x * 0.5f) * GridRoomCellSize,
+                        anchorPosition.y,
+                        (cell.y + footprint.y * 0.5f) * GridRoomCellSize);
+                    var score = (center - anchorPosition).sqrMagnitude;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        gridX = cell.x;
+                        gridZ = cell.y;
+                        rotation = candidateRotation;
+                    }
+                }
+            }
         }
 
         private void ResetGridRoomBuilderDraft()
@@ -3588,8 +3798,8 @@ namespace MemPalaceLLM
             preStudyImageCueCoroutine = null;
             generatingImageCueWords.Clear();
             regeneratingMnemonicWords.Clear();
-            generationError = "Mnemonic generation was cancelled.";
-            statusMessage = "Mnemonic generation cancelled. You can return to setup or try again.";
+            generationError = "Story generation was cancelled.";
+            statusMessage = "Story generation cancelled. You can return to setup or try again.";
         }
 
         private void DrawGenerationView()
@@ -3601,25 +3811,30 @@ namespace MemPalaceLLM
             GUILayout.BeginArea(rect);
             generationScroll = GUILayout.BeginScrollView(generationScroll);
 
-            GUILayout.Label("Step 2 of 7 - Mnemonic Preview", titleStyle);
-            GUILayout.Label("This page previews each word-anchor mnemonic and prepares the generated image cues before the study room begins.", mutedStyle);
+            GUILayout.Label("Step 2 of 7 - Story Preview", titleStyle);
+            GUILayout.Label("This page previews the continuous story and loads local word images before the study room begins.", mutedStyle);
             GUILayout.Space(8);
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Current Session", smallTitleStyle);
-            GUILayout.Label($"Condition: {GetConditionDisplayName()}", labelStyle);
-            GUILayout.Label($"Mnemonic Source: {ResolveProviderLabel()}", labelStyle);
+            var storyProvider = currentStory != null && !string.IsNullOrWhiteSpace(currentStory.storyProvider)
+                ? currentStory.storyProvider
+                : ResolveProviderLabel();
+            var storyModel = currentStory != null && !string.IsNullOrWhiteSpace(currentStory.storyModel)
+                ? currentStory.storyModel
+                : ollamaModel;
+            GUILayout.Label($"Story Source: {storyProvider} {storyModel}", labelStyle);
             GUILayout.Label($"Live LLM Request Used: {(isGenerating ? "In progress" : (IsUsingLiveLlm() ? "Yes" : "No"))}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
-            GUILayout.Label($"Mnemonic Items: {currentItems.Count}", labelStyle);
+            GUILayout.Label($"Word Images Ready: {CountReadyImageCueItems()}/{currentItems.Count}", labelStyle);
             GUILayout.Label(statusMessage, mutedStyle);
             GUILayout.EndVertical();
 
             if (isGenerating)
             {
                 GUILayout.Space(8);
-                GUILayout.Label("Generating mnemonic items...", labelStyle);
-                if (GUILayout.Button("Cancel Mnemonic Generation", buttonStyle))
+                GUILayout.Label("Generating one continuous story...", labelStyle);
+                if (GUILayout.Button("Cancel Story Generation", buttonStyle))
                 {
                     CancelMnemonicGeneration();
                 }
@@ -3633,40 +3848,33 @@ namespace MemPalaceLLM
 
             GUILayout.Space(12);
 
+            if (currentStory != null && !string.IsNullOrWhiteSpace(currentStory.fullStory))
+            {
+                DrawTextSection("Continuous Story", currentStory.fullStory, smallTitleStyle, labelStyle);
+                GUILayout.Space(12);
+            }
+
             foreach (var item in currentItems)
             {
                 GUILayout.BeginVertical(sectionStyle);
-                GUILayout.Label($"{item.word}  -  {item.anchorLabel}", smallTitleStyle);
-                GUILayout.Label(GetDisplayMeaningText(item), mutedStyle);
-                DrawTextSection("Association Image Cue", item.associationPrompt, smallTitleStyle, labelStyle);
+                var order = GetCurrentItemIndex(item) + 1;
+                GUILayout.Label($"{order}. {item.meaning} ({item.word})  -  {item.anchorLabel}", smallTitleStyle);
+                GUILayout.Label(HasReadyImageCue(item)
+                    ? $"Local image loaded from {item.imageCuePath}"
+                    : $"Local image missing; placeholder will be used from {WordImageCatalog.PlaceholderDisplayPath}", mutedStyle);
                 GUILayout.Space(4);
-                DrawTextSection("Mnemonic", item.mnemonic, smallTitleStyle, labelStyle);
-                GUILayout.Space(6);
-                var previousEnabled = GUI.enabled;
-                GUI.enabled = previousEnabled && !isPreparingImageCuesBeforeStudy;
-                DrawRegenerateMnemonicButton(item);
-                GUI.enabled = previousEnabled;
+                DrawTextSection("Story Beat", item.mnemonic, smallTitleStyle, labelStyle);
                 GUILayout.EndVertical();
             }
 
             GUILayout.Space(12);
-            DrawPreStudyImageCuePreparationPanel(false);
-
-            GUILayout.Space(12);
-            var imageCuesReady = AreAllCurrentImageCuesReady();
-            GUI.enabled = !isGenerating
-                          && !isPreparingImageCuesBeforeStudy
-                          && currentItems.Count > 0
-                          && (imageCuesReady || usePreGeneratedImageCueCatalog);
+            GUI.enabled = !isGenerating && currentItems.Count > 0;
             if (GUILayout.Button("Next: Enter Study Room", buttonStyle))
             {
+                LoadWordImagesForCurrentItems();
                 EnterStudyRoom();
             }
             GUI.enabled = true;
-            if (currentItems.Count > 0 && !imageCuesReady)
-            {
-                GUILayout.Label("Generate all image cues before entering the study room.", mutedStyle);
-            }
 
             if (GUILayout.Button("Back to Setup", buttonStyle))
             {
@@ -4141,10 +4349,7 @@ namespace MemPalaceLLM
             return item != null
                    && !string.IsNullOrWhiteSpace(item.word)
                    && mnemonicImageCues.TryGetValue(item.word, out var texture)
-                   && texture != null
-                   && imageCueCandidateResults.TryGetValue(item.word, out var results)
-                   && results != null
-                   && results.Count > 0;
+                   && texture != null;
         }
 
         private string BuildMissingImageCueWordSummary()
@@ -4184,21 +4389,25 @@ namespace MemPalaceLLM
             GUILayout.BeginArea(topLeft);
             studyInfoScroll = GUILayout.BeginScrollView(studyInfoScroll, false, true);
             GUILayout.Label("Step 3 of 7 - Study Room", titleStyle);
-            GUILayout.Label("Explore the room, inspect a mnemonic marker, and press the snapshot button when you decide that memory has been encoded.", mutedStyle);
+            GUILayout.Label("Explore the room, inspect a word image above furniture, and press the snapshot button when you decide that memory has been encoded.", mutedStyle);
             GUILayout.Space(8);
             GUILayout.Label($"Participant: {participantId}", labelStyle);
-            GUILayout.Label($"Condition: {GetConditionDisplayName()}", labelStyle);
-            GUILayout.Label($"Mnemonic Source: {ResolveProviderLabel()}", labelStyle);
+            GUILayout.Label($"Story Source: {ResolveProviderLabel()}", labelStyle);
             GUILayout.Label($"Live LLM Call: {(IsUsingLiveLlm() ? "Yes" : "No")}", labelStyle);
             GUILayout.Label(GetLlmStatusText(), mutedStyle);
             GUILayout.Label($"Word Set: {activeWordSet.displayName}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
-            GUILayout.Label($"Viewed Markers: {viewedWords.Count} / {currentItems.Count}", labelStyle);
+            GUILayout.Label($"Viewed Word Images: {viewedWords.Count} / {currentItems.Count}", labelStyle);
             GUILayout.Label($"Snapshots Captured: {memorizedWords.Count} / {currentItems.Count}", labelStyle);
             GUILayout.Label($"Elapsed: {(Time.unscaledTime - studyStartTime):F1}s", labelStyle);
+            if (currentStory != null && !string.IsNullOrWhiteSpace(currentStory.fullStory))
+            {
+                GUILayout.Space(8);
+                DrawTextSection("Continuous Story", currentStory.fullStory, smallTitleStyle, guideStyle);
+            }
             GUILayout.Space(8);
             GUILayout.Label("Controls", smallTitleStyle);
-            GUILayout.Label("Right mouse drag: look around\nWASD: move\nQ / E: move down / up\nLeft click: inspect mnemonic marker", guideStyle);
+            GUILayout.Label("Right mouse drag: look around\nWASD: move\nQ / E: move down / up\nLeft click: inspect a word image", guideStyle);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
 
@@ -4247,44 +4456,28 @@ namespace MemPalaceLLM
             if (selectedStudyItem == null)
             {
                 GUILayout.Label("How This Phase Works", smallTitleStyle);
-                GUILayout.Label("1. Find the floating colored markers placed near key furniture anchors.\n2. Left-click one marker to inspect the word, meaning, cue, and mnemonic.\n3. When you feel the item is memorized, capture a snapshot.\n4. Mid and final tests unlock from those stored snapshots.", guideStyle);
+                GUILayout.Label("1. Find the word images placed above key furniture anchors.\n2. Left-click one image to inspect the word, meaning, and story segment.\n3. When you feel the item is memorized, capture a snapshot.\n4. Mid and final tests unlock from those stored snapshots.", guideStyle);
                 GUILayout.Space(10);
                 GUILayout.Label("What You Are Seeing", smallTitleStyle);
-                GUILayout.Label("Each marker has a stable room anchor plus an LLM-authored overlay cue: the anchor fixes the place, and the imagined cue carries the word meaning.", guideStyle);
+                GUILayout.Label("Each image has a stable room anchor, while the LLM-authored story links the words into one continuous route.", guideStyle);
                 GUILayout.Space(10);
-                GUILayout.Label("Why There Are Separate Text Fields", smallTitleStyle);
-                GUILayout.Label("Association Image Cue is only for generated images. Mnemonic is the learner-facing study text: either a strong hook plus story, or a story-only mnemonic when the hook would be weak.", guideStyle);
+                GUILayout.Label("Story", smallTitleStyle);
+                GUILayout.Label("The story is learner-facing text; images are local word pictures supplied under Resources/WordImages.", guideStyle);
                 GUILayout.Space(10);
                 GUILayout.Label("Tip", smallTitleStyle);
                 GUILayout.Label("For teacher demos, capture three memories first, run the mid test once, then finish the rest and trigger the final test.", guideStyle);
             }
             else
             {
-                if (ApplyMeaningFirstMnemonicGuardrails(selectedStudyItem))
-                {
-                    ClearGeneratedImageCueForWord(selectedStudyItem.word);
-                }
-
-                GUILayout.Label("Selected Mnemonic", smallTitleStyle);
+                GUILayout.Label("Selected Word", smallTitleStyle);
                 GUILayout.Label(selectedStudyItem.word, titleStyle);
                 GUILayout.Label(GetDisplayMeaningText(selectedStudyItem), mutedStyle);
                 GUILayout.Label($"Anchor: {selectedStudyItem.anchorLabel}", mutedStyle);
                 GUILayout.Space(10);
-                DrawTextSection("Association Image Cue", selectedStudyItem.associationPrompt, smallTitleStyle, guideStyle);
+                DrawTextSection("Story Beat", selectedStudyItem.mnemonic, smallTitleStyle, guideStyle);
                 GUILayout.Space(10);
-                DrawTextSection("Mnemonic", selectedStudyItem.mnemonic, smallTitleStyle, guideStyle);
-                GUILayout.Space(8);
-                DrawRegenerateMnemonicButton(selectedStudyItem);
-                GUILayout.Space(8);
-                if (selectedStudyItem.visualObjects != null && selectedStudyItem.visualObjects.Count > 0)
-                {
-                    GUILayout.Label(showAbstractMnemonicProps
-                        ? $"3D proxy props visible: {selectedStudyItem.visualObjects.Count}"
-                        : "3D proxy props are hidden; use the generated image cue as the main visual mnemonic.", mutedStyle);
-                }
-                GUILayout.Space(8);
                 DrawImageCuePanel(selectedStudyItem);
-                GUILayout.Label("Anchor = where it lives. Association Image Cue = what the image model draws. Mnemonic = what the learner studies.", mutedStyle);
+                GUILayout.Label("Anchor = where the word image lives. The story beat connects the target words; furniture is only navigation.", mutedStyle);
                 GUILayout.Space(12);
 
                 var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
@@ -4292,7 +4485,7 @@ namespace MemPalaceLLM
                 {
                     GUILayout.Label("Stored Snapshot", smallTitleStyle);
                     GUILayout.Box(memorySnapshots[selectedStudyItem.word], GUILayout.Width(220f), GUILayout.Height(130f));
-                    GUILayout.Label("This word has already been captured for the recognition tests. You can replace it if you generated a better image cue.", mutedStyle);
+                    GUILayout.Label("This word has already been captured for the recognition tests. You can replace it if you want to store the current local word image.", mutedStyle);
                     if (!isCapturingSnapshot && GUILayout.Button("Replace Stored Snapshot With Current Cue", buttonStyle))
                     {
                         StartCoroutine(CaptureMemorySnapshotRoutine(selectedStudyItem));
@@ -4438,7 +4631,7 @@ namespace MemPalaceLLM
             questionnaire.frustration = DrawSlider("Frustration", questionnaire.frustration, 0, 20);
 
             GUILayout.Space(10);
-            GUILayout.Label("Mnemonic quality ratings (1-7)", titleStyle);
+            GUILayout.Label("Story and image quality ratings (1-7)", titleStyle);
             questionnaire.vividness = DrawSevenPointScale("Vividness", questionnaire.vividness);
             questionnaire.helpfulness = DrawSevenPointScale("Helpfulness", questionnaire.helpfulness);
             questionnaire.trust = DrawSevenPointScale("Trust", questionnaire.trust);
@@ -4484,8 +4677,7 @@ namespace MemPalaceLLM
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label($"Participant: {participantId}", labelStyle);
-            GUILayout.Label($"Condition: {GetConditionDisplayName()}", labelStyle);
-            GUILayout.Label($"Mnemonic Source: {ResolveProviderLabel()}", labelStyle);
+            GUILayout.Label($"Story Source: {ResolveProviderLabel()}", labelStyle);
             GUILayout.Label($"Live LLM Request Used: {(IsUsingLiveLlm() ? "Yes" : "No")}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
             GUILayout.Label($"Room Source: {RoomSpecCatalog.CurrentRoom.generatedBy}", mutedStyle);
@@ -4504,13 +4696,13 @@ namespace MemPalaceLLM
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
-            GUILayout.Label("Generated / Authored Items", titleStyle);
+            GUILayout.Label("Story Items", titleStyle);
             foreach (var item in currentItems)
             {
                 GUILayout.Label($"{item.word} @ {item.anchorLabel}", labelStyle);
-                DrawTextSection("Association Image Cue", item.associationPrompt, smallTitleStyle, mutedStyle);
+                DrawTextSection("Local Word Image", item.imageCuePath, smallTitleStyle, mutedStyle);
                 GUILayout.Space(4);
-                DrawTextSection("Mnemonic", item.mnemonic, smallTitleStyle, mutedStyle);
+                DrawTextSection("Story Beat", item.mnemonic, smallTitleStyle, mutedStyle);
                 GUILayout.Space(6);
             }
             GUILayout.EndVertical();
@@ -4551,9 +4743,8 @@ namespace MemPalaceLLM
             liveMnemonicProviderLabelForCurrentSession = string.Empty;
             liveMnemonicModelForCurrentSession = string.Empty;
             liveMnemonicSourceForCurrentSession = string.Empty;
-            statusMessage = preferPreGeneratedMnemonics
-                ? "Checking pre-generated mnemonic catalog..."
-                : $"Calling {GetSelectedLiveMnemonicProviderLabel()} to generate mnemonic set...";
+            currentStory = new StorySessionData();
+            statusMessage = $"Calling Ollama to generate one continuous story with {activeWordSet.words.Count} words...";
 
             StopAllCoroutines();
             isGenerating = true;
@@ -4562,162 +4753,260 @@ namespace MemPalaceLLM
 
         private IEnumerator RunLlmGeneration()
         {
-            yield return new WaitForSecondsRealtime(0.4f);
-
             var words = activeWordSet?.words ?? new List<WordEntry>();
             var assignedAnchors = BuildMnemonicAnchorAssignments(words.Count);
-            var mergedResults = new List<MnemonicItemData>();
-            var missingWords = new List<WordEntry>();
-            var missingAnchors = new List<AnchorDefinition>();
-            var missingIndexes = new List<int>();
+            yield return new WaitForSecondsRealtime(0.2f);
 
-            preGeneratedMnemonicHitCount = 0;
-            liveGeneratedMnemonicCount = 0;
-            localFallbackMnemonicCount = 0;
-            usedPreGeneratedForCurrentSession = false;
-            usedLiveLlmForCurrentSession = false;
-            usedLocalFallbackForCurrentSession = false;
-            liveMnemonicProviderLabelForCurrentSession = string.Empty;
-            liveMnemonicModelForCurrentSession = string.Empty;
-            liveMnemonicSourceForCurrentSession = string.Empty;
+            StorySessionData generatedStory = null;
+            string error = null;
+            var service = new OllamaLlmService();
+            yield return StartCoroutine(service.GenerateStory(
+                ollamaBaseUrl,
+                ollamaModel,
+                words,
+                assignedAnchors,
+                story => generatedStory = story,
+                err => error = err));
 
+            if (!string.IsNullOrWhiteSpace(error) || generatedStory == null)
+            {
+                currentStory = BuildLocalFallbackStorySession(words, assignedAnchors, error);
+                currentItems = ConvertStorySessionToMnemonicItems(currentStory, words, assignedAnchors);
+                usedLocalFallbackForCurrentSession = true;
+                localFallbackMnemonicCount = currentItems.Count;
+                usedLiveLlmForCurrentSession = false;
+                generationError = "Ollama story generation failed, so a local testing story was created. Last error: " + BuildShortPreview(error);
+                statusMessage = "Local testing story is ready. Replace it by fixing Ollama and generating again when needed.";
+            }
+            else
+            {
+                currentStory = generatedStory;
+                currentItems = ConvertStorySessionToMnemonicItems(currentStory, words, assignedAnchors);
+                usedLiveLlmForCurrentSession = true;
+                liveGeneratedMnemonicCount = currentItems.Count;
+                liveMnemonicProviderLabelForCurrentSession = currentStory.storyProvider;
+                liveMnemonicModelForCurrentSession = currentStory.storyModel;
+                liveMnemonicSourceForCurrentSession = currentStory.storySource;
+                generationError = string.Empty;
+                statusMessage = "Continuous story is ready. Local word images have been loaded for review.";
+            }
+
+            LoadWordImagesForCurrentItems();
+            isGenerating = false;
+        }
+
+        private StorySessionData BuildLocalFallbackStorySession(List<WordEntry> words, List<AnchorDefinition> anchors, string failureReason)
+        {
+            var story = new StorySessionData
+            {
+                storySource = "local_story_testing_fallback",
+                storyProvider = "Local Fallback",
+                storyModel = "none",
+                generatedAtUtc = DateTime.UtcNow.ToString("o")
+            };
+
+            var fullStory = new StringBuilder();
             for (int i = 0; i < words.Count; i++)
             {
-                mergedResults.Add(null);
-                var anchor = i < assignedAnchors.Count ? assignedAnchors[i] : RoomSpecCatalog.GetAssignmentAnchor(i, words.Count);
-                if (preferPreGeneratedMnemonics
-                    && PreGeneratedMnemonicCatalog.TryCreateItem(words[i], anchor, i, out var preGeneratedItem))
+                var word = words[i];
+                var anchor = anchors != null && i < anchors.Count && anchors[i] != null
+                    ? anchors[i]
+                    : RoomSpecCatalog.GetAssignmentAnchor(i, Mathf.Max(1, words.Count));
+                var safeWord = string.IsNullOrWhiteSpace(word?.word) ? $"word_{i + 1}" : word.word.Trim();
+                var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
+                var anchorLabel = string.IsNullOrWhiteSpace(anchor?.label) ? $"anchor {i + 1}" : anchor.label.Trim();
+                var storyBeat = BuildLocalFallbackStoryBeat(i, meaning, safeWord, words.Count);
+                var segment = storyBeat;
+
+                if (fullStory.Length > 0)
                 {
-                    mergedResults[i] = preGeneratedItem;
-                    preGeneratedMnemonicHitCount++;
+                    fullStory.Append(' ');
+                }
+
+                fullStory.Append(segment);
+                story.orderedItems.Add(new WordImageItemData
+                {
+                    word = safeWord,
+                    meaning = meaning,
+                    anchorId = anchor?.id,
+                    anchorLabel = anchorLabel,
+                    anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor),
+                    storyOrder = i + 1,
+                    storySegment = segment,
+                    imageResourcePath = WordImageCatalog.BuildResourcePath(safeWord)
+                });
+            }
+
+            story.fullStory = fullStory.ToString();
+            return story;
+        }
+
+        private static string BuildLocalFallbackStoryBeat(int index, string meaning, string word, int totalCount)
+        {
+            var safeMeaning = string.IsNullOrWhiteSpace(meaning) ? "target meaning" : meaning.Trim();
+            var safeWord = string.IsNullOrWhiteSpace(word) ? "word" : word.Trim();
+            var phrase = safeMeaning + " (" + safeWord + ")";
+            var finalIndex = Mathf.Max(0, totalCount - 1);
+            if (index == finalIndex)
+            {
+                return "By then the little parade has reached the water's edge, and the " + phrase + " becomes the final cheerful sign that the strange evening is complete.";
+            }
+
+            switch (index % 7)
+            {
+                case 0:
+                    return "The evening begins beside a quiet shore, where the " + phrase + " lays a trail of silver light across the water.";
+                case 1:
+                    return "That light trembles into a tiny festival under the waves, and the " + phrase + " shows the whole scene as if it were painted on glass.";
+                case 2:
+                    return "The painted festival grows just large enough to step into, and the " + phrase + " rises at its center with windows blinking like sleepy eyes.";
+                case 3:
+                    return "Music starts before you see the musicians, while the " + phrase + " turns the crowd into smiling strangers who all seem to know your name.";
+                case 4:
+                    return "A warm glow gathers around the path, and the " + phrase + " keeps the parade bright without making the night less gentle.";
+                case 5:
+                    return "The rhythm becomes playful, and the " + phrase + " answers it with a sound so clear that even the waves seem to keep time.";
+                default:
+                    return "The breeze lifts the whole celebration higher, and the " + phrase + " drifts above it like a ridiculous little flag for the night.";
+            }
+        }
+
+        private List<MnemonicItemData> ConvertStorySessionToMnemonicItems(
+            StorySessionData story,
+            List<WordEntry> sourceWords,
+            List<AnchorDefinition> assignedAnchors)
+        {
+            var items = new List<MnemonicItemData>();
+            var orderedItems = story?.orderedItems ?? new List<WordImageItemData>();
+            for (int i = 0; i < orderedItems.Count; i++)
+            {
+                var storyItem = orderedItems[i];
+                var anchor = !string.IsNullOrWhiteSpace(storyItem.anchorId)
+                    ? RoomSpecCatalog.GetAnchor(storyItem.anchorId)
+                    : (assignedAnchors != null && i < assignedAnchors.Count ? assignedAnchors[i] : RoomSpecCatalog.GetAssignmentAnchor(i, Mathf.Max(1, orderedItems.Count)));
+                var word = string.IsNullOrWhiteSpace(storyItem.word) ? ResolveSourceWord(sourceWords, i, true) : storyItem.word.Trim();
+                var meaning = string.IsNullOrWhiteSpace(storyItem.meaning) ? ResolveSourceWord(sourceWords, i, false) : storyItem.meaning.Trim();
+                var anchorLabel = string.IsNullOrWhiteSpace(storyItem.anchorLabel)
+                    ? (string.IsNullOrWhiteSpace(anchor?.label) ? $"Anchor {i + 1}" : anchor.label)
+                    : storyItem.anchorLabel.Trim();
+                var segment = string.IsNullOrWhiteSpace(storyItem.storySegment)
+                    ? $"{meaning} ({word})."
+                    : storyItem.storySegment.Trim();
+
+                items.Add(new MnemonicItemData
+                {
+                    word = word,
+                    meaning = meaning,
+                    anchorId = string.IsNullOrWhiteSpace(storyItem.anchorId) ? anchor?.id : storyItem.anchorId,
+                    anchorLabel = anchorLabel,
+                    anchorType = string.IsNullOrWhiteSpace(storyItem.anchorType) ? PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor) : storyItem.anchorType,
+                    mnemonicSource = string.IsNullOrWhiteSpace(story?.storySource) ? "story_only" : story.storySource,
+                    visualCue = segment,
+                    mainCueObject = meaning,
+                    associationPrompt = $"{meaning} ({word})",
+                    mnemonic = segment,
+                    mnemonicMode = "STORY_ONLY",
+                    hookAccepted = false,
+                    hookScore = 0,
+                    hookReason = "Story-only redesign: no separate mnemonic hook is generated.",
+                    mnemonicHook = string.Empty,
+                    storyCue = segment,
+                    imagePrompt = string.Empty,
+                    imagePromptCandidates = new List<string>(),
+                    cueBlueprint = null,
+                    selectedImagePrompt = string.Empty,
+                    selectedImageCandidateIndex = -1,
+                    imageSelectionReason = "Local word image.",
+                    imageCuePath = WordImageCatalog.BuildResourcePath(word),
+                    objectShape = "quad",
+                    colorHex = PickColor(i),
+                    visualObjects = new List<VisualObjectSpec>()
+                });
+            }
+
+            return items;
+        }
+
+        private static string ResolveSourceWord(List<WordEntry> words, int index, bool useWord)
+        {
+            if (words == null || index < 0 || index >= words.Count)
+            {
+                return useWord ? $"word_{index + 1}" : "target meaning";
+            }
+
+            var value = useWord ? words[index]?.word : words[index]?.meaning;
+            return string.IsNullOrWhiteSpace(value) ? (useWord ? $"word_{index + 1}" : "target meaning") : value.Trim();
+        }
+
+        private void LoadWordImagesForCurrentItems()
+        {
+            if (currentItems == null)
+            {
+                return;
+            }
+
+            var placeholderCount = 0;
+            for (int i = 0; i < currentItems.Count; i++)
+            {
+                var item = currentItems[i];
+                if (item == null || string.IsNullOrWhiteSpace(item.word))
+                {
                     continue;
                 }
 
-                missingWords.Add(words[i]);
-                missingAnchors.Add(anchor);
-                missingIndexes.Add(i);
+                ClearImageCueCandidatePool(item.word, false);
+                if (mnemonicImageCues.TryGetValue(item.word, out var previousTexture) && previousTexture != null)
+                {
+                    Destroy(previousTexture);
+                }
+
+                mnemonicImageCues.Remove(item.word);
+                if (!WordImageCatalog.TryLoadWordImage(item.word, out var texture, out var resourcePath, out var filePath, out var usedPlaceholder))
+                {
+                    texture = WordImageCatalog.CreateBlankPlaceholder();
+                    resourcePath = WordImageCatalog.BuildResourcePath(item.word);
+                    filePath = WordImageCatalog.PlaceholderDisplayPath;
+                    usedPlaceholder = true;
+                }
+
+                mnemonicImageCues[item.word] = texture;
+                item.imageCuePath = filePath;
+                if (usedPlaceholder)
+                {
+                    placeholderCount++;
+                }
+
+                UpdateStoryImageMetadata(item.word, resourcePath, filePath, true);
             }
 
-            usedPreGeneratedForCurrentSession = preGeneratedMnemonicHitCount > 0;
-
-            if (missingWords.Count > 0)
+            if (currentItems.Count > 0)
             {
-                var liveProviderLabel = GetSelectedLiveMnemonicProviderLabel();
-                var liveSourceTag = GetSelectedLiveMnemonicSourceTag();
-                var liveModelLabel = GetSelectedLiveMnemonicModelLabel();
-                var service = new OllamaLlmService();
-                List<MnemonicItemData> liveResults = null;
-                string error = null;
-                string liveFailure = null;
-                var liveSucceeded = false;
-                var shouldTryLiveProvider = !preferPreGeneratedMnemonics || allowLiveLlmForMissingPreGenerated;
+                statusMessage = placeholderCount == 0
+                    ? "Continuous story is ready and all local word images were loaded."
+                    : $"Continuous story is ready. {placeholderCount} word image(s) are using the placeholder.";
+            }
+        }
 
-                if (shouldTryLiveProvider)
-                {
-                    statusMessage = preGeneratedMnemonicHitCount > 0
-                        ? $"Loaded {preGeneratedMnemonicHitCount} pre-generated items. Trying {liveProviderLabel} for {missingWords.Count} missing combinations..."
-                        : $"Trying {liveProviderLabel} to generate mnemonic set...";
-
-                    if (providerMode == LlmProviderMode.GeminiOnline)
-                    {
-                        var geminiKey = ResolveGeminiApiKey();
-                        if (string.IsNullOrWhiteSpace(geminiKey) || string.IsNullOrWhiteSpace(geminiModel))
-                        {
-                            error = "Gemini API key or model is empty. Paste a key in setup or set GEMINI_API_KEY / GOOGLE_API_KEY.";
-                        }
-                        else
-                        {
-                            yield return StartCoroutine(service.GenerateGeminiMnemonics(
-                                geminiKey,
-                                geminiModel,
-                                missingWords,
-                                items => liveResults = items,
-                                err => error = err,
-                                missingAnchors));
-                        }
-                    }
-                    else
-                    {
-                        yield return StartCoroutine(service.GenerateMnemonics(
-                            ollamaBaseUrl,
-                            ollamaModel,
-                            missingWords,
-                            items => liveResults = items,
-                            err => error = err,
-                            missingAnchors));
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(error))
-                    {
-                        liveFailure = error;
-                    }
-                    else if (liveResults == null || liveResults.Count < missingWords.Count)
-                    {
-                        liveFailure = $"{liveProviderLabel} returned {liveResults?.Count ?? 0} live items for {missingWords.Count} missing combinations.";
-                    }
-                    else
-                    {
-                        liveSucceeded = true;
-                    }
-                }
-
-                if (liveSucceeded)
-                {
-                    if (providerMode == LlmProviderMode.GeminiOnline
-                        && !string.IsNullOrWhiteSpace(service.GeminiModelsUsedSummary))
-                    {
-                        liveModelLabel = service.GeminiModelsUsedSummary;
-                    }
-
-                    for (int i = 0; i < missingIndexes.Count; i++)
-                    {
-                        var item = liveResults[i];
-                        if (item == null)
-                        {
-                            liveSucceeded = false;
-                            liveFailure = $"{liveProviderLabel} returned an empty live item for {missingWords[i].word}.";
-                            break;
-                        }
-
-                        item.mnemonicSource = string.IsNullOrWhiteSpace(item.mnemonicSource) ? liveSourceTag : item.mnemonicSource;
-                        mergedResults[missingIndexes[i]] = item;
-                    }
-
-                    if (liveSucceeded)
-                    {
-                        liveGeneratedMnemonicCount = missingIndexes.Count;
-                        usedLiveLlmForCurrentSession = liveGeneratedMnemonicCount > 0;
-                        liveMnemonicProviderLabelForCurrentSession = liveProviderLabel;
-                        liveMnemonicModelForCurrentSession = liveModelLabel;
-                        liveMnemonicSourceForCurrentSession = liveSourceTag;
-                    }
-                }
-
-                if (!liveSucceeded)
-                {
-                    if (!useLocalFallbackForMissingPreGenerated)
-                    {
-                        currentItems = new List<MnemonicItemData>();
-                        generationError = string.IsNullOrWhiteSpace(liveFailure)
-                            ? $"Pre-generated catalog is missing {missingWords.Count}/{words.Count} word-anchor combinations and local fallback is disabled."
-                            : liveFailure;
-                        statusMessage = string.IsNullOrWhiteSpace(liveFailure)
-                            ? "Pre-generated mnemonic lookup was incomplete."
-                            : $"{liveProviderLabel} request failed and local fallback is disabled.";
-                        isGenerating = false;
-                        yield break;
-                    }
-
-                    ApplyLocalFallbackForMissingMnemonics(missingWords, missingAnchors, missingIndexes, mergedResults);
-                    statusMessage = string.IsNullOrWhiteSpace(liveFailure)
-                        ? $"Loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and filled {localFallbackMnemonicCount} missing item(s) with local story-only fallback."
-                        : $"{liveProviderLabel} was unavailable, so {localFallbackMnemonicCount} missing item(s) were filled with local story-only fallback. Last provider error: {BuildShortPreview(liveFailure)}";
-                }
+        private void UpdateStoryImageMetadata(string word, string resourcePath, string filePath, bool imageLoaded)
+        {
+            if (currentStory?.orderedItems == null || string.IsNullOrWhiteSpace(word))
+            {
+                return;
             }
 
-            currentItems = EnsureMnemonicDefaults(mergedResults);
-            statusMessage = BuildMnemonicGenerationStatus();
-            isGenerating = false;
+            for (int i = 0; i < currentStory.orderedItems.Count; i++)
+            {
+                var item = currentStory.orderedItems[i];
+                if (item == null || !string.Equals(item.word, word, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                item.imageResourcePath = resourcePath;
+                item.imageFilePath = filePath;
+                item.imageLoaded = imageLoaded;
+                return;
+            }
         }
 
         private void ApplyLocalFallbackForMissingMnemonics(
@@ -6050,34 +6339,17 @@ namespace MemPalaceLLM
 
         private void BeginSelfAuthoring()
         {
-            if (!PrepareWordSetFromSetup())
-            {
-                return;
-            }
-
-            ResetSessionState();
-            sessionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            currentItems = BuildBlankSelfDrafts(activeWordSet.words);
-            StopAllCoroutines();
-            stage = ExperimentStage.SelfAuthoring;
-            statusMessage = "Self-authoring workspace is ready.";
+            statusMessage = "Self-authoring mnemonic flow is disabled in the story-only redesign. Starting story generation instead.";
+            BeginLlmFlow();
         }
 
         private void EnterStudyRoom()
         {
-            if (!AreAllCurrentImageCuesReady())
-            {
-                if (usePreGeneratedImageCueCatalog)
-                {
-                    TryLoadCurrentImageCuesFromCatalog(false, out _, out _, out _);
-                }
-            }
+            LoadWordImagesForCurrentItems();
 
             if (!AreAllCurrentImageCuesReady())
             {
-                statusMessage = string.IsNullOrWhiteSpace(preStudyImageCueStatus)
-                    ? "Generate all image cues before entering the study room."
-                    : preStudyImageCueStatus;
+                statusMessage = "Local word images could not be loaded. Add images under Assets/Resources/WordImages or keep the placeholder image.";
                 preStudyImageCueStatus = statusMessage;
                 return;
             }
@@ -6323,80 +6595,18 @@ namespace MemPalaceLLM
                 return;
             }
 
-            GUILayout.Label("Generated Image Cue", smallTitleStyle);
-            var isGeneratingCue = generatingImageCueWords.Contains(item.word);
-            if (mnemonicImageCues.TryGetValue(item.word, out var texture) && texture != null)
+            GUILayout.Label("Local Word Image", smallTitleStyle);
+            if (!mnemonicImageCues.TryGetValue(item.word, out var texture) || texture == null)
+            {
+                LoadWordImagesForCurrentItems();
+            }
+
+            if (mnemonicImageCues.TryGetValue(item.word, out texture) && texture != null)
             {
                 GUILayout.Box(texture, GUILayout.Width(220f), GUILayout.Height(220f));
-                GUILayout.Label("This image will be used for the image-choice tests when you capture this memory.", mutedStyle);
-                var candidateCount = imageCueCandidateResults.TryGetValue(item.word, out var candidateResults) && candidateResults != null
-                    ? candidateResults.Count
-                    : 0;
-                var displayedCandidateIndex = GetDisplayedImageCueCandidateIndex(item.word);
-                if (candidateCount > 0)
-                {
-                    var displayNumber = Mathf.Clamp(displayedCandidateIndex + 1, 1, candidateCount);
-                    GUILayout.Label(
-                        isGeneratingCue && candidateCount < BufferedImageCueResultCount
-                            ? $"Reviewer image choice {displayNumber}/{candidateCount} shown; preparing more scored sets in background..."
-                            : $"Reviewer image choice {displayNumber}/{candidateCount}",
-                        mutedStyle);
-
-                    GUILayout.BeginHorizontal();
-                    GUI.enabled = candidateCount > 1;
-                    if (GUILayout.Button("<", buttonStyle, GUILayout.Width(54f)))
-                    {
-                        TryCycleDisplayedImageCueCandidate(item, -1);
-                    }
-
-                    if (GUILayout.Button(">", buttonStyle, GUILayout.Width(54f)))
-                    {
-                        TryCycleDisplayedImageCueCandidate(item, 1);
-                    }
-                    GUI.enabled = true;
-                    GUILayout.EndHorizontal();
-                }
-
-                if (item.selectedImageCandidateIndex > 0 && !string.IsNullOrWhiteSpace(item.imageSelectionReason))
-                {
-                    GUILayout.Label(item.imageSelectionReason, mutedStyle);
-                }
-
-                GUI.enabled = !isGeneratingCue;
-                var regenerateLabel = isGeneratingCue
-                    ? "Preparing More Best Images..."
-                    : "Regenerate Image Cue Set";
-                if (GUILayout.Button(regenerateLabel, buttonStyle))
-                {
-                    if (isGeneratingCue)
-                    {
-                        imageGenerationStatus = $"The current image cue set for {item.word} is still generating in the background.";
-                    }
-                    else
-                    {
-                        imageGenerationStatus = $"Starting a new four-result image cue set for {item.word}...";
-                        StartCoroutine(GenerateMnemonicImageCueRoutine(item));
-                    }
-                }
-                GUI.enabled = true;
-                if (!string.IsNullOrWhiteSpace(imageGenerationStatus))
-                {
-                    GUILayout.Label(imageGenerationStatus, mutedStyle);
-                }
-                return;
-            }
-
-            GUI.enabled = !isGeneratingCue;
-            if (GUILayout.Button(isGeneratingCue ? "Generating Image Cue..." : "Generate Image Cue (Local SD)", buttonStyle))
-            {
-                imageGenerationStatus = $"Starting image cue generation for {item.word}...";
-                StartCoroutine(GenerateMnemonicImageCueRoutine(item));
-            }
-            GUI.enabled = true;
-
-            if (!string.IsNullOrWhiteSpace(imageGenerationStatus))
-            {
-                GUILayout.Label(imageGenerationStatus, mutedStyle);
+                GUILayout.Label(string.IsNullOrWhiteSpace(item.imageCuePath)
+                    ? "Image source: local placeholder."
+                    : $"Image source: {item.imageCuePath}", mutedStyle);
             }
         }
 
@@ -6404,6 +6614,12 @@ namespace MemPalaceLLM
         {
             if (item == null || string.IsNullOrWhiteSpace(item.word))
             {
+                yield break;
+            }
+
+            if (IsStoryOnlyRedesignEnabled())
+            {
+                statusMessage = "Mnemonic regeneration is disabled in the story-only redesign.";
                 yield break;
             }
 
@@ -7049,6 +7265,12 @@ namespace MemPalaceLLM
         {
             if (item == null || string.IsNullOrWhiteSpace(item.word))
             {
+                yield break;
+            }
+
+            if (IsStoryOnlyRedesignEnabled())
+            {
+                imageGenerationStatus = "Runtime image generation is disabled in the story-only redesign. Add a local image under Assets/Resources/WordImages instead.";
                 yield break;
             }
 
@@ -10415,6 +10637,7 @@ namespace MemPalaceLLM
                 finalTestCorrectCount = finalCorrect,
                 finalTestTotal = finalTotal,
                 questionnaire = questionnaire,
+                storySession = currentStory,
                 recallResponses = new List<RecallResponse>(recallResponses),
                 snapshotTestResponses = new List<SnapshotTestResponse>(snapshotTestResponses),
                 interactionLogs = new List<InteractionLog>(interactionLogs)
@@ -10750,6 +10973,13 @@ namespace MemPalaceLLM
                     statusMessage = $"Custom CSV was trimmed to {RoomSpecCatalog.AnchorCount} words to fit the room anchors.";
                 }
 
+                parsedWords = BuildDistinctWordPool(parsedWords);
+                if (parsedWords.Count > RandomAdvancedWordCount)
+                {
+                    parsedWords.RemoveRange(RandomAdvancedWordCount, parsedWords.Count - RandomAdvancedWordCount);
+                    statusMessage = $"Custom CSV was trimmed to {RandomAdvancedWordCount} distinct words for the route.";
+                }
+
                 activeWordSet = new WordSetDefinition
                 {
                     setId = "custom",
@@ -10757,13 +10987,13 @@ namespace MemPalaceLLM
                     description = "User-supplied material",
                     words = parsedWords
                 };
-                return true;
+                return ValidateActiveRouteWordSet();
             }
 
             if (usingRandomAdvancedWordSet && activeWordSet != null && activeWordSet.words.Count > 0)
             {
                 activeWordSet = CloneWordSet(activeWordSet);
-                return true;
+                return ValidateActiveRouteWordSet();
             }
 
             var selectableSets = GetSelectableWordSets();
@@ -10774,8 +11004,14 @@ namespace MemPalaceLLM
             }
 
             SyncWordSetSelection();
-            activeWordSet = CloneWordSet(selectableSets[selectedWordSetIndex]);
-            return true;
+            var selected = selectableSets[selectedWordSetIndex];
+            if (ShouldSampleRouteWordsFromPool(selected))
+            {
+                return TryActivateRouteWordSample(selected, "Auto-sampled");
+            }
+
+            activeWordSet = CloneWordSet(selected);
+            return ValidateActiveRouteWordSet();
         }
 
         private void SyncWordSetSelection()
@@ -10843,12 +11079,36 @@ namespace MemPalaceLLM
                 return;
             }
 
-            var sampleCount = Mathf.Min(RandomAdvancedWordCount, RoomSpecCatalog.AnchorCount, pool.words.Count);
+            TryActivateRouteWordSample(pool, "Sampled");
+        }
+
+        private bool TryActivateRouteWordSample(WordSetDefinition pool, string actionLabel)
+        {
+            if (pool == null || pool.words == null || pool.words.Count == 0)
+            {
+                statusMessage = "No Spanish noun pool was loaded.";
+                return false;
+            }
+
+            if (RoomSpecCatalog.AnchorCount < RandomAdvancedWordCount)
+            {
+                statusMessage = $"The current room needs at least {RandomAdvancedWordCount} anchors for the route.";
+                return false;
+            }
+
+            var distinctPool = BuildDistinctWordPool(pool.words);
+            if (distinctPool.Count < RandomAdvancedWordCount)
+            {
+                statusMessage = $"{pool.displayName} needs at least {RandomAdvancedWordCount} different words, but only {distinctPool.Count} unique word(s) were found.";
+                return false;
+            }
+
+            var sampleCount = RandomAdvancedWordCount;
             var sampledWords = new List<WordEntry>();
             const int maxSampleAttempts = 12;
             for (int attempt = 0; attempt < maxSampleAttempts; attempt++)
             {
-                var shuffledPool = CloneWordEntries(pool.words);
+                var shuffledPool = CloneWordEntries(distinctPool);
                 ShuffleList(shuffledPool, randomAdvancedWordSampler);
                 sampledWords.Clear();
                 for (int i = 0; i < sampleCount; i++)
@@ -10874,7 +11134,77 @@ namespace MemPalaceLLM
             useCustomCsv = false;
             customCsvText = BuildCsvText(activeWordSet);
             RememberRandomAdvancedSample(sampledWords);
-            statusMessage = $"Sampled {sampleCount} words from {pool.displayName}.";
+            statusMessage = $"{actionLabel} {sampleCount} different route words from {pool.displayName}.";
+            return true;
+        }
+
+        private static bool ShouldSampleRouteWordsFromPool(WordSetDefinition wordSet)
+        {
+            return wordSet != null
+                   && wordSet.words != null
+                   && wordSet.words.Count > RandomAdvancedWordCount;
+        }
+
+        private bool ValidateActiveRouteWordSet()
+        {
+            if (activeWordSet == null || activeWordSet.words == null || activeWordSet.words.Count == 0)
+            {
+                statusMessage = "No route words were selected.";
+                return false;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < activeWordSet.words.Count; i++)
+            {
+                var key = NormalizeWordSampleKey(activeWordSet.words[i]?.word);
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    statusMessage = $"Route word {i + 1} is empty.";
+                    return false;
+                }
+
+                if (!seen.Add(key))
+                {
+                    statusMessage = $"Route words must be different. Duplicate word: {activeWordSet.words[i].word}.";
+                    return false;
+                }
+            }
+
+            if (activeWordSet.words.Count > RoomSpecCatalog.AnchorCount)
+            {
+                activeWordSet.words.RemoveRange(RoomSpecCatalog.AnchorCount, activeWordSet.words.Count - RoomSpecCatalog.AnchorCount);
+                statusMessage = $"Route was trimmed to {RoomSpecCatalog.AnchorCount} words to fit the room anchors.";
+            }
+
+            return true;
+        }
+
+        private static List<WordEntry> BuildDistinctWordPool(List<WordEntry> sourceWords)
+        {
+            var distinct = new List<WordEntry>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (sourceWords == null)
+            {
+                return distinct;
+            }
+
+            for (int i = 0; i < sourceWords.Count; i++)
+            {
+                var source = sourceWords[i];
+                var key = NormalizeWordSampleKey(source?.word);
+                if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+                {
+                    continue;
+                }
+
+                distinct.Add(new WordEntry
+                {
+                    word = source.word.Trim(),
+                    meaning = string.IsNullOrWhiteSpace(source.meaning) ? string.Empty : source.meaning.Trim()
+                });
+            }
+
+            return distinct;
         }
 
         private WordSetDefinition CloneWordSet(WordSetDefinition source)
@@ -14237,43 +14567,48 @@ namespace MemPalaceLLM
         private void CreateMnemonicObject(MnemonicItemData item, int index)
         {
             var anchor = RoomSpecCatalog.GetAnchor(item.anchorId);
-            var position = anchor.position + anchor.mnemonicOffset + new Vector3(0f, (index % 2) * 0.08f, 0f);
-            var objectColor = RoomSpecCatalog.Hex(item.colorHex);
-            var go = CreatePrimitive($"MnemonicMarker_{item.word}", PrimitiveType.Sphere, position + new Vector3(0f, 0.04f, 0f), Vector3.one * 0.12f, objectColor, roomRoot);
+            var basePosition = anchor.position + anchor.mnemonicOffset + new Vector3(0f, (index % 2) * 0.08f, 0f);
+            basePosition.y = Mathf.Max(basePosition.y, anchor.position.y + 1.05f);
 
-            var interactable = go.AddComponent<StudyInteractable>();
-            interactable.Data = item;
-            studyItemTargets[item.word] = go.transform;
-
-            var renderer = go.GetComponent<Renderer>();
-            if (renderer != null)
+            if (!mnemonicImageCues.TryGetValue(item.word, out var texture) || texture == null)
             {
-                renderer.material.EnableKeyword("_EMISSION");
-                renderer.material.SetColor("_EmissionColor", objectColor * 0.55f);
+                if (!WordImageCatalog.TryLoadWordImage(item.word, out texture, out var resourcePath, out var filePath, out _))
+                {
+                    texture = WordImageCatalog.CreateBlankPlaceholder();
+                    resourcePath = WordImageCatalog.BuildResourcePath(item.word);
+                    filePath = WordImageCatalog.PlaceholderDisplayPath;
+                }
+
+                mnemonicImageCues[item.word] = texture;
+                item.imageCuePath = filePath;
+                UpdateStoryImageMetadata(item.word, resourcePath, filePath, true);
             }
 
-            var hoverSpin = go.AddComponent<HoverSpinAnimation>();
-            hoverSpin.basePosition = go.transform.position;
-            hoverSpin.rotationSpeed = 55f;
-            hoverSpin.bobAmplitude = 0.035f;
-            hoverSpin.bobFrequency = 1.3f + index * 0.05f;
+            var root = new GameObject($"WordImageMarker_{item.word}");
+            root.transform.SetParent(roomRoot);
+            root.transform.position = basePosition;
+            root.AddComponent<BillboardToMainCamera>();
+            studyItemTargets[item.word] = root.transform;
 
-            if (!showAbstractMnemonicProps)
+            var frameColor = new Color(0.08f, 0.08f, 0.09f, 0.92f);
+            var frame = CreatePrimitiveLocal("ImageFrame", PrimitiveType.Cube, new Vector3(0f, -0.08f, 0.02f), new Vector3(1.28f, 0.92f, 0.035f), frameColor, root.transform);
+            var frameInteractable = frame.AddComponent<StudyInteractable>();
+            frameInteractable.Data = item;
+
+            var imagePanel = CreatePrimitiveLocal("WordImage", PrimitiveType.Quad, new Vector3(0f, -0.08f, -0.01f), new Vector3(1.12f, 0.76f, 1f), Color.white, root.transform);
+            var imageRenderer = imagePanel.GetComponent<Renderer>();
+            if (imageRenderer != null)
             {
-                return;
+                ApplyTextureMaterial(imageRenderer, texture);
             }
 
-            if (item.visualObjects == null || item.visualObjects.Count == 0)
-            {
-                return;
-            }
+            var imageInteractable = imagePanel.AddComponent<StudyInteractable>();
+            imageInteractable.Data = item;
 
-            var visualObjects = item.visualObjects;
-            CreateMnemonicSceneFrame(item, position, objectColor, Mathf.Min(visualObjects.Count, 5));
-            for (int i = 0; i < visualObjects.Count; i++)
-            {
-                CreateMnemonicVisualObject(item, visualObjects[i], position, index + i);
-            }
+            var labelText = string.IsNullOrWhiteSpace(item.meaning)
+                ? item.word
+                : $"{item.word}\n{item.meaning}";
+            CreateWorldLabel(labelText, basePosition + Vector3.up * 0.56f, 0.031f, new Color(1f, 1f, 1f, 0.96f), roomRoot);
         }
 
         private void CreateMnemonicSceneFrame(MnemonicItemData item, Vector3 origin, Color color, int visualCount)
@@ -14512,6 +14847,16 @@ namespace MemPalaceLLM
             renderer.material = material;
         }
 
+        private void ApplyTextureMaterial(Renderer renderer, Texture texture)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Texture") ?? Shader.Find("Standard");
+            var material = new Material(shader);
+            material.color = Color.white;
+            material.mainTexture = texture == null ? Texture2D.whiteTexture : texture;
+            material.SetInt("_Cull", (int)CullMode.Off);
+            renderer.material = material;
+        }
+
         private void CreateWorldLabel(string text, Vector3 position, float characterSize, Color color, Transform parent)
         {
             var label = new GameObject($"Label_{text}");
@@ -14545,6 +14890,11 @@ namespace MemPalaceLLM
             }
 
             vrHeadTrackingActive = TryInitializeVrRig();
+            if (!vrHeadTrackingActive)
+            {
+                statusMessage = "VR study runtime is enabled, but no XR headset was detected. Using desktop study UI instead.";
+                return;
+            }
 
             BuildVrStudyPanel();
             BuildVrPointer();
@@ -14681,7 +15031,7 @@ namespace MemPalaceLLM
 
             if (selectPressed && pointedInteractable != null && (triggerPressed || pointingAtDifferentItem || !hasControllerRay))
             {
-                SelectStudyItem(pointedInteractable.Data, "VR controller ray selected mnemonic marker.");
+                SelectStudyItem(pointedInteractable.Data, "VR controller ray selected word image marker.");
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
                 return;
             }
@@ -14707,14 +15057,8 @@ namespace MemPalaceLLM
                     {
                         return;
                     }
-                    if (generatingImageCueWords.Contains(selectedStudyItem.word))
-                    {
-                        imageGenerationStatus = $"The current image cue set for {selectedStudyItem.word} is still generating in the background.";
-                    }
-                    else
-                    {
-                        StartCoroutine(GenerateMnemonicImageCueRoutine(selectedStudyItem));
-                    }
+                    LoadWordImagesForCurrentItems();
+                    imageGenerationStatus = $"Reloaded the local word image for {selectedStudyItem.word}.";
                     break;
 
                 case VrPanelButtonAction.CaptureSnapshot:
@@ -14929,14 +15273,14 @@ namespace MemPalaceLLM
             vrTitleText = CreateVrPanelText(panel.transform, "Title", 34, new Rect(26f, -96f, 708f, 58f), Color.white);
             vrMeaningText = CreateVrPanelText(panel.transform, "Meaning", 20, new Rect(26f, -152f, 708f, 44f), new Color(0.90f, 0.94f, 1f));
             vrAnchorText = CreateVrPanelText(panel.transform, "Anchor", 18, new Rect(26f, -198f, 708f, 36f), new Color(0.70f, 0.78f, 0.90f));
-            vrCueText = CreateVrPanelText(panel.transform, "Mnemonic", 18, new Rect(26f, -282f, 708f, 170f), new Color(0.94f, 0.96f, 1f));
+            vrCueText = CreateVrPanelText(panel.transform, "Story", 18, new Rect(26f, -282f, 708f, 170f), new Color(0.94f, 0.96f, 1f));
             vrStoryText = null;
             vrPreviewHeaderText = CreateVrPanelText(panel.transform, "PreviewHeader", 20, new Rect(26f, -462f, 708f, 28f), Color.white);
             vrPreviewImage = CreateVrPanelImage(panel.transform, "PreviewImage", new Rect(26f, -494f, 290f, 170f), new Color(0.14f, 0.16f, 0.20f, 0.98f));
             vrPreviewInfoText = CreateVrPanelText(panel.transform, "PreviewInfo", 15, new Rect(336f, -494f, 398f, 84f), new Color(0.84f, 0.88f, 0.94f));
             vrPreviousImageButton = CreateVrPanelButton(panel.transform, "PreviousImageButton", "Previous Image", new Rect(336f, -586f, 190f, 38f), VrPanelButtonAction.PreviousImageCue);
             vrNextImageButton = CreateVrPanelButton(panel.transform, "NextImageButton", "Next Image", new Rect(544f, -586f, 190f, 38f), VrPanelButtonAction.NextImageCue);
-            vrGenerateButton = CreateVrPanelButton(panel.transform, "GenerateButton", "Generate Image Cue", new Rect(336f, -634f, 398f, 42f), VrPanelButtonAction.GenerateImageCue);
+            vrGenerateButton = CreateVrPanelButton(panel.transform, "GenerateButton", "Local Word Image", new Rect(336f, -634f, 398f, 42f), VrPanelButtonAction.GenerateImageCue);
             vrCaptureButton = CreateVrPanelButton(panel.transform, "CaptureButton", "Capture Memory Snapshot", new Rect(26f, -634f, 290f, 42f), VrPanelButtonAction.CaptureSnapshot);
             vrAdvanceButton = null;
             vrActionText = CreateVrPanelText(panel.transform, "Action", 16, new Rect(26f, -684f, 708f, 24f), new Color(0.95f, 0.86f, 0.48f));
@@ -15066,7 +15410,7 @@ namespace MemPalaceLLM
                 vrPreviewHeaderText.text = string.Empty;
                 vrPreviewInfoText.text = string.Empty;
                 SetVrPanelPreview(vrPreviewImage, null);
-                SetVrButtonState(vrGenerateButton, false, "Generate Image Cue");
+                SetVrButtonState(vrGenerateButton, false, "Local Word Image");
                 SetVrButtonState(vrPreviousImageButton, false, "Previous Image");
                 SetVrButtonState(vrNextImageButton, false, "Next Image");
                 SetVrButtonState(vrCaptureButton, false, "Capture Memory Snapshot");
@@ -15079,51 +15423,36 @@ namespace MemPalaceLLM
             vrTitleText.text = selectedStudyItem.word;
             vrMeaningText.text = GetDisplayMeaningText(selectedStudyItem);
             vrAnchorText.text = "Anchor: " + selectedStudyItem.anchorLabel;
-            vrCueText.text = BuildVrSectionText("Mnemonic", selectedStudyItem.mnemonic);
+                vrCueText.text = BuildVrSectionText("Story", selectedStudyItem.mnemonic);
             if (vrStoryText != null)
             {
                 vrStoryText.text = string.Empty;
             }
 
             var hasSnapshot = memorySnapshots.ContainsKey(selectedStudyItem.word);
-            var hasGeneratedCue = mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null;
-            var isGeneratingCue = generatingImageCueWords.Contains(selectedStudyItem.word);
-            var imageChoiceCount = imageCueCandidateResults.TryGetValue(selectedStudyItem.word, out var imageChoices) && imageChoices != null
-                ? imageChoices.Count
-                : 0;
+            var hasLocalImage = mnemonicImageCues.TryGetValue(selectedStudyItem.word, out var cueTexture) && cueTexture != null;
             if (hasSnapshot && memorySnapshots.TryGetValue(selectedStudyItem.word, out var snapshotTexture) && snapshotTexture != null)
             {
                 vrPreviewHeaderText.text = "Stored Snapshot";
                 vrPreviewInfoText.text = "This memory has already been captured. You can replace it with A / Grip.";
                 SetVrPanelPreview(vrPreviewImage, snapshotTexture);
             }
-            else if (hasGeneratedCue)
+            else if (hasLocalImage)
             {
-                vrPreviewHeaderText.text = "Generated Image Cue";
-                vrPreviewInfoText.text = BuildVrImageCuePreviewInfo(selectedStudyItem, isGeneratingCue);
+                vrPreviewHeaderText.text = "Local Word Image";
+                vrPreviewInfoText.text = BuildVrImageCuePreviewInfo(selectedStudyItem, false);
                 SetVrPanelPreview(vrPreviewImage, cueTexture);
             }
             else
             {
-                vrPreviewHeaderText.text = "Generated Image Cue";
-                vrPreviewInfoText.text = isGeneratingCue
-                    ? "Generating image for this item..."
-                    : "No generated image is available for this item yet.";
+                vrPreviewHeaderText.text = "Local Word Image";
+                vrPreviewInfoText.text = "No local image is available. The placeholder will be used after reload.";
                 SetVrPanelPreview(vrPreviewImage, null);
             }
 
-            SetVrButtonState(
-                vrGenerateButton,
-                !isGeneratingCue,
-                isGeneratingCue
-                    ? "Generating Image Cue..."
-                    : hasGeneratedCue
-                        ? "Regenerate Image Set"
-                        : "Generate Image Cue");
-
-            var canReviewImages = hasGeneratedCue && imageChoiceCount > 1;
-            SetVrButtonState(vrPreviousImageButton, canReviewImages, "Previous Image");
-            SetVrButtonState(vrNextImageButton, canReviewImages, "Next Image");
+            SetVrButtonState(vrGenerateButton, false, "Local Word Image");
+            SetVrButtonState(vrPreviousImageButton, false, "Previous Image");
+            SetVrButtonState(vrNextImageButton, false, "Next Image");
 
             SetVrButtonState(
                 vrCaptureButton,
@@ -15174,23 +15503,16 @@ namespace MemPalaceLLM
         {
             if (item == null || string.IsNullOrWhiteSpace(item.word))
             {
-                return "Look at this image, then press A / Grip to store it into the snapshot panel.";
+                return "Look at this local word image, then press A / Grip to store it into the snapshot panel.";
             }
 
-            if (!imageCueCandidateResults.TryGetValue(item.word, out var results) || results == null || results.Count == 0)
+            if (!mnemonicImageCues.TryGetValue(item.word, out var texture) || texture == null)
             {
-                return "Look at this image, then press A / Grip to store it into the snapshot panel.";
+                return "No local word image is loaded yet. The placeholder will be used after reload.";
             }
 
-            var displayedIndex = Mathf.Clamp(GetDisplayedImageCueCandidateIndex(item.word), 0, results.Count - 1);
-            var text = $"Showing reviewer image choice {displayedIndex + 1}/{results.Count}.";
-            if (isGeneratingCue && results.Count < BufferedImageCueResultCount)
-            {
-                text += " More single-pass image choices are being generated and scored in the background.";
-            }
-
-            text += " Use Previous/Next to review choices. A / Grip stores the currently shown image.";
-            return text;
+            var source = string.IsNullOrWhiteSpace(item.imageCuePath) ? "local placeholder" : item.imageCuePath;
+            return $"Image source: {source}. A / Grip stores the currently shown image.";
         }
 
         private static void SetVrPanelPreview(RawImage image, Texture texture)
@@ -15513,7 +15835,7 @@ namespace MemPalaceLLM
                 var interactable = FindStudyInteractable(ray, 100f, out _);
                 if (interactable != null)
                 {
-                    SelectStudyItem(interactable.Data, "Clicked mnemonic object.");
+                    SelectStudyItem(interactable.Data, "Clicked word image object.");
                 }
             }
         }
@@ -15651,6 +15973,9 @@ namespace MemPalaceLLM
         {
             EnsureGridRoomEditorInitialized();
 
+            var rightMouseLookActive = IsGridRoomCameraLookActive(mouse, keyboard);
+            HandleGridRoomCameraControls(mouse, keyboard, rightMouseLookActive);
+
             var ctrlPressed = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
             if (ctrlPressed && keyboard.zKey.wasPressedThisFrame)
             {
@@ -15689,9 +16014,6 @@ namespace MemPalaceLLM
                     gridEditorStatus = $"Ghost rotated: {gridGhostRotation} degrees.";
                 }
             }
-
-            var rightMouseLookActive = IsGridRoomCameraLookActive(mouse, keyboard);
-            HandleGridRoomCameraControls(mouse, keyboard, rightMouseLookActive);
 
             if (IsPointerOverGui())
             {
@@ -17033,30 +17355,16 @@ namespace MemPalaceLLM
 
         private string ResolveProviderLabel()
         {
-            if (condition == ExperimentCondition.SelfGenerated)
+            if (currentStory != null && !string.IsNullOrWhiteSpace(currentStory.storyProvider))
             {
-                return "Self Authored";
-            }
-
-            var parts = new List<string>();
-            if (usedPreGeneratedForCurrentSession)
-            {
-                parts.Add("Pre-generated Catalog");
-            }
-
-            if (usedLiveLlmForCurrentSession)
-            {
-                parts.Add(GetCurrentLiveMnemonicProviderLabel());
+                return string.IsNullOrWhiteSpace(currentStory.storyModel)
+                    ? currentStory.storyProvider
+                    : $"{currentStory.storyProvider} ({currentStory.storyModel})";
             }
 
             if (usedLocalFallbackForCurrentSession)
             {
-                parts.Add("Local Story Fallback");
-            }
-
-            if (parts.Count > 0)
-            {
-                return string.Join(" + ", parts);
+                return "Local Story Fallback";
             }
 
             return GetCurrentLiveMnemonicProviderLabel();
@@ -17064,29 +17372,9 @@ namespace MemPalaceLLM
 
         private string ResolveLlmModelLabelForExport()
         {
-            if (condition == ExperimentCondition.SelfGenerated)
+            if (currentStory != null && !string.IsNullOrWhiteSpace(currentStory.storyModel))
             {
-                return "self-authored";
-            }
-
-            if (usedLiveLlmForCurrentSession)
-            {
-                var modelLabel = string.IsNullOrWhiteSpace(liveMnemonicModelForCurrentSession)
-                    ? GetSelectedLiveMnemonicModelLabel()
-                    : liveMnemonicModelForCurrentSession;
-                return usedLocalFallbackForCurrentSession
-                    ? modelLabel + " + local story fallback"
-                    : modelLabel;
-            }
-
-            if (usedPreGeneratedForCurrentSession && usedLocalFallbackForCurrentSession)
-            {
-                return "pre-generated catalog + local story fallback";
-            }
-
-            if (usedPreGeneratedForCurrentSession)
-            {
-                return "pre-generated catalog";
+                return currentStory.storyModel;
             }
 
             if (usedLocalFallbackForCurrentSession)
@@ -17143,53 +17431,27 @@ namespace MemPalaceLLM
 
         private string GetLlmStatusText()
         {
-            if (condition == ExperimentCondition.SelfGenerated)
-            {
-                return "This run uses participant-authored scenes and connections.";
-            }
-
-            if (usedPreGeneratedForCurrentSession && usedLiveLlmForCurrentSession)
-            {
-                var liveUse = liveGeneratedMnemonicCount > 0
-                    ? $"for {liveGeneratedMnemonicCount} missing item(s)"
-                    : "for regeneration";
-                var fallbackUse = localFallbackMnemonicCount > 0
-                    ? $" It also filled {localFallbackMnemonicCount} item(s) with local story-only fallback."
-                    : string.Empty;
-                return $"This run loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and used {GetCurrentLiveMnemonicProviderLabel()} {liveUse}.{fallbackUse}";
-            }
-
-            if (usedPreGeneratedForCurrentSession && usedLocalFallbackForCurrentSession)
-            {
-                return $"This run loaded {preGeneratedMnemonicHitCount} pre-generated item(s) and filled {localFallbackMnemonicCount} missing item(s) with local story-only fallback.";
-            }
-
-            if (usedPreGeneratedForCurrentSession)
-            {
-                return $"This run uses {preGeneratedMnemonicHitCount} pre-generated word x furniture mnemonic item(s).";
-            }
-
             if (usedLocalFallbackForCurrentSession && usedLiveLlmForCurrentSession)
             {
-                return $"This run used {GetCurrentLiveMnemonicProviderLabel()} for {liveGeneratedMnemonicCount} item(s) and local story-only fallback for {localFallbackMnemonicCount} item(s).";
+                return $"This run used {GetCurrentLiveMnemonicProviderLabel()} for the story and local fallback for testing.";
             }
 
             if (IsUsingLiveLlm())
             {
-                return $"This run is using a direct {GetCurrentLiveMnemonicProviderLabel()} response.";
+                return $"This run is using one direct {GetCurrentLiveMnemonicProviderLabel()} story response.";
             }
 
             if (usedLocalFallbackForCurrentSession)
             {
-                return $"This run filled {localFallbackMnemonicCount} item(s) with local story-only fallback because catalog coverage or live generation was unavailable.";
+                return $"This run uses a local testing story because live story generation was unavailable.";
             }
 
             if (!string.IsNullOrWhiteSpace(generationError))
             {
-                return "Mnemonic generation failed before a fallback item could be produced.";
+                return "Story generation failed before a fallback story could be produced.";
             }
 
-            return $"This condition is configured for direct {GetSelectedLiveMnemonicProviderLabel()} generation only.";
+            return $"This run is configured for one direct {GetSelectedLiveMnemonicProviderLabel()} story generation call.";
         }
 
         private static Texture2D MakeTexture(Color color)

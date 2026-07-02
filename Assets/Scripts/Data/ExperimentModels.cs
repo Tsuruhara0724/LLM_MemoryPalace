@@ -144,6 +144,32 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class WordImageItemData
+    {
+        public string word;
+        public string meaning;
+        public string anchorId;
+        public string anchorLabel;
+        public string anchorType;
+        public int storyOrder;
+        public string storySegment;
+        public string imageResourcePath;
+        public string imageFilePath;
+        public bool imageLoaded;
+    }
+
+    [Serializable]
+    public class StorySessionData
+    {
+        public string fullStory;
+        public string storySource;
+        public string storyProvider;
+        public string storyModel;
+        public string generatedAtUtc;
+        public List<WordImageItemData> orderedItems = new();
+    }
+
+    [Serializable]
     public class RecallResponse
     {
         public string word;
@@ -308,6 +334,7 @@ namespace MemPalaceLLM
         public int finalTestCorrectCount;
         public int finalTestTotal;
         public QuestionnaireResponse questionnaire;
+        public StorySessionData storySession;
         public List<ExportWordEntry> items = new();
         public List<RecallResponse> recallResponses = new();
         public List<SnapshotTestResponse> snapshotTestResponses = new();
