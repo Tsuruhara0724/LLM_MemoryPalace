@@ -1,12 +1,13 @@
 # Memory Palace Experiment Runbook
 
-Last verified: 2026-07-02
+Last verified: 2026-07-08
 
 ## Experiment design
 
-- There is one participant flow. The old `Self Generated` condition is not part of the current study design.
+- Setup exposes two conditions: `LLM Story` and `Self-Chosen Pictures`.
 - The participant enters the memory-palace room and studies independently for 20 minutes.
-- The LLM is used only to create one continuous English story that contains all selected Spanish target words.
+- In `LLM Story`, Ollama or Gemini creates one continuous English story containing all selected Spanish target words.
+- In `Self-Chosen Pictures`, the participant assigns each fixed local word picture to a different furniture marker before Study; no generated story or narration is used.
 - Furniture anchors define the spatial route. Furniture names must not influence the story text.
 - Word pictures are fixed local files under `Assets/Resources/WordImages/` and are not generated during a session.
 - Optional system speech guides the participant through the ordered story route one anchor at a time.
@@ -22,16 +23,21 @@ The current runtime still contains mid/final snapshot-recognition screens from t
 5. Enter the participant ID.
 6. Use the default room, load the example room, or open Room Builder.
 7. Select a preset word set. Formal runs sample 8 distinct words from the 12-word formal pool.
-8. Confirm the Ollama endpoint and story model.
-9. Select `Next: Generate Continuous Story`.
-10. Review the story and per-word story beats.
-11. Leave `Use guided voice route` enabled unless the session is intentionally silent.
+8. Select `LLM Story` or `Self-Chosen Pictures`.
+9. For `LLM Story`, select Ollama Local or Gemini Online, confirm its settings, generate the story, and review its per-word beats.
+10. For `Self-Chosen Pictures`, enter the assignment room, select furniture, browse word pictures, assign every word to a different furniture item, and finish the assignment.
+11. Leave `Use guided voice route` enabled for narrated LLM sessions unless the session is intentionally silent.
 12. Enter the study room and begin the 20-minute independent study period.
 
 Recommended Ollama settings:
 
 - Endpoint: `http://localhost:11434/api/generate`
 - Model: `gemma3:12b`
+
+Recommended Gemini setting:
+
+- Model: `gemini-2.5-flash` (verified with the Gemini API free tier on 2026-07-08)
+- Key source on Windows desktop: user-level `GEMINI_API_KEY`, with Setup input as a fallback
 
 If either Ollama pass fails or the final story fails quality checks, the app stops and shows the error instead of presenting an incoherent fallback as participant material.
 
@@ -40,11 +46,12 @@ If either Ollama pass fails or the final story fails quality checks, the app sto
 - Duration: 20 minutes.
 - The participant navigates the room independently.
 - The voice first says which anchor to approach and which word image will be there.
-- All word-image markers stay hidden until the participant comes within roughly 5.5 metres of the current route anchor; only that anchor's image appears.
+- All word-image markers stay hidden until the participant comes within roughly 8 metres of the current route anchor; only that anchor's image appears, and its detail UI remains available to roughly 8.5 metres.
 - Looking toward the revealed image counts as inspection and starts that word's story segment.
 - When the segment finishes, the voice automatically guides the participant to the next anchor.
 - The revealed image is offset toward the viewer and rendered as foreground study UI to avoid intersecting or disappearing behind room geometry.
 - In an active VR HMD, the world-space study panel displays the text currently being spoken as a subtitle. Use the existing Replay Voice button when repetition is needed.
+- A thin progress bar at the top of the Desktop and VR study UI shows the current utterance. Select or drag it to seek backward or forward; Replay Voice restarts the loaded utterance.
 - Selecting an image shows its Spanish word, English meaning, and story beat.
 - The complete continuous story remains available in the study UI.
 - The researcher should record the true start/end time until an enforced timer is implemented.
@@ -60,6 +67,8 @@ Desktop controls:
 - `Restart Route`: return to the first spoken anchor guide
 
 VR study mode can be enabled in Setup. A connected OpenXR headset is required for VR validation.
+
+After Study is complete, both conditions offer an optional `Show All Pictures In The Room` step before the final test. It reveals every assigned furniture word-picture UI simultaneously in the existing room. There is no countdown; the participant chooses when to enter and when to finish. Skipping is also allowed.
 
 ## Word images
 
@@ -85,6 +94,7 @@ Exports are written to `ExperimentExports/`:
 - Unity Console has no C# compile errors.
 - All selected words display their real image rather than `_placeholder.png`.
 - Ollama connection and model are available.
+- For Gemini runs, `gemini-2.5-flash` passes `Test Gemini` and the key is available from Setup or user-level `GEMINI_API_KEY`.
 - An ElevenLabs API key with text-to-speech access is entered in Setup or supplied through `ELEVENLABS_API_KEY` on desktop.
 - Press `Test ElevenLabs Voice` in Setup and confirm audible speech before entering the room. The voice route is blocked when the API key or Voice ID is missing.
 - A valid ElevenLabs Voice ID is entered; the default is the voice used by the current ElevenLabs API example.
@@ -94,3 +104,4 @@ Exports are written to `ExperimentExports/`:
 - Desktop or VR navigation works on the study machine.
 - A 20-minute timing method is ready.
 - A complete test session can be exported before recruiting participants.
+- The optional all-picture room display can be entered, finished, and skipped, and its choice/duration appears in the JSON export.

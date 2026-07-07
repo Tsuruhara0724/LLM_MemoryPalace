@@ -1,13 +1,13 @@
 # AI Project Context - LLM Memory Palace
 
-Last verified: 2026-07-02
+Last verified: 2026-07-08
 
 ## 1. Current development state
 
 - Active branch: `codex/story-only-memory-palace`
-- Current commit at verification: `b75b1e2` (`Redesign experiment around continuous word stories`)
+- Current commit before this feature batch: `356e616` (`Add guided VR study media and causal stories`)
 - Unity version: `6000.3.12f1`
-- Current design label: `Continuous Story + Local Word Images`
+- Current design label: `LLM Story vs Self-Chosen Pictures + Local Word Images`
 - The redesign is active through `IsStoryOnlyRedesignEnabled() => true` in both the controller and LLM service.
 - The active branch is synchronized with its remote but has not been merged into `main`.
 
@@ -17,15 +17,16 @@ Maintenance rule: update this document whenever story schema, word-image handlin
 
 This is a Unity Desktop/VR experiment for Spanish vocabulary learning in a memory palace.
 
-Current intended participant protocol:
+Current intended participant protocol has two conditions:
 
 1. Select a room and a set of Spanish target words.
-2. Generate one continuous English story containing all selected words.
-3. Place each word's fixed local picture at one stable room anchor.
+2. `LLM Story`: generate one continuous English story with Ollama or Gemini and assign its fixed local word pictures to stable furniture anchors.
+3. `Self-Chosen Pictures`: let the participant pair every fixed local word picture with a different selectable furniture marker before Study; no LLM story or generated narration is used.
 4. Let the participant enter the room and study independently for 20 minutes.
-5. Run the finalized post-study assessment and export research data.
+5. After Study, optionally reveal every assigned furniture word-picture UI simultaneously in the same room. The participant controls entry and finish; there is no countdown.
+6. Run the finalized post-study assessment and export research data.
 
-There is no `Self Generated` comparison condition in the intended design. The old enum, data fields, and legacy methods still exist for compatibility, but the Setup UI exposes only the continuous-story flow and `BeginSelfAuthoring()` redirects to story generation.
+The legacy `Self Generated` label has been replaced in the active UI by `Self-Chosen Pictures`. The participant chooses spatial word-picture pairings rather than generating new images.
 
 The 20-minute duration is a protocol requirement. The runtime currently displays elapsed study time but does not enforce a hard 20-minute minimum or automatic transition. Until that is implemented, the researcher must control timing externally.
 
@@ -36,9 +37,10 @@ The active UI flow is:
 ```text
 Setup
 -> optional Room Builder
--> Continuous Story Preview
+-> LLM Story Preview OR Self-Chosen Furniture Assignment
 -> Study Room
 -> existing Mid Image Test
+-> optional All-Picture Display in the Study Room
 -> existing Final Image Test
 -> Questionnaire
 -> Result / JSON + CSV export
@@ -66,9 +68,10 @@ Responsibilities:
 
 - `MemoryPalaceBootstrap`: creates the experiment controller after scene load.
 - `MemoryPalaceExperimentController`: Setup UI, room builder, story preview, study room, Desktop/VR interaction, snapshots, recognition tests, questionnaire, and export.
-- `OllamaLlmService.GenerateStory`: first requests a structured causal plan, then asks a second local Ollama pass to audit/repair the plan and write the final story; it parses and repairs JSON, validates story structure, and assigns story items to anchors.
+- `OllamaLlmService.GenerateStory`: runs the causal-plan and final-story passes through local Ollama.
+- `OllamaLlmService.GenerateGeminiStory`: runs the same plan, repair, parsing, and validation pipeline through the Gemini API.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
-- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2`, decodes the returned MP3 into a Unity `AudioClip`, and preserves asynchronous completion callbacks for route progression.
+- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2`, decodes the returned MP3 into a Unity `AudioClip`, preserves route completion callbacks, and exposes loaded-clip duration, progress, seek, and restart controls.
 - `ExperimentModels`: story, word-image, response, questionnaire, and export models.
 - `RoomSpecModels`: room shell, furniture anchors, resource loading, and fallback room.
 
@@ -82,13 +85,20 @@ Entry point:
 OllamaLlmService.GenerateStory
 ```
 
-Default connection:
+Local default connection:
 
 - Endpoint: `http://localhost:11434/api/generate`
 - Story model: `gemma3:12b`
 - Request format: Ollama JSON mode, non-streaming
 - Temperature: `0.7`
 - Token budget: `1800`
+
+Online option:
+
+- Provider: Gemini API
+- Default model: `gemini-2.5-flash`
+- Key lookup on Windows desktop: user-level `GEMINI_API_KEY`, then `GOOGLE_API_KEY`, then locally saved Setup value
+- The same two-pass causal plan and final-story validation are used for both providers.
 
 The model returns:
 
@@ -114,9 +124,9 @@ Rules and guards:
 - Story order can be recovered from first occurrence in `fullStory`.
 - Fragmented-object-scene heuristics can reject low-coherence output.
 
-If either local Ollama pass fails or the final story fails validation, generation stops with an explicit error. The legacy fallback builder remains in code for compatibility but is no longer presented as a successful story.
+If either provider pass fails or the final story fails validation, generation stops with an explicit error. The legacy fallback builder remains in code for compatibility but is no longer presented as a successful story.
 
-Legacy per-word mnemonic generation, Gemini mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking are disabled for the active story-only design, although their code and data fields have not yet been removed.
+Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking remain disabled. Gemini is active only as an online provider for the continuous-story pipeline.
 
 ## 6. Word images
 
@@ -183,9 +193,11 @@ Study UI currently provides:
 - Desktop free movement and click inspection.
 - Optional OpenXR/VR study runtime.
 - Optional guided voice route: anchor instruction -> wait for the correct nearby image to be inspected -> play that story segment -> continue to the next anchor.
-- Word-image markers are proximity-gated: only the current route marker is revealed near its anchor, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
+- Word-image markers are proximity-gated: only the current route marker is revealed at roughly 8 m and its detail UI remains available to roughly 8.5 m, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
 - VR HMD users see the currently spoken guide or story segment as a subtitle in the world-space study panel; the existing replay control is unchanged.
-- Desktop and VR controls to replay the current utterance or restart the spoken route.
+- A thin Desktop/VR progress bar for the current loaded utterance, including arbitrary seek backward/forward; Replay Voice restarts that loaded utterance without another API call.
+- `Self-Chosen Pictures` furniture selection before Study, with one word picture per furniture and one furniture per word; doors and windows are excluded.
+- An optional post-Study all-picture room display in both conditions. It reveals every furniture marker at once, has no countdown, and can be entered/finished or skipped by the participant.
 - Elapsed study time.
 - Snapshot capture for the legacy recognition tests.
 
@@ -214,31 +226,32 @@ Formats:
 - JSON session record
 - CSV recall/recognition summary
 
-The export includes participant/session identifiers, room metadata, provider/model metadata, study duration, viewed/memorized counts, the complete `StorySessionData`, word entries, snapshot-test responses, questionnaire values, and interaction logs.
+The export includes participant/session identifiers, room metadata, provider/model metadata, self-choice duration, Study duration, whether the optional all-picture display was entered, its duration, viewed/memorized counts, the complete `StorySessionData`, word entries, snapshot-test responses, questionnaire values, and interaction logs.
 
 The current redesign still needs a fresh end-to-end exported test session before formal use.
 
 ## 11. Verification status
 
-Verified on 2026-07-02:
+Verified on 2026-07-08:
 
 - Active source compiles in the open Unity project after an earlier fixed `TryParseStoryEnvelope` error.
 - The ElevenLabs voice-route implementation compiles in Unity and preserves the existing route, subtitle, replay, and completion-callback behavior.
-- Unity successfully reloaded `Assembly-CSharp.dll` and subsequently entered Play Mode.
+- Unity successfully rebuilt and reloaded `Assembly-CSharp.dll` after the new condition, display, progress, Gemini, and export changes with no C# errors in the latest compile log.
+- A direct `gemini-2.5-flash` API request using the configured user-level key returned valid JSON. `gemini-3.5-flash` returned HTTP 503 in three consecutive attempts, so 2.5 Flash remains the verified default.
 - All 26 word-image files are valid readable PNGs.
 - All preset/formal word keys have matching image filenames.
-- OpenXR Play Mode without a connected headset reports `XR_ERROR_FORM_FACTOR_UNAVAILABLE`; VR hardware flow is not yet verified.
+- OpenXR Play Mode without a connected headset reports `XR_ERROR_FORM_FACTOR_UNAVAILABLE`; the new VR progress-bar and all-picture interactions compile but still require headset validation.
 - Android/Quest ElevenLabs audio decoding and completion still require an on-device network/audio test with a valid API key.
 - There are no automated Unity tests.
 - No post-redesign `ExperimentExports` artifact was present at verification time.
 
 ## 12. Immediate priorities
 
-1. Pilot-review the 26 downloaded word images and replace ambiguous ones while preserving filenames and attribution.
-2. Decide whether the application should enforce the 20-minute study window or only display a timer.
-3. Confirm the final assessment after the 20-minute room period.
-4. Run one complete Desktop session through export and inspect JSON/CSV.
-5. Run the same protocol on the intended OpenXR headset.
+1. Run complete Desktop sessions for both conditions through export and inspect JSON/CSV.
+2. Run both protocols on the intended OpenXR headset, including seek, subtitles, self-choice assignment, and all-picture display.
+3. Pilot-review the 26 downloaded word images and replace ambiguous ones while preserving filenames and attribution.
+4. Decide whether the application should enforce the 20-minute study window or only display a timer.
+5. Confirm the final assessment after the 20-minute room period.
 6. Add lightweight tests for story JSON repair/order recovery and export shape.
 7. Remove or isolate the disabled mnemonic/Stable Diffusion pipeline after the new design stabilizes.
 

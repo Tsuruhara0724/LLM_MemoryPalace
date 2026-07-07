@@ -1,6 +1,6 @@
 # Formal Material Workflow
 
-Last verified: 2026-07-02
+Last verified: 2026-07-08
 
 The old 12 x 10 mnemonic catalog and 480-image anchor-pair catalog are not used by the active continuous-story design.
 
@@ -9,10 +9,12 @@ The old 12 x 10 mnemonic catalog and 480-image anchor-pair catalog are not used 
 - Source set: `formal_12_pool` in `Assets/Resources/MemPalaceDemoData.json`
 - Pool size: 12 distinct Spanish nouns
 - Session sample: 8 distinct words
-- Story source: one live Ollama continuous story
+- Story source in the LLM condition: one live Ollama or Gemini continuous story
 - Visual source: one fixed local image per Spanish word
 - Study protocol: independent room study for 20 minutes
-- Comparison conditions: none; `Self Generated` is not part of the design
+- Comparison conditions: `LLM Story` and `Self-Chosen Pictures`
+- Self-chosen procedure: before Study, the participant pairs every selected word picture with a different furniture marker; doors and windows are not selectable furniture
+- Post-study option in both conditions: reveal every furniture word-picture UI simultaneously in the room, with participant-controlled entry and finish and no countdown
 
 Formal pool:
 
@@ -60,5 +62,8 @@ Before freezing a formal session story, confirm:
 - Time the independent study period for 20 minutes.
 - Verify Desktop or OpenXR controls on the study machine.
 - Verify ElevenLabs voice output, route order, correct-anchor gating, story-segment completion, replay, and restart controls with the formal-session Voice ID.
+- Verify current-utterance seeking from the thin Desktop/VR progress bar.
+- For `Self-Chosen Pictures`, verify one-to-one furniture assignment and that Study uses the participant's assignment order.
+- Verify enter/finish/skip behavior for the optional post-Study all-picture room display.
 - Complete the configured post-study assessment.
 - Export JSON and CSV and inspect participant ID, story, word order, anchors, study duration, responses, and questionnaire values.

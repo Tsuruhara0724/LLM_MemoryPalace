@@ -347,6 +347,102 @@ namespace MemPalaceLLM
             onSuccess?.Invoke(story);
         }
 
+        public IEnumerator GenerateGeminiStory(
+            string apiKey,
+            string model,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            Action<StorySessionData> onSuccess,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                onError?.Invoke("Gemini API key is empty.");
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                onError?.Invoke("Gemini model is empty.");
+                yield break;
+            }
+
+            if (words == null || words.Count == 0)
+            {
+                onError?.Invoke("No words were provided for story generation.");
+                yield break;
+            }
+
+            if (assignedAnchors == null || assignedAnchors.Count < words.Count)
+            {
+                onError?.Invoke("Anchor assignments are incomplete.");
+                yield break;
+            }
+
+            geminiModelsUsed.Clear();
+            string causalPlanJson = null;
+            string requestError = null;
+            yield return SendGeminiGenerateRequest(
+                apiKey.Trim(),
+                model.Trim(),
+                BuildCausalStoryPlanPrompt(words),
+                "You are a strict causal story planner. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
+                0.28f,
+                1600,
+                value => causalPlanJson = value,
+                error => requestError = error);
+
+            if (!string.IsNullOrWhiteSpace(requestError))
+            {
+                onError?.Invoke("Gemini causal-plan request failed: " + requestError);
+                yield break;
+            }
+
+            if (!TryValidateCausalStoryPlan(causalPlanJson, words, out var causalPlanError))
+            {
+                onError?.Invoke("Gemini produced an invalid causal plan: " + causalPlanError + "\nRaw plan preview:\n" + BuildPreview(causalPlanJson));
+                yield break;
+            }
+
+            string storyResponse = null;
+            requestError = null;
+            yield return SendGeminiGenerateRequest(
+                apiKey.Trim(),
+                model.Trim(),
+                BuildStoryPrompt(words, causalPlanJson),
+                "You are a strict causal fiction editor and JSON API. Audit the supplied plan, repair any physically impossible link, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                0.48f,
+                2000,
+                value => storyResponse = value,
+                error => requestError = error);
+
+            if (!string.IsNullOrWhiteSpace(requestError))
+            {
+                onError?.Invoke("Gemini story-writing request failed: " + requestError);
+                yield break;
+            }
+
+            if (!TryParseStoryEnvelope(storyResponse, out var envelope, out var parseError))
+            {
+                onError?.Invoke("Failed to parse Gemini story JSON: " + parseError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
+                yield break;
+            }
+
+            var resolvedModel = string.IsNullOrWhiteSpace(GeminiModelsUsedSummary) ? model.Trim() : GeminiModelsUsedSummary;
+            if (!TryBuildStorySession(envelope, words, assignedAnchors, resolvedModel, out var story, out var validationError))
+            {
+                onError?.Invoke(validationError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
+                yield break;
+            }
+
+            story.storyProvider = "Gemini Online";
+            story.storyModel = resolvedModel;
+            story.storySource = string.Equals(story.storySource, "ollama_story_repaired", StringComparison.Ordinal)
+                ? "gemini_story_repaired"
+                : "gemini_story";
+            onSuccess?.Invoke(story);
+        }
+
         private static IEnumerator SendOllamaJsonRequest(
             string endpoint,
             OllamaGenerateRequest requestBody,

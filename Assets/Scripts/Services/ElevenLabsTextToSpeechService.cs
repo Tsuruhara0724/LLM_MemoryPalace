@@ -20,6 +20,13 @@ namespace MemPalaceLLM
         public bool IsSupported { get; private set; } = true;
         public bool IsReady { get; private set; }
         public bool IsSpeaking => activeRequest != null || playbackStarted;
+        public bool HasPlayableClip => activeClip != null && audioSource != null && activeClip.length > 0.01f;
+        public float PlaybackTime => HasPlayableClip ? Mathf.Clamp(audioSource.time, 0f, activeClip.length) : 0f;
+        public float PlaybackDuration => HasPlayableClip ? activeClip.length : 0f;
+        public float NormalizedPlaybackProgress => PlaybackDuration > 0.01f
+            ? Mathf.Clamp01(PlaybackTime / PlaybackDuration)
+            : 0f;
+        public string CurrentUtteranceId => activeUtteranceId;
         public string Status { get; private set; } = "ElevenLabs has not been configured.";
 
         private readonly GameObject playerObject;
@@ -140,6 +147,31 @@ namespace MemPalaceLLM
             requestOperation = activeRequest.SendWebRequest();
             Status = "Generating natural speech with ElevenLabs Multilingual v2.";
             return true;
+        }
+
+        public bool SeekNormalized(float normalizedTime)
+        {
+            if (!HasPlayableClip)
+            {
+                return false;
+            }
+
+            var duration = activeClip.length;
+            var targetTime = Mathf.Clamp01(normalizedTime) * duration;
+            audioSource.time = Mathf.Clamp(targetTime, 0f, Mathf.Max(0f, duration - 0.01f));
+            if (!audioSource.isPlaying)
+            {
+                audioSource.Play();
+            }
+
+            playbackStarted = true;
+            Status = "Seeking within the current ElevenLabs sentence.";
+            return true;
+        }
+
+        public bool RestartCurrentClip()
+        {
+            return SeekNormalized(0f);
         }
 
         public void Stop()

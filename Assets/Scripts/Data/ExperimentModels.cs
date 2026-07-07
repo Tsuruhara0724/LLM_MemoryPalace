@@ -19,7 +19,8 @@ namespace MemPalaceLLM
     public enum ExperimentCondition
     {
         LlmGenerated,
-        SelfGenerated
+        SelfGenerated,
+        SelfChosenPictures
     }
 
     public enum LlmProviderMode
@@ -324,6 +325,9 @@ namespace MemPalaceLLM
         public bool usedLocalFallback;
         public ExperimentCondition condition;
         public float studyDurationSeconds;
+        public float selfChoiceDurationSeconds;
+        public bool allPhotoShowcaseEntered;
+        public float allPhotoShowcaseDurationSeconds;
         public int viewedCount;
         public int memorizedCount;
         public int totalItems;
