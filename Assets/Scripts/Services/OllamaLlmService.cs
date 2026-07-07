@@ -126,6 +126,23 @@ namespace MemPalaceLLM
         }
 
         [Serializable]
+        private class CausalStoryPlanEnvelope
+        {
+            public string goal;
+            public CausalStoryPlanItem[] items;
+        }
+
+        [Serializable]
+        private class CausalStoryPlanItem
+        {
+            public string word;
+            public string need;
+            public string action;
+            public string result;
+            public string goal_link;
+        }
+
+        [Serializable]
         private class GeneratedMnemonicEnvelope
         {
             public GeneratedMnemonicItem[] items;
@@ -253,107 +270,277 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            var requestBody = new OllamaGenerateRequest
+            var causalPlanRequest = new OllamaGenerateRequest
             {
                 model = model.Trim(),
-                prompt = BuildStoryPrompt(words),
-                system = "You are a JSON API for a memory-palace learning experiment. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                prompt = BuildCausalStoryPlanPrompt(words),
+                system = "You are a strict causal story planner. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
                 {
-                    temperature = 0.7f,
-                    num_predict = 1800
+                    temperature = 0.28f,
+                    num_predict = 1600
                 }
             };
 
-            var json = JsonUtility.ToJson(requestBody);
-            using (var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
+            string causalPlanJson = null;
+            string causalPlanRequestError = null;
+            yield return SendOllamaJsonRequest(
+                endpoint.Trim(),
+                causalPlanRequest,
+                value => causalPlanJson = value,
+                error => causalPlanRequestError = error);
+
+            if (!string.IsNullOrWhiteSpace(causalPlanRequestError))
             {
-                var bodyRaw = Encoding.UTF8.GetBytes(json);
-                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = new DownloadHandlerBuffer();
-                request.timeout = RequestTimeoutSeconds;
-                request.SetRequestHeader("Content-Type", "application/json");
-
-                yield return request.SendWebRequest();
-
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    onError?.Invoke($"Ollama story request failed: {request.error}\n{request.downloadHandler.text}");
-                    yield break;
-                }
-
-                OllamaGenerateResponse response = null;
-                try
-                {
-                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
-                }
-                catch (Exception ex)
-                {
-                    onError?.Invoke("Failed to parse Ollama story response envelope: " + ex.Message);
-                    yield break;
-                }
-
-                if (response == null)
-                {
-                    onError?.Invoke("Ollama story response was empty.");
-                    yield break;
-                }
-
-                if (!string.IsNullOrWhiteSpace(response.error))
-                {
-                    onError?.Invoke("Ollama returned a story error: " + response.error);
-                    yield break;
-                }
-
-                if (string.IsNullOrWhiteSpace(response.response))
-                {
-                    onError?.Invoke("Ollama story response text was empty.");
-                    yield break;
-                }
-
-                if (!TryParseStoryEnvelope(response.response, out var envelope, out var parseError))
-                {
-                    onError?.Invoke("Failed to parse story JSON: " + parseError + "\nRaw response preview:\n" + BuildPreview(response.response));
-                    yield break;
-                }
-
-                if (!TryBuildStorySession(envelope, words, assignedAnchors, model.Trim(), out var story, out var validationError))
-                {
-                    onError?.Invoke(validationError + "\nRaw response preview:\n" + BuildPreview(response.response));
-                    yield break;
-                }
-
-                onSuccess?.Invoke(story);
+                onError?.Invoke("Ollama causal-plan request failed: " + causalPlanRequestError);
+                yield break;
             }
+
+            if (!TryValidateCausalStoryPlan(causalPlanJson, words, out var causalPlanError))
+            {
+                onError?.Invoke("Ollama produced an invalid causal plan: " + causalPlanError + "\nRaw plan preview:\n" + BuildPreview(causalPlanJson));
+                yield break;
+            }
+
+            var storyRequest = new OllamaGenerateRequest
+            {
+                model = model.Trim(),
+                prompt = BuildStoryPrompt(words, causalPlanJson),
+                system = "You are a strict causal fiction editor and JSON API. Audit the supplied plan, repair any physically impossible link, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                format = "json",
+                stream = false,
+                options = new OllamaRequestOptions
+                {
+                    temperature = 0.48f,
+                    num_predict = 2000
+                }
+            };
+
+            string storyResponse = null;
+            string storyRequestError = null;
+            yield return SendOllamaJsonRequest(
+                endpoint.Trim(),
+                storyRequest,
+                value => storyResponse = value,
+                error => storyRequestError = error);
+
+            if (!string.IsNullOrWhiteSpace(storyRequestError))
+            {
+                onError?.Invoke("Ollama story-writing request failed: " + storyRequestError);
+                yield break;
+            }
+
+            if (!TryParseStoryEnvelope(storyResponse, out var envelope, out var parseError))
+            {
+                onError?.Invoke("Failed to parse story JSON: " + parseError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
+                yield break;
+            }
+
+            if (!TryBuildStorySession(envelope, words, assignedAnchors, model.Trim(), out var story, out var validationError))
+            {
+                onError?.Invoke(validationError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
+                yield break;
+            }
+
+            onSuccess?.Invoke(story);
         }
 
-        private static string BuildStoryPrompt(List<WordEntry> words)
+        private static IEnumerator SendOllamaJsonRequest(
+            string endpoint,
+            OllamaGenerateRequest requestBody,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
+            var json = JsonUtility.ToJson(requestBody);
+            using var request = new UnityWebRequest(endpoint, UnityWebRequest.kHttpVerbPOST);
+            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = RequestTimeoutSeconds;
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                onError?.Invoke(request.error + "\n" + request.downloadHandler.text);
+                yield break;
+            }
+
+            OllamaGenerateResponse response;
+            try
+            {
+                response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
+            }
+            catch (Exception ex)
+            {
+                onError?.Invoke("Failed to parse the Ollama response envelope: " + ex.Message);
+                yield break;
+            }
+
+            if (response == null)
+            {
+                onError?.Invoke("Ollama returned an empty response envelope.");
+                yield break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(response.error))
+            {
+                onError?.Invoke(response.error);
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(response.response))
+            {
+                onError?.Invoke("Ollama returned empty generated text.");
+                yield break;
+            }
+
+            onSuccess?.Invoke(response.response.Trim());
+        }
+
+        private static string BuildCausalStoryPlanPrompt(List<WordEntry> words)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("Create one high-quality, imaginative English micro-story using exactly the " + words.Count + " distinct target Spanish words listed below.");
-            builder.AppendLine("This must be a real continuous story, not a row of separate dream images or isolated object scenes.");
-            builder.AppendLine("The story should feel like a polished short scene, not a room tour, shopping list, packing list, scavenger hunt, or sequence of collected objects.");
-            builder.AppendLine("Give the story one concrete premise, one consistent setting, and one satisfying ending. It can be playful and strange, but the reader should never feel lost.");
-            builder.AppendLine("Before writing, silently choose one simple story premise, such as a moonlit festival, a tiny sea performance, a friendly dream parade, or a magical accident. Keep that same premise from the first word to the last word.");
-            builder.AppendLine("Write in second person. The main character is always 'you'. Do not name a protagonist and do not use he, she, his, or her for the main character.");
-            builder.AppendLine("Do not give the story a blunt task such as finding, collecting, packing, organizing, or preparing the objects.");
-            builder.AppendLine("You may choose the best narrative order for the target words. Choose the order that creates the most natural and memorable story.");
-            builder.AppendLine("Each target object should matter inside the same unfolding episode. Do not reset the scene for each object.");
-            builder.AppendLine("Avoid a mechanical chain of 'X causes Y causes Z', but do let earlier story details echo later so the story feels continuous.");
-            builder.AppendLine("Good style: concrete, visual, slightly surprising, warm or playful, easy to picture. Bad style: item inventory, direct route tour, checklist, object pile, clue hunt, or generic 'this helps your plan'.");
-            builder.AppendLine("Important: the room, furniture, anchors, assigned locations, route cues, and walking directions are not part of this writing task. Do not mention them.");
-            builder.AppendLine("Example phrase: a shoe (zapato).");
-            builder.AppendLine("Every target route word must appear at least once in fullStory as the exact English meaning followed by the Spanish word in parentheses.");
-            builder.AppendLine("If you use a target meaning, immediately write the Spanish word in parentheses, for example bottle (botella), not just bottle.");
-            builder.AppendLine("Use each target route word for one memorable moment in the continuous story. It is okay for a sentence to reference earlier target words if that improves continuity.");
-            builder.AppendLine("Avoid repeating target words in fullStory. If a target word appears again for narrative continuity, that later mention is not a route item.");
-            builder.AppendLine("Avoid vague phrases like truth, destiny, hidden meaning, impossible danger, final message, or mystery unless they are concrete and easy to picture.");
-            builder.AppendLine("Avoid overusing these verbs: pack, place, find, bring, grab, collect, organize, prepare, pay, check, add, use.");
-            builder.AppendLine("Do not begin most story beats with formulas like 'You notice', 'You see', 'You spot', 'A target object...', or 'The target object...'. Vary the prose and keep a single narrative thread.");
-            builder.AppendLine("Do not write isolated lines like: a shell glows, then a bell rings, then a kite dances. That is not a story.");
-            builder.AppendLine("Do not create mnemonics, hooks, image prompts, image-generation instructions, or per-word cue objects.");
+            builder.AppendLine("Build a physically plausible causal event plan for one short everyday story.");
+            builder.AppendLine("Use every target exactly once. Choose the order that makes the strongest causal chain.");
+            builder.AppendLine("Choose ONE target as the central destination, person, place, or object that defines the story's urgent goal. Every other target must help, hinder, protect, repair, unlock, signal, transport, or otherwise change progress toward that same goal.");
+            builder.AppendLine("The goal must not be a list of errands. Do not use shopping, packing several items, eating lunch, sightseeing, appreciating a view, attending unrelated events, or visiting multiple destinations as the story structure.");
+            builder.AppendLine("Return JSON exactly as: {\"goal\":\"one concrete urgent goal\",\"items\":[{\"word\":\"zapato\",\"need\":\"specific prior obstacle requiring it\",\"action\":\"intentional physically possible action with it\",\"result\":\"visible result that makes the next item necessary\",\"goal_link\":\"how this beat changes progress toward the single goal\"}]}");
+            builder.AppendLine("Each item must have non-empty word, need, action, result, and goal_link fields.");
+            builder.AppendLine("HARD LINK FORMAT: copy the complete result text of item N verbatim into the need field of item N+1. The strings must be exactly identical. The action in item N+1 must respond directly to that copied situation. The last result must solve the goal.");
+            builder.AppendLine("Reject magic, coincidence, dream logic, symbolic actions, impossible tool use, distant scenery, reflections that reveal unknown facts, and objects appearing without a source.");
+            builder.AppendLine("Do not claim that an inaccessible shop supplies an item, that throwing one object summons another, or that a blunt object cuts or unlocks something without a believable mechanism.");
+            builder.AppendLine("Prefer familiar actions that ordinary people could perform. Keep one route toward one destination and at least two active characters.");
+            builder.AppendLine("Do not introduce important non-target props such as a bowl, lunch, bottle, rope, ticket, key, or borrowed book unless absolutely unavoidable for a small connecting action. The target objects must perform the important jobs.");
+            builder.AppendLine("Silently simulate the chain from beginning to end before returning JSON. Repair any step whose result would not really follow from its action.");
+            builder.AppendLine();
+            builder.AppendLine("Targets:");
+            for (var i = 0; i < words.Count; i++)
+            {
+                builder.Append(i + 1)
+                    .Append(". word=").Append(words[i].word)
+                    .Append("; meaning=").Append(words[i].meaning)
+                    .AppendLine();
+            }
+
+            return builder.ToString();
+        }
+
+        private static bool TryValidateCausalStoryPlan(string json, List<WordEntry> words, out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                error = "The causal plan is empty.";
+                return false;
+            }
+
+            CausalStoryPlanEnvelope plan;
+            try
+            {
+                plan = JsonUtility.FromJson<CausalStoryPlanEnvelope>(NormalizeJsonCandidate(json));
+            }
+            catch (Exception ex)
+            {
+                error = "The causal plan JSON could not be parsed: " + ex.Message;
+                return false;
+            }
+
+            if (plan == null || string.IsNullOrWhiteSpace(plan.goal) || plan.items == null || plan.items.Length != words.Count)
+            {
+                error = "The plan must contain one goal and exactly one item per target word.";
+                return false;
+            }
+
+            var expectedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < words.Count; i++)
+            {
+                expectedWords.Add(words[i].word);
+            }
+
+            var usedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < plan.items.Length; i++)
+            {
+                var item = plan.items[i];
+                if (item == null || string.IsNullOrWhiteSpace(item.word) ||
+                    string.IsNullOrWhiteSpace(item.need) || string.IsNullOrWhiteSpace(item.action) ||
+                    string.IsNullOrWhiteSpace(item.result) || string.IsNullOrWhiteSpace(item.goal_link))
+                {
+                    error = "Plan item " + (i + 1) + " is missing word, need, action, result, or goal_link.";
+                    return false;
+                }
+
+                var word = item.word.Trim();
+                if (!expectedWords.Contains(word) || !usedWords.Add(word))
+                {
+                    error = "The plan contains an unknown or repeated word: " + word;
+                    return false;
+                }
+
+                if (i > 0)
+                {
+                    var previousResult = NormalizePlanLink(plan.items[i - 1].result);
+                    var currentNeed = NormalizePlanLink(item.need);
+                    if (!string.Equals(previousResult, currentNeed, StringComparison.Ordinal))
+                    {
+                        error = "Plan item " + (i + 1) + " does not copy the previous result verbatim into its need field.";
+                        return false;
+                    }
+                }
+            }
+
+            return usedWords.Count == expectedWords.Count;
+        }
+
+        private static string NormalizePlanLink(string value)
+        {
+            return Regex.Replace(value ?? string.Empty, @"\s+", " ").Trim().ToLowerInvariant();
+        }
+
+        private static string BuildStoryPrompt(List<WordEntry> words, string causalPlanJson)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Write one warm, plot-driven English micro-story using exactly the " + words.Count + " target Spanish words below.");
+            builder.AppendLine("The story is about what characters DO, not what a scene looks or sounds like.");
+            builder.AppendLine("First audit the supplied causal plan. Fix any impossible action or missing mechanism while preserving its goal and target-word order. Then write the story from the repaired plan.");
+            builder.AppendLine("Every sentence must visibly change progress toward the SAME goal. Do not let a character suddenly shop, eat, admire scenery, adjust clothing, or start another errand unless that action is indispensable to solving the original problem.");
+            builder.AppendLine("Do not introduce major non-target props to do the useful work. Make the supplied target words carry the plot.");
+            builder.AppendLine("SUPPLIED CAUSAL PLAN:");
+            builder.AppendLine(causalPlanJson);
+            builder.AppendLine();
+            builder.AppendLine("NON-NEGOTIABLE STORY SHAPE");
+            builder.AppendLine("1. Give you and one other active character one ordinary, concrete problem to solve together.");
+            builder.AppendLine("2. Keep one setting, one goal, and one continuous chain of events from the opening problem to its resolution.");
+            builder.AppendLine("3. Write roughly one sentence per target word and normally introduce exactly one new target pair in each sentence.");
+            builder.AppendLine("4. Every target sentence must contain all three parts: a reason the character needs the target, an intentional physical action involving it, and an immediate visible result.");
+            builder.AppendLine("5. That visible result must create the reason for the next sentence. The final target action must solve the original problem.");
+            builder.AppendLine();
+            builder.AppendLine("ACTION TEST FOR EVERY TARGET");
+            builder.AppendLine("The target must be the direct subject or object of a concrete action verb. A character should carry, open, close, wear, strike, repair, turn, pour, cut, block, signal with, climb, move, or otherwise physically act on it.");
+            builder.AppendLine("At least 80 percent of the sentences must show a character intentionally acting, reacting, deciding, helping, preventing, or correcting something.");
+            builder.AppendLine("A target FAILS if it merely looms, glows, shines, hangs, sits, waits, stands, appears, reflects, echoes, fades, decorates the setting, or is visible in the distance.");
+            builder.AppendLine("A target also FAILS if it appears only inside an as-clause, where-clause, background description, comparison, shadow, reflection, costume, procession, display, or list.");
+            builder.AppendLine("Never bundle several target words into scenery or an improvised tableau. Each must perform its own necessary job in the plot.");
+            builder.AppendLine();
+            builder.AppendLine("CAUSALITY TEST");
+            builder.AppendLine("Do not connect unrelated actions with then, so, therefore, prompting, or causing. State the real mechanism: what changed physically, what a character learned, or why a new action became necessary.");
+            builder.AppendLine("Bad: The drum echoes in the distance where a flower seller waits. Both targets are scenery.");
+            builder.AppendLine("Good: The loose gate traps Ana, so you beat the drum to call the flower seller; the seller cuts a tough flower stem and uses it to lift the jammed latch.");
+            builder.AppendLine("Silently delete each target sentence. If the sentences before and after still connect, rewrite that target sentence because it is not doing narrative work.");
+            builder.AppendLine();
+            builder.AppendLine("STYLE AND TONE");
+            builder.AppendLine("Use active voice, concrete verbs, character choices, small setbacks, and a satisfying practical resolution.");
+            builder.AppendLine("Use no more than one short atmospheric clause in the entire story. Do not describe distant scenery or ambient sounds unless a character immediately acts on them.");
+            builder.AppendLine("Keep the tone bright, everyday, and emotionally safe. No horror, dream logic, uncanny living objects, supernatural transformations, or unrelated parade, dance, spectacle, or celebration.");
+            builder.AppendLine("Write in second person: the main character is always you. Do not name the main character or use he, she, his, or her for the main character.");
+            builder.AppendLine("Do not mention the memory room, furniture anchors, route instructions, walking directions, mnemonics, or image generation.");
+            builder.AppendLine("Aim for about 160-210 words for eight targets, scaling proportionally for other counts.");
+            builder.AppendLine();
+            builder.AppendLine("WORD FORMAT");
+            builder.AppendLine("Every target must appear once as the exact English meaning followed immediately by the Spanish word in parentheses, for example shoe (zapato).");
+            builder.AppendLine("Avoid repeating target pairs. If an earlier object must be referenced again, use a pronoun or ordinary synonym without repeating the Spanish word.");
             builder.AppendLine("Return JSON exactly in this minimal shape:");
             builder.AppendLine("{\"fullStory\":\"one continuous story paragraph with no route instructions\",\"items\":[{\"word\":\"zapato\",\"storyOrder\":1}]}");
             builder.AppendLine("Do not include storySegment or any other long text inside items.");
