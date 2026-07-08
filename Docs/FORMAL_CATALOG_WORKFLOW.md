@@ -62,7 +62,7 @@ Before freezing a formal session story, confirm:
 - Time the independent study period for 20 minutes.
 - Verify Desktop or OpenXR controls on the study machine.
 - Verify ElevenLabs voice output, route order, correct-anchor gating, story-segment completion, replay, and restart controls with the formal-session Voice ID.
-- Verify current-utterance seeking from the thin Desktop/VR progress bar.
+- Verify that the first spoken pass cannot be skipped, then verify segment-start route jumping from the whole-route Desktop/VR progress bar.
 - For `Self-Chosen Pictures`, verify one-to-one furniture assignment and that Study uses the participant's assignment order.
 - Verify enter/finish/skip behavior for the optional post-Study all-picture room display.
 - Complete the configured post-study assessment.

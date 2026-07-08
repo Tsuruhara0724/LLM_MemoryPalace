@@ -71,7 +71,7 @@ Responsibilities:
 - `OllamaLlmService.GenerateStory`: runs the causal-plan and final-story passes through local Ollama.
 - `OllamaLlmService.GenerateGeminiStory`: runs the same plan, repair, parsing, and validation pipeline through the Gemini API.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
-- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2` first, then automatically falls back to free Gemini Flash Preview TTS when ElevenLabs reports an authorization/quota failure. It decodes ElevenLabs MP3 or Gemini 24 kHz mono PCM into a Unity `AudioClip` while preserving the same route callbacks, progress, seek, and replay controls.
+- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2` first, then automatically falls back to free Gemini Flash Preview TTS when ElevenLabs reports an authorization/quota failure. It decodes ElevenLabs MP3 or Gemini 24 kHz mono PCM into a Unity `AudioClip` while preserving the same route callbacks and replay controls.
 - `ExperimentModels`: story, word-image, response, questionnaire, and export models.
 - `RoomSpecModels`: room shell, furniture anchors, resource loading, and fallback room.
 
@@ -195,7 +195,7 @@ Study UI currently provides:
 - Optional guided voice route: anchor instruction -> wait for the correct nearby image to be inspected -> play that story segment -> continue to the next anchor.
 - Word-image markers are proximity-gated: only the current route marker is revealed at roughly 8 m and its detail UI remains available to roughly 8.5 m, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
 - VR HMD users see the currently spoken guide or story segment as a subtitle in the world-space study panel; the existing replay control is unchanged.
-- A thin Desktop/VR progress bar for the current loaded utterance, including arbitrary seek backward/forward; Replay Voice restarts that loaded utterance without another API call.
+- The first spoken Study pass is sequential and cannot be skipped. After it completes, Desktop and VR expose one thin whole-route bar split into one segment per word/story section. Selecting a segment restarts its anchor guide from the beginning; arbitrary within-audio seeking is intentionally disabled. Replay Voice, Restart Route, and automatic advancement stay synchronized with the route bar.
 - `Self-Chosen Pictures` furniture selection before Study, with one word picture per furniture and one furniture per word; doors and windows are excluded.
 - An optional post-Study all-picture room display in both conditions. It reveals every furniture marker at once, has no countdown, and can be entered/finished or skipped by the participant.
 - Elapsed study time.
@@ -248,7 +248,7 @@ Verified on 2026-07-08:
 ## 12. Immediate priorities
 
 1. Run complete Desktop sessions for both conditions through export and inspect JSON/CSV.
-2. Run both protocols on the intended OpenXR headset, including seek, subtitles, self-choice assignment, and all-picture display.
+2. Run both protocols on the intended OpenXR headset, including segmented route jumping after the first pass, subtitles, self-choice assignment, and all-picture display.
 3. Pilot-review the 26 downloaded word images and replace ambiguous ones while preserving filenames and attribution.
 4. Decide whether the application should enforce the 20-minute study window or only display a timer.
 5. Confirm the final assessment after the 20-minute room period.

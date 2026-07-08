@@ -202,6 +202,7 @@ namespace MemPalaceLLM
         private Image vrAudioProgressFill;
         private Text vrAudioTimeText;
         private VrAudioProgressInteractable vrAudioProgressInteractable;
+        private GameObject vrAudioProgressRoot;
         private VrPanelButtonInteractable vrGenerateButton;
         private VrPanelButtonInteractable vrPreviousImageButton;
         private VrPanelButtonInteractable vrNextImageButton;
@@ -401,6 +402,7 @@ namespace MemPalaceLLM
         private string voiceRouteStatus = "Voice route is not active.";
         private string expectedVoiceUtteranceId = string.Empty;
         private string currentVoiceSubtitle = string.Empty;
+        private bool voiceRouteInitialPassCompleted;
         private int selfChoiceCandidateIndex;
         private float selfChoiceStartTime;
         private float selfChoiceDurationSeconds;
@@ -409,8 +411,6 @@ namespace MemPalaceLLM
         private bool allPhotoShowcaseEntered;
         private float allPhotoShowcaseStartTime;
         private float allPhotoShowcaseDurationSeconds;
-        private bool desktopAudioScrubbing;
-        private float lastVoiceSeekLogTime = -10f;
 
         private string sessionId = string.Empty;
         private float studyStartTime;
@@ -721,75 +721,108 @@ namespace MemPalaceLLM
 
         private void DrawVoiceProgressBarOverlay()
         {
-            var hasClip = textToSpeech != null && textToSpeech.HasPlayableClip;
-            if (!hasClip)
-            {
-                desktopAudioScrubbing = false;
-            }
-
-            GUI.Label(new Rect(22f, 68f, 52f, 20f), "VOICE", subtitleStyle);
-            var barRect = new Rect(76f, 76f, Mathf.Max(180f, Screen.width - 254f), 8f);
-            var interactionRect = new Rect(barRect.x - 4f, barRect.y - 7f, barRect.width + 8f, 24f);
-            GUI.color = hasClip
-                ? new Color(0.20f, 0.25f, 0.33f, 0.98f)
-                : new Color(0.30f, 0.34f, 0.40f, 0.88f);
-            GUI.DrawTexture(barRect, Texture2D.whiteTexture);
-            var progress = hasClip ? textToSpeech.NormalizedPlaybackProgress : 0f;
-            if (hasClip)
-            {
-                GUI.color = new Color(0.32f, 0.72f, 0.96f, 0.98f);
-                GUI.DrawTexture(new Rect(barRect.x, barRect.y, barRect.width * progress, barRect.height), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(barRect.x + barRect.width * progress - 5f, barRect.y - 3f, 10f, 14f), Texture2D.whiteTexture);
-            }
-            GUI.color = Color.white;
-            GUI.Label(
-                new Rect(Screen.width - 166f, 68f, 124f, 20f),
-                hasClip
-                    ? FormatVoiceTime(textToSpeech.PlaybackTime) + " / " + FormatVoiceTime(textToSpeech.PlaybackDuration)
-                    : "00:00 / 00:00",
-                subtitleStyle);
-            RegisterGuiRect(interactionRect);
-
-            var currentEvent = Event.current;
-            if (hasClip && currentEvent.type == EventType.MouseDown && currentEvent.button == 0 && interactionRect.Contains(currentEvent.mousePosition))
-            {
-                desktopAudioScrubbing = true;
-                SeekVoicePlayback(Mathf.InverseLerp(barRect.x, barRect.xMax, currentEvent.mousePosition.x));
-                currentEvent.Use();
-            }
-            else if (desktopAudioScrubbing && currentEvent.type == EventType.MouseDrag && currentEvent.button == 0)
-            {
-                SeekVoicePlayback(Mathf.InverseLerp(barRect.x, barRect.xMax, currentEvent.mousePosition.x));
-                currentEvent.Use();
-            }
-            else if (desktopAudioScrubbing && currentEvent.type == EventType.MouseUp && currentEvent.button == 0)
-            {
-                SeekVoicePlayback(Mathf.InverseLerp(barRect.x, barRect.xMax, currentEvent.mousePosition.x), true);
-                desktopAudioScrubbing = false;
-                currentEvent.Use();
-            }
-        }
-
-        private void SeekVoicePlayback(float normalized, bool forceLog = false)
-        {
-            if (textToSpeech == null || !textToSpeech.SeekNormalized(normalized))
+            if (condition != ExperimentCondition.LlmGenerated ||
+                !enableVoiceGuidance ||
+                !voiceRouteInitialPassCompleted)
             {
                 return;
             }
 
-            voiceRouteStatus = $"Playing from {FormatVoiceTime(textToSpeech.PlaybackTime)} of {FormatVoiceTime(textToSpeech.PlaybackDuration)}.";
-            if (forceLog || Time.unscaledTime - lastVoiceSeekLogTime >= 0.5f)
+            var segmentCount = Mathf.Max(1, currentItems?.Count ?? 0);
+            var canNavigate = CanNavigateVoiceRoute();
+            var routeProgress = GetVoiceRouteNormalizedProgress();
+            GUI.Label(new Rect(22f, 68f, 52f, 20f), "ROUTE", subtitleStyle);
+            var barRect = new Rect(76f, 76f, Mathf.Max(180f, Screen.width - 254f), 8f);
+            var interactionRect = new Rect(barRect.x - 4f, barRect.y - 7f, barRect.width + 8f, 24f);
+            var gap = segmentCount > 1 ? 4f : 0f;
+            var unitWidth = barRect.width / segmentCount;
+            for (var i = 0; i < segmentCount; i++)
             {
-                lastVoiceSeekLogTime = Time.unscaledTime;
-                var item = GetCurrentVoiceRouteItem();
-                LogInteraction("voice_seek", item?.word ?? string.Empty, item?.anchorId ?? string.Empty, $"Seeked to {textToSpeech.PlaybackTime:F2}s / {textToSpeech.PlaybackDuration:F2}s.");
+                var segmentRect = new Rect(
+                    barRect.x + unitWidth * i,
+                    barRect.y,
+                    Mathf.Max(1f, unitWidth - (i < segmentCount - 1 ? gap : 0f)),
+                    barRect.height);
+                GUI.color = canNavigate
+                    ? new Color(0.20f, 0.25f, 0.33f, 0.98f)
+                    : new Color(0.30f, 0.34f, 0.40f, 0.88f);
+                GUI.DrawTexture(segmentRect, Texture2D.whiteTexture);
+
+                var segmentProgress = Mathf.Clamp01(routeProgress * segmentCount - i);
+                if (segmentProgress > 0f)
+                {
+                    GUI.color = new Color(0.32f, 0.72f, 0.96f, 0.98f);
+                    GUI.DrawTexture(
+                        new Rect(segmentRect.x, segmentRect.y, segmentRect.width * segmentProgress, segmentRect.height),
+                        Texture2D.whiteTexture);
+                }
+            }
+
+            GUI.color = Color.white;
+            GUI.Label(
+                new Rect(Screen.width - 166f, 68f, 124f, 20f),
+                GetVoiceRouteProgressLabel(),
+                subtitleStyle);
+            RegisterGuiRect(interactionRect);
+
+            var currentEvent = Event.current;
+            if (canNavigate && currentEvent.type == EventType.MouseDown && currentEvent.button == 0 && interactionRect.Contains(currentEvent.mousePosition))
+            {
+                var normalized = Mathf.Clamp01(Mathf.InverseLerp(barRect.x, barRect.xMax, currentEvent.mousePosition.x));
+                var segmentIndex = Mathf.Min(segmentCount - 1, Mathf.FloorToInt(normalized * segmentCount));
+                JumpToVoiceRouteSegment(segmentIndex);
+                currentEvent.Use();
             }
         }
 
-        private static string FormatVoiceTime(float seconds)
+        private bool CanNavigateVoiceRoute()
         {
-            var totalSeconds = Mathf.Max(0, Mathf.FloorToInt(seconds));
-            return $"{totalSeconds / 60:00}:{totalSeconds % 60:00}";
+            return stage == ExperimentStage.Study &&
+                   condition == ExperimentCondition.LlmGenerated &&
+                   enableVoiceGuidance &&
+                   voiceRouteInitialPassCompleted &&
+                   currentItems != null &&
+                   currentItems.Count > 0;
+        }
+
+        private float GetVoiceRouteNormalizedProgress()
+        {
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                return 0f;
+            }
+
+            if (voiceRoutePhase == VoiceRoutePhase.Complete)
+            {
+                return 1f;
+            }
+
+            var routeIndex = Mathf.Clamp(voiceRouteIndex, 0, currentItems.Count - 1);
+            var utteranceProgress = textToSpeech != null && textToSpeech.HasPlayableClip
+                ? textToSpeech.NormalizedPlaybackProgress
+                : 0f;
+            var segmentProgress = voiceRoutePhase switch
+            {
+                VoiceRoutePhase.GuidingToAnchor => 0.45f * utteranceProgress,
+                VoiceRoutePhase.WaitingForTargetView => 0.45f,
+                VoiceRoutePhase.PlayingStorySegment => 0.45f + 0.55f * utteranceProgress,
+                _ => 0f
+            };
+            return Mathf.Clamp01((routeIndex + segmentProgress) / currentItems.Count);
+        }
+
+        private string GetVoiceRouteProgressLabel()
+        {
+            var count = currentItems?.Count ?? 0;
+            if (count <= 0)
+            {
+                return "00 / 00";
+            }
+
+            var current = voiceRoutePhase == VoiceRoutePhase.Complete
+                ? count
+                : Mathf.Clamp(voiceRouteIndex + 1, 1, count);
+            return $"{current:00} / {count:00}";
         }
 
         private int GetStageStepNumber()
@@ -7163,6 +7196,12 @@ namespace MemPalaceLLM
             expectedVoiceUtteranceId = BuildVoiceUtteranceId("guide", item);
             voiceRouteStatus = $"Guiding to {anchor} ({voiceRouteIndex + 1}/{currentItems.Count}).";
             currentVoiceSubtitle = guide;
+            if (textToSpeech == null)
+            {
+                voiceRoutePhase = VoiceRoutePhase.Error;
+                voiceRouteStatus = "The speech service is not initialized.";
+                return;
+            }
             if (!textToSpeech.Speak(guide, expectedVoiceUtteranceId))
             {
                 voiceRoutePhase = VoiceRoutePhase.Error;
@@ -7213,6 +7252,12 @@ namespace MemPalaceLLM
             expectedVoiceUtteranceId = BuildVoiceUtteranceId("story", item);
             voiceRouteStatus = $"Playing the story for {item.word} ({voiceRouteIndex + 1}/{currentItems.Count}).";
             currentVoiceSubtitle = segment;
+            if (textToSpeech == null)
+            {
+                voiceRoutePhase = VoiceRoutePhase.Error;
+                voiceRouteStatus = "The speech service is not initialized.";
+                return;
+            }
             if (!textToSpeech.Speak(segment, expectedVoiceUtteranceId))
             {
                 voiceRoutePhase = VoiceRoutePhase.Error;
@@ -7284,8 +7329,43 @@ namespace MemPalaceLLM
             expectedVoiceUtteranceId = string.Empty;
             currentVoiceSubtitle = string.Empty;
             voiceRoutePhase = VoiceRoutePhase.Complete;
+            voiceRouteInitialPassCompleted = true;
             voiceRouteStatus = $"Voice route complete: {narratedStoryWords.Count}/{currentItems.Count} story segments played.";
             LogInteraction("voice_route_complete", string.Empty, string.Empty, voiceRouteStatus);
+        }
+
+        private void JumpToVoiceRouteSegment(int segmentIndex)
+        {
+            if (!CanNavigateVoiceRoute())
+            {
+                return;
+            }
+
+            ConfigureElevenLabsSpeech();
+            textToSpeech?.Stop();
+            voiceRouteIndex = Mathf.Clamp(segmentIndex, 0, currentItems.Count - 1);
+            selectedStudyItem = null;
+            expectedVoiceUtteranceId = string.Empty;
+            currentVoiceSubtitle = string.Empty;
+            for (var i = voiceRouteIndex; i < currentItems.Count; i++)
+            {
+                narratedStoryWords.Remove(currentItems[i].word);
+            }
+
+            if (textToSpeech == null || !textToSpeech.IsSupported || !textToSpeech.IsReady)
+            {
+                voiceRoutePhase = VoiceRoutePhase.Error;
+                voiceRouteStatus = textToSpeech?.Status ?? "No text-to-speech service is available.";
+                return;
+            }
+
+            var item = GetCurrentVoiceRouteItem();
+            LogInteraction(
+                "voice_route_segment_jump",
+                item?.word ?? string.Empty,
+                item?.anchorId ?? string.Empty,
+                $"Restarted route segment {voiceRouteIndex + 1}/{currentItems.Count} from its anchor guide.");
+            SpeakCurrentVoiceGuide();
         }
 
         private void ReplayCurrentVoiceStep()
@@ -11978,8 +12058,7 @@ namespace MemPalaceLLM
             allPhotoShowcaseEntered = false;
             allPhotoShowcaseStartTime = 0f;
             allPhotoShowcaseDurationSeconds = 0f;
-            desktopAudioScrubbing = false;
-            lastVoiceSeekLogTime = -10f;
+            voiceRouteInitialPassCompleted = false;
             isCapturingSnapshot = false;
             usedLiveLlmForCurrentSession = false;
             usedPreGeneratedForCurrentSession = false;
@@ -12075,6 +12154,7 @@ namespace MemPalaceLLM
             vrAudioProgressFill = null;
             vrAudioTimeText = null;
             vrAudioProgressInteractable = null;
+            vrAudioProgressRoot = null;
             vrGenerateButton = null;
             vrPreviousImageButton = null;
             vrNextImageButton = null;
@@ -16178,10 +16258,14 @@ namespace MemPalaceLLM
             var selectPressed = triggerPressed || primaryPressed;
             var capturePressed = primaryPressed || gripPressed;
 
-            if (selectPressed && progressHasPriority && pointedProgress != null)
+            if (selectPressed && progressHasPriority && pointedProgress != null && Time.unscaledTime >= nextVrActionTime)
             {
                 var localHit = pointedProgress.transform.InverseTransformPoint(progressHitPoint);
-                SeekVoicePlayback(Mathf.Clamp01(localHit.x / Mathf.Max(1f, pointedProgress.Width)));
+                var normalized = Mathf.Clamp01(localHit.x / Mathf.Max(1f, pointedProgress.Width));
+                var segmentCount = Mathf.Max(1, currentItems?.Count ?? 0);
+                var segmentIndex = Mathf.Min(segmentCount - 1, Mathf.FloorToInt(normalized * segmentCount));
+                JumpToVoiceRouteSegment(segmentIndex);
+                nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
                 return;
             }
 
@@ -16557,6 +16641,7 @@ namespace MemPalaceLLM
         {
             var trackObject = new GameObject("VoiceProgressTrack");
             trackObject.transform.SetParent(parent, false);
+            vrAudioProgressRoot = trackObject;
             var trackImage = trackObject.AddComponent<Image>();
             trackImage.color = new Color(0.18f, 0.22f, 0.29f, 0.96f);
             var trackRect = trackObject.GetComponent<RectTransform>();
@@ -16577,6 +16662,21 @@ namespace MemPalaceLLM
             fillRect.anchoredPosition = Vector2.zero;
             fillRect.sizeDelta = new Vector2(0f, 8f);
 
+            var segmentCount = Mathf.Max(1, currentItems?.Count ?? 0);
+            for (var i = 1; i < segmentCount; i++)
+            {
+                var separatorObject = new GameObject("RouteSegmentGap_" + i);
+                separatorObject.transform.SetParent(trackObject.transform, false);
+                var separator = separatorObject.AddComponent<Image>();
+                separator.color = new Color(0.05f, 0.07f, 0.10f, 1f);
+                var separatorRect = separatorObject.GetComponent<RectTransform>();
+                separatorRect.anchorMin = new Vector2(0f, 1f);
+                separatorRect.anchorMax = new Vector2(0f, 1f);
+                separatorRect.pivot = new Vector2(0.5f, 1f);
+                separatorRect.anchoredPosition = new Vector2(610f * i / segmentCount, 0f);
+                separatorRect.sizeDelta = new Vector2(4f, 8f);
+            }
+
             var collider = trackObject.AddComponent<BoxCollider>();
             collider.center = new Vector3(305f, -4f, 0f);
             collider.size = new Vector3(610f, 22f, 18f);
@@ -16588,24 +16688,30 @@ namespace MemPalaceLLM
 
         private void UpdateVrAudioProgressVisual()
         {
-            var hasClip = textToSpeech != null && textToSpeech.HasPlayableClip && stage == ExperimentStage.Study;
+            var showRouteBar = stage == ExperimentStage.Study &&
+                               condition == ExperimentCondition.LlmGenerated &&
+                               enableVoiceGuidance &&
+                               voiceRouteInitialPassCompleted;
+            if (vrAudioProgressRoot != null && vrAudioProgressRoot.activeSelf != showRouteBar)
+            {
+                vrAudioProgressRoot.SetActive(showRouteBar);
+            }
             if (vrAudioProgressInteractable != null)
             {
-                vrAudioProgressInteractable.Enabled = hasClip;
+                vrAudioProgressInteractable.Enabled = showRouteBar && CanNavigateVoiceRoute();
             }
             if (vrAudioProgressFill != null)
             {
                 var fillRect = vrAudioProgressFill.rectTransform;
-                fillRect.sizeDelta = new Vector2(hasClip ? 610f * textToSpeech.NormalizedPlaybackProgress : 0f, 8f);
-                vrAudioProgressFill.color = hasClip
+                fillRect.sizeDelta = new Vector2(showRouteBar ? 610f * GetVoiceRouteNormalizedProgress() : 0f, 8f);
+                vrAudioProgressFill.color = showRouteBar
                     ? new Color(0.32f, 0.72f, 0.96f, 0.98f)
                     : new Color(0.18f, 0.22f, 0.29f, 0.35f);
             }
             if (vrAudioTimeText != null)
             {
-                vrAudioTimeText.text = hasClip
-                    ? FormatVoiceTime(textToSpeech.PlaybackTime) + " / " + FormatVoiceTime(textToSpeech.PlaybackDuration)
-                    : "00:00 / 00:00";
+                vrAudioTimeText.gameObject.SetActive(showRouteBar);
+                vrAudioTimeText.text = showRouteBar ? GetVoiceRouteProgressLabel() : string.Empty;
             }
         }
 

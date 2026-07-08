@@ -51,7 +51,7 @@ Minor causal-plan wording differences are normalized automatically. If the first
 - When the segment finishes, the voice automatically guides the participant to the next anchor.
 - The revealed image is offset toward the viewer and rendered as foreground study UI to avoid intersecting or disappearing behind room geometry.
 - In an active VR HMD, the world-space study panel displays the text currently being spoken as a subtitle. Use the existing Replay Voice button when repetition is needed.
-- A thin `VOICE` progress bar is always visible directly below the top banner in Desktop Study and at the top of the VR study panel. It activates when an utterance is loaded; select or drag it to seek backward or forward, and Replay Voice restarts the loaded utterance.
+- The first Study pass is locked to the original spoken order and has no route-jump control. After every story segment has completed once, a thin segmented `ROUTE` bar appears below the Desktop top banner and at the top of the VR panel. Each segment represents one word/story section; selecting a segment restarts that section from its anchor guide, never from the middle. Replay Voice, Restart Route, and automatic advancement update the same whole-route position.
 - Selecting an image shows its Spanish word, English meaning, and story beat.
 - The complete continuous story remains available in the study UI.
 - The researcher should record the true start/end time until an enforced timer is implemented.
@@ -95,7 +95,7 @@ Exports are written to `ExperimentExports/`:
 - All selected words display their real image rather than `_placeholder.png`.
 - Ollama connection and model are available.
 - For Gemini runs, `gemini-2.5-flash` passes `Test Gemini` and the key is available from Setup or user-level `GEMINI_API_KEY`.
-- Speech uses ElevenLabs first when its key has quota. If ElevenLabs reports an authorization/quota failure, the runtime automatically uses the configured Gemini key with free `gemini-2.5-flash-preview-tts` for the same subtitle, completion callback, route order, progress, seek, and replay flow.
+- Speech uses ElevenLabs first when its key has quota. If ElevenLabs reports an authorization/quota failure, the runtime automatically uses the configured Gemini key with free `gemini-2.5-flash-preview-tts` for the same subtitle, completion callback, route order, segmented progress, and replay flow.
 - Press `Test ElevenLabs Voice` in Setup and confirm audible speech before entering the room. The voice route can start with either a ready ElevenLabs configuration or a Gemini API key.
 - A valid ElevenLabs Voice ID is entered; the default is the voice used by the current ElevenLabs API example.
 - The device has internet access to `api.elevenlabs.io` and audio output is audible.
