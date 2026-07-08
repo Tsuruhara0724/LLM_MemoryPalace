@@ -35,6 +35,9 @@ GeneratedRooms/
 # Local build/debug artifacts
 .codex_tmp/
 .utmp/
+.local-tts/
+__pycache__/
+*.pyc
 Assets/_Recovery/
 Assets/_Recovery.meta
 *_BackUpThisFolder_ButDontShipItWithYourGame/

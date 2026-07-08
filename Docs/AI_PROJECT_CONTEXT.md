@@ -20,7 +20,7 @@ This is a Unity Desktop/VR experiment for Spanish vocabulary learning in a memor
 Current intended participant protocol has two conditions:
 
 1. Select a room and a set of Spanish target words.
-2. `LLM Story`: generate one continuous English story with Ollama or Gemini and assign its fixed local word pictures to stable furniture anchors.
+2. `LLM Story`: generate one continuous English story with Ollama or the official Gemini API and assign its fixed local word pictures to stable furniture anchors.
 3. `Self-Chosen Pictures`: let the participant pair every fixed local word picture with a different selectable furniture marker before Study; no LLM story or generated narration is used.
 4. Let the participant enter the room and study independently for 20 minutes.
 5. After Study, optionally reveal every assigned furniture word-picture UI simultaneously in the same room. The participant controls entry and finish; there is no countdown.
@@ -71,7 +71,7 @@ Responsibilities:
 - `OllamaLlmService.GenerateStory`: runs the causal-plan and final-story passes through local Ollama.
 - `OllamaLlmService.GenerateGeminiStory`: runs the same plan, repair, parsing, and validation pipeline through the Gemini API.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
-- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2` first, then automatically falls back to free Gemini Flash Preview TTS when ElevenLabs reports an authorization/quota failure. It decodes ElevenLabs MP3 or Gemini 24 kHz mono PCM into a Unity `AudioClip` while preserving the same route callbacks and replay controls.
+- `ElevenLabsTextToSpeechService`: prefers the local OpenAI-compatible Chatterbox/Kokoro WAV endpoint, then falls back to ElevenLabs `eleven_multilingual_v2` and official Gemini Flash Preview TTS. It decodes local PCM WAV, ElevenLabs MP3, or Gemini 24 kHz mono PCM into a Unity `AudioClip` while preserving route callbacks and replay controls.
 - `ExperimentModels`: story, word-image, response, questionnaire, and export models.
 - `RoomSpecModels`: room shell, furniture anchors, resource loading, and fallback room.
 
@@ -127,6 +127,15 @@ Rules and guards:
 Minor plan-link paraphrases are canonicalized rather than rejected. If the first final story fails parsing/quality checks or omits a target annotation, the same provider receives one constrained rewrite request. A remaining failure returns to Setup with an explicit error; the runtime does not open an empty Preview or append isolated dream-like repair sentences.
 
 Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking remain disabled. Gemini is active only as an online provider for the continuous-story pipeline.
+
+### Local unlimited TTS
+
+- Primary backend: the stable PyPI Chatterbox Multilingual release on CUDA, exposed locally as `POST /v1/audio/speech`.
+- Low-resource alternative: Kokoro-82M through the same endpoint contract.
+- Default Unity base URL: `http://127.0.0.1:8880/v1`; override with `LOCAL_TTS_ENDPOINT`, `LOCAL_TTS_MODEL`, and `LOCAL_TTS_VOICE`.
+- Setup/start scripts live under `Tools/LocalTtsServer/`. Environments, model downloads, and generated WAV caches live under ignored `.local-tts/`.
+- The local server caches identical requests. Unity tries the local provider first and retains ElevenLabs/Gemini as automatic fallbacks.
+- A missing non-serialized speech service is recreated automatically after Unity domain reload, so Play Mode script recompilation no longer leaves the Study route with `No system text-to-speech service`.
 
 ## 6. Word images
 

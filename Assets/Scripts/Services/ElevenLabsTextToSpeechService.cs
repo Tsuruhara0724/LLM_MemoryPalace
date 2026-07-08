@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -40,10 +41,15 @@ namespace MemPalaceLLM
         private string apiKey = string.Empty;
         private string voiceId = string.Empty;
         private string geminiApiKey = string.Empty;
+        private string localTtsEndpoint = string.Empty;
+        private string localTtsModel = "chatterbox-multilingual";
+        private string localTtsVoice = "default";
         private string pendingText = string.Empty;
         private string playbackProvider = "Speech";
         private bool activeRequestUsesGemini;
+        private bool activeRequestUsesLocal;
         private bool elevenLabsUnavailableForSession;
+        private bool localTtsUnavailableForSession;
         private bool playbackStarted;
 
         public ElevenLabsTextToSpeechService(Transform owner)
@@ -61,26 +67,48 @@ namespace MemPalaceLLM
             audioSource.volume = 1f;
         }
 
-        public void Configure(string configuredApiKey, string configuredVoiceId, string configuredGeminiApiKey = null)
+        public void Configure(
+            string configuredApiKey,
+            string configuredVoiceId,
+            string configuredGeminiApiKey = null,
+            string configuredLocalTtsEndpoint = null,
+            string configuredLocalTtsModel = null,
+            string configuredLocalTtsVoice = null)
         {
             var nextApiKey = string.IsNullOrWhiteSpace(configuredApiKey) ? string.Empty : configuredApiKey.Trim();
             var nextVoiceId = string.IsNullOrWhiteSpace(configuredVoiceId) ? string.Empty : configuredVoiceId.Trim();
             var nextGeminiApiKey = string.IsNullOrWhiteSpace(configuredGeminiApiKey) ? string.Empty : configuredGeminiApiKey.Trim();
+            var nextLocalEndpoint = string.IsNullOrWhiteSpace(configuredLocalTtsEndpoint) ? string.Empty : configuredLocalTtsEndpoint.Trim().TrimEnd('/');
+            var nextLocalModel = string.IsNullOrWhiteSpace(configuredLocalTtsModel) ? "chatterbox-multilingual" : configuredLocalTtsModel.Trim();
+            var nextLocalVoice = string.IsNullOrWhiteSpace(configuredLocalTtsVoice) ? "default" : configuredLocalTtsVoice.Trim();
             if (string.Equals(apiKey, nextApiKey, StringComparison.Ordinal) &&
                 string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal) &&
-                string.Equals(geminiApiKey, nextGeminiApiKey, StringComparison.Ordinal))
+                string.Equals(geminiApiKey, nextGeminiApiKey, StringComparison.Ordinal) &&
+                string.Equals(localTtsEndpoint, nextLocalEndpoint, StringComparison.Ordinal) &&
+                string.Equals(localTtsModel, nextLocalModel, StringComparison.Ordinal) &&
+                string.Equals(localTtsVoice, nextLocalVoice, StringComparison.Ordinal))
             {
                 return;
             }
 
             var elevenLabsCredentialsChanged = !string.Equals(apiKey, nextApiKey, StringComparison.Ordinal) ||
                                                !string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal);
+            var localTtsConfigurationChanged = !string.Equals(localTtsEndpoint, nextLocalEndpoint, StringComparison.Ordinal) ||
+                                               !string.Equals(localTtsModel, nextLocalModel, StringComparison.Ordinal) ||
+                                               !string.Equals(localTtsVoice, nextLocalVoice, StringComparison.Ordinal);
             apiKey = nextApiKey;
             voiceId = nextVoiceId;
             geminiApiKey = nextGeminiApiKey;
+            localTtsEndpoint = nextLocalEndpoint;
+            localTtsModel = nextLocalModel;
+            localTtsVoice = nextLocalVoice;
             if (elevenLabsCredentialsChanged)
             {
                 elevenLabsUnavailableForSession = false;
+            }
+            if (localTtsConfigurationChanged)
+            {
+                localTtsUnavailableForSession = false;
             }
             UpdateReadyStatus();
         }
@@ -115,7 +143,7 @@ namespace MemPalaceLLM
         {
             if (!IsReady)
             {
-                Status = "Configure ElevenLabs or Gemini speech in Setup.";
+                Status = "Configure Local TTS, ElevenLabs, or Gemini speech in Setup.";
                 return false;
             }
 
@@ -131,7 +159,11 @@ namespace MemPalaceLLM
                 : utteranceId.Trim();
             pendingText = text.Trim();
 
-            if (CanUseElevenLabs())
+            if (CanUseLocalTts())
+            {
+                StartLocalTtsRequest(pendingText);
+            }
+            else if (CanUseElevenLabs())
             {
                 StartElevenLabsRequest(pendingText);
             }
@@ -143,8 +175,40 @@ namespace MemPalaceLLM
             return true;
         }
 
+        private void StartLocalTtsRequest(string text)
+        {
+            activeRequestUsesLocal = true;
+            activeRequestUsesGemini = false;
+            var payload = new OpenAiSpeechRequest
+            {
+                model = localTtsModel,
+                input = text,
+                voice = localTtsVoice,
+                response_format = "wav",
+                language = "en",
+                speed = 1f,
+                exaggeration = 0.58f,
+                cfg_weight = 0.35f
+            };
+
+            var url = localTtsEndpoint.EndsWith("/audio/speech", StringComparison.OrdinalIgnoreCase)
+                ? localTtsEndpoint
+                : localTtsEndpoint + "/audio/speech";
+            activeRequest = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST)
+            {
+                uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload))),
+                downloadHandler = new DownloadHandlerBuffer(),
+                timeout = 180
+            };
+            activeRequest.SetRequestHeader("Content-Type", "application/json");
+            activeRequest.SetRequestHeader("Accept", "audio/wav");
+            requestOperation = activeRequest.SendWebRequest();
+            Status = "Generating unlimited local speech with " + localTtsModel + ".";
+        }
+
         private void StartElevenLabsRequest(string text)
         {
+            activeRequestUsesLocal = false;
             activeRequestUsesGemini = false;
 
             var payload = new SpeechRequest
@@ -177,6 +241,7 @@ namespace MemPalaceLLM
 
         private void StartGeminiRequest(string text)
         {
+            activeRequestUsesLocal = false;
             activeRequestUsesGemini = true;
             var payload = new GeminiTtsRequest
             {
@@ -253,6 +318,7 @@ namespace MemPalaceLLM
             activeUtteranceId = string.Empty;
             pendingText = string.Empty;
             activeRequestUsesGemini = false;
+            activeRequestUsesLocal = false;
             ReleaseActiveClip();
         }
 
@@ -277,7 +343,25 @@ namespace MemPalaceLLM
 
             if (request.result != UnityWebRequest.Result.Success)
             {
-                if (!activeRequestUsesGemini && CanUseGemini() && !string.IsNullOrWhiteSpace(pendingText))
+                if (activeRequestUsesLocal && !string.IsNullOrWhiteSpace(pendingText))
+                {
+                    var localFailure = BuildRequestFailureStatus("Local TTS", request);
+                    localTtsUnavailableForSession = true;
+                    Debug.LogWarning(localFailure + " Falling back to configured cloud speech.");
+                    if (CanUseElevenLabs())
+                    {
+                        request.Dispose();
+                        StartElevenLabsRequest(pendingText);
+                        return;
+                    }
+                    if (CanUseGemini())
+                    {
+                        request.Dispose();
+                        StartGeminiRequest(pendingText);
+                        return;
+                    }
+                }
+                else if (!activeRequestUsesGemini && CanUseGemini() && !string.IsNullOrWhiteSpace(pendingText))
                 {
                     var elevenLabsFailure = BuildRequestFailureStatus("ElevenLabs", request);
                     if (request.responseCode == 401 || elevenLabsFailure.IndexOf("quota_exceeded", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -292,7 +376,7 @@ namespace MemPalaceLLM
 
                 var failedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
-                Status = BuildRequestFailureStatus(activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs", request);
+                Status = BuildRequestFailureStatus(GetActiveProviderLabel(), request);
                 Debug.LogWarning(Status);
                 request.Dispose();
                 pendingText = string.Empty;
@@ -302,15 +386,17 @@ namespace MemPalaceLLM
 
             try
             {
-                activeClip = activeRequestUsesGemini
-                    ? DecodeGeminiPcmClip(request.downloadHandler.text)
-                    : DownloadHandlerAudioClip.GetContent(request);
+                activeClip = activeRequestUsesLocal
+                    ? DecodePcmWavClip(request.downloadHandler.data)
+                    : activeRequestUsesGemini
+                        ? DecodeGeminiPcmClip(request.downloadHandler.text)
+                        : DownloadHandlerAudioClip.GetContent(request);
             }
             catch (Exception ex)
             {
                 var failedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
-                Status = (activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs") + " audio decoding failed: " + ex.Message;
+                Status = GetActiveProviderLabel() + " audio decoding failed: " + ex.Message;
                 Debug.LogWarning(Status);
                 request.Dispose();
                 pendingText = string.Empty;
@@ -323,7 +409,7 @@ namespace MemPalaceLLM
             {
                 var failedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
-                Status = (activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs") + " returned no playable audio.";
+                Status = GetActiveProviderLabel() + " returned no playable audio.";
                 Debug.LogWarning(Status);
                 ReleaseActiveClip();
                 pendingText = string.Empty;
@@ -334,15 +420,21 @@ namespace MemPalaceLLM
             audioSource.clip = activeClip;
             audioSource.Play();
             playbackStarted = true;
-            playbackProvider = activeRequestUsesGemini ? "Gemini Flash TTS" : "ElevenLabs Multilingual v2";
+            playbackProvider = activeRequestUsesLocal
+                ? "Local TTS (" + localTtsModel + ")"
+                : activeRequestUsesGemini ? "Gemini Flash TTS" : "ElevenLabs Multilingual v2";
             pendingText = string.Empty;
             Status = "Speaking with " + playbackProvider + ".";
         }
 
         private void UpdateReadyStatus()
         {
-            IsReady = CanUseElevenLabs() || CanUseGemini();
-            if (CanUseElevenLabs() && CanUseGemini())
+            IsReady = CanUseLocalTts() || CanUseElevenLabs() || CanUseGemini();
+            if (CanUseLocalTts())
+            {
+                Status = "Local unlimited TTS is ready; configured cloud speech remains available as fallback.";
+            }
+            else if (CanUseElevenLabs() && CanUseGemini())
             {
                 Status = "ElevenLabs is ready, with Gemini Flash TTS as a free fallback.";
             }
@@ -356,8 +448,13 @@ namespace MemPalaceLLM
             }
             else
             {
-                Status = "Configure an ElevenLabs key or Gemini API key in Setup.";
+                Status = "Configure a local TTS endpoint, ElevenLabs key, or Gemini API key in Setup.";
             }
+        }
+
+        private bool CanUseLocalTts()
+        {
+            return !localTtsUnavailableForSession && !string.IsNullOrWhiteSpace(localTtsEndpoint);
         }
 
         private bool CanUseElevenLabs()
@@ -370,6 +467,91 @@ namespace MemPalaceLLM
         private bool CanUseGemini()
         {
             return !string.IsNullOrWhiteSpace(geminiApiKey);
+        }
+
+        private string GetActiveProviderLabel()
+        {
+            return activeRequestUsesLocal ? "Local TTS" : activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs";
+        }
+
+        private static AudioClip DecodePcmWavClip(byte[] wavBytes)
+        {
+            if (wavBytes == null || wavBytes.Length < 44)
+            {
+                throw new InvalidOperationException("WAV response is empty or truncated.");
+            }
+
+            using var stream = new MemoryStream(wavBytes, false);
+            using var reader = new BinaryReader(stream);
+            if (new string(reader.ReadChars(4)) != "RIFF")
+            {
+                throw new InvalidOperationException("WAV response is missing the RIFF header.");
+            }
+            reader.ReadInt32();
+            if (new string(reader.ReadChars(4)) != "WAVE")
+            {
+                throw new InvalidOperationException("WAV response is missing the WAVE header.");
+            }
+
+            ushort channels = 0;
+            var sampleRate = 0;
+            ushort bitsPerSample = 0;
+            byte[] pcm = null;
+            while (stream.Position + 8 <= stream.Length)
+            {
+                var chunkId = new string(reader.ReadChars(4));
+                var chunkSize = reader.ReadInt32();
+                if (chunkSize < 0 || stream.Position + chunkSize > stream.Length)
+                {
+                    throw new InvalidOperationException("WAV response contains an invalid chunk length.");
+                }
+
+                if (chunkId == "fmt ")
+                {
+                    var audioFormat = reader.ReadUInt16();
+                    channels = reader.ReadUInt16();
+                    sampleRate = reader.ReadInt32();
+                    reader.ReadInt32();
+                    reader.ReadUInt16();
+                    bitsPerSample = reader.ReadUInt16();
+                    var remaining = chunkSize - 16;
+                    if (remaining > 0) reader.ReadBytes(remaining);
+                    if (audioFormat != 1)
+                    {
+                        throw new InvalidOperationException("Only PCM WAV audio is supported.");
+                    }
+                }
+                else if (chunkId == "data")
+                {
+                    pcm = reader.ReadBytes(chunkSize);
+                }
+                else
+                {
+                    reader.ReadBytes(chunkSize);
+                }
+
+                if ((chunkSize & 1) != 0 && stream.Position < stream.Length)
+                {
+                    reader.ReadByte();
+                }
+            }
+
+            if (pcm == null || channels == 0 || sampleRate <= 0 || bitsPerSample != 16)
+            {
+                throw new InvalidOperationException("WAV response must contain 16-bit PCM audio.");
+            }
+
+            var totalSamples = pcm.Length / 2;
+            var samples = new float[totalSamples];
+            for (var i = 0; i < totalSamples; i++)
+            {
+                samples[i] = (short)(pcm[i * 2] | (pcm[i * 2 + 1] << 8)) / 32768f;
+            }
+
+            var frames = totalSamples / channels;
+            var clip = AudioClip.Create("LocalTtsSpeech", frames, channels, sampleRate, false);
+            clip.SetData(samples, 0);
+            return clip;
         }
 
         private static string BuildRequestFailureStatus(string provider, UnityWebRequest request)
@@ -456,6 +638,19 @@ namespace MemPalaceLLM
             public string text;
             public string model_id;
             public VoiceSettings voice_settings;
+        }
+
+        [Serializable]
+        private sealed class OpenAiSpeechRequest
+        {
+            public string model;
+            public string input;
+            public string voice;
+            public string response_format;
+            public string language;
+            public float speed;
+            public float exaggeration;
+            public float cfg_weight;
         }
 
         [Serializable]

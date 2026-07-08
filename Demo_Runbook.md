@@ -6,11 +6,11 @@ Last verified: 2026-07-08
 
 - Setup exposes two conditions: `LLM Story` and `Self-Chosen Pictures`.
 - The participant enters the memory-palace room and studies independently for 20 minutes.
-- In `LLM Story`, Ollama or Gemini creates one continuous English story containing all selected Spanish target words.
+- In `LLM Story`, Ollama or the official Gemini API creates one continuous English story containing all selected Spanish target words.
 - In `Self-Chosen Pictures`, the participant assigns each fixed local word picture to a different furniture marker before Study; no generated story or narration is used.
 - Furniture anchors define the spatial route. Furniture names must not influence the story text.
 - Word pictures are fixed local files under `Assets/Resources/WordImages/` and are not generated during a session.
-- Optional system speech guides the participant through the ordered story route one anchor at a time.
+- Optional speech guides the participant through the ordered story route one anchor at a time. Local Chatterbox is preferred when running; ElevenLabs and official Gemini TTS remain fallbacks.
 
 The current runtime still contains mid/final snapshot-recognition screens from the earlier prototype. The 20-minute study duration is the protocol target; the application does not yet enforce a hard 20-minute lock.
 
@@ -95,8 +95,9 @@ Exports are written to `ExperimentExports/`:
 - All selected words display their real image rather than `_placeholder.png`.
 - Ollama connection and model are available.
 - For Gemini runs, `gemini-2.5-flash` passes `Test Gemini` and the key is available from Setup or user-level `GEMINI_API_KEY`.
-- Speech uses ElevenLabs first when its key has quota. If ElevenLabs reports an authorization/quota failure, the runtime automatically uses the configured Gemini key with free `gemini-2.5-flash-preview-tts` for the same subtitle, completion callback, route order, segmented progress, and replay flow.
-- Press `Test ElevenLabs Voice` in Setup and confirm audible speech before entering the room. The voice route can start with either a ready ElevenLabs configuration or a Gemini API key.
+- Speech uses local Chatterbox first when its endpoint is enabled. If local speech is unavailable, the runtime tries ElevenLabs and then the configured official Gemini key with `gemini-2.5-flash-preview-tts`, preserving subtitles, completion callbacks, route order, segmented progress, and replay.
+- For unlimited local speech, run `Tools/LocalTtsServer/Setup-Chatterbox.cmd` once and `Start-Chatterbox.cmd` before Unity. The default endpoint is `http://127.0.0.1:8880/v1`; generated WAV files are cached under the ignored `.local-tts/` directory.
+- Press `Test Configured Voice` in Setup and confirm audible speech before entering the room. The route prefers local Chatterbox, then falls back to ElevenLabs and official Gemini TTS.
 - A valid ElevenLabs Voice ID is entered; the default is the voice used by the current ElevenLabs API example.
 - The device has internet access to `api.elevenlabs.io` and audio output is audible.
 - The generated story contains each selected `meaning (Spanish word)` exactly once as a route item.

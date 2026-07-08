@@ -320,6 +320,10 @@ namespace MemPalaceLLM
         private bool enableVoiceGuidance = true;
         private string elevenLabsApiKey = string.Empty;
         private string elevenLabsVoiceId = "JBFqnCBsd6RMkjVDRZzb";
+        private bool useLocalUnlimitedTts = true;
+        private string localTtsEndpoint = "http://127.0.0.1:8880/v1";
+        private string localTtsModel = "chatterbox-multilingual";
+        private string localTtsVoice = "default";
         private bool showAbstractMnemonicProps = false;
         private bool preferPreGeneratedMnemonics = true;
         private bool allowLiveLlmForMissingPreGenerated = false;
@@ -450,6 +454,36 @@ namespace MemPalaceLLM
                 elevenLabsVoiceId = configuredVoiceId.Trim();
             }
 
+            var configuredLocalTtsEndpoint = ReadLocalEnvironmentSetting("LOCAL_TTS_ENDPOINT");
+            if (string.IsNullOrWhiteSpace(configuredLocalTtsEndpoint))
+            {
+                configuredLocalTtsEndpoint = PlayerPrefs.GetString("MemPalace.LocalTtsEndpoint", string.Empty);
+            }
+            if (!string.IsNullOrWhiteSpace(configuredLocalTtsEndpoint))
+            {
+                localTtsEndpoint = configuredLocalTtsEndpoint.Trim();
+            }
+            useLocalUnlimitedTts = PlayerPrefs.GetInt("MemPalace.UseLocalTts", 1) != 0;
+
+            var configuredLocalTtsModel = ReadLocalEnvironmentSetting("LOCAL_TTS_MODEL");
+            if (!string.IsNullOrWhiteSpace(configuredLocalTtsModel))
+            {
+                localTtsModel = configuredLocalTtsModel.Trim();
+            }
+            else
+            {
+                localTtsModel = PlayerPrefs.GetString("MemPalace.LocalTtsModel", localTtsModel);
+            }
+            var configuredLocalTtsVoice = ReadLocalEnvironmentSetting("LOCAL_TTS_VOICE");
+            if (!string.IsNullOrWhiteSpace(configuredLocalTtsVoice))
+            {
+                localTtsVoice = configuredLocalTtsVoice.Trim();
+            }
+            else
+            {
+                localTtsVoice = PlayerPrefs.GetString("MemPalace.LocalTtsVoice", localTtsVoice);
+            }
+
             geminiApiKey = ReadLocalEnvironmentSetting("GEMINI_API_KEY");
             if (string.IsNullOrWhiteSpace(geminiApiKey))
             {
@@ -460,11 +494,7 @@ namespace MemPalaceLLM
                 geminiApiKey = PlayerPrefs.GetString("MemPalace.GeminiApiKey", string.Empty);
             }
 
-            textToSpeech = new ElevenLabsTextToSpeechService(transform);
-            textToSpeech.Configure(elevenLabsApiKey, elevenLabsVoiceId, ResolveGeminiApiKey());
-            textToSpeech.UtteranceCompleted += HandleVoiceUtteranceCompleted;
-            textToSpeech.UtteranceFailed += HandleVoiceUtteranceFailed;
-            textToSpeech.Initialize();
+            EnsureTextToSpeechService();
             SyncWordSetSelection();
             if (activeWordSet != null && activeWordSet.words.Count > 0)
             {
@@ -476,6 +506,7 @@ namespace MemPalaceLLM
         private void Update()
         {
             EnsureSceneScaffold();
+            EnsureTextToSpeechService();
             textToSpeech?.Tick();
 
             if (stage == ExperimentStage.Study)
@@ -507,17 +538,6 @@ namespace MemPalaceLLM
         {
             if (textToSpeech == null)
             {
-                return;
-            }
-
-            if (stage == ExperimentStage.SelfAuthoring)
-            {
-                if (enableVrStudyMode)
-                {
-                    HandleVrStudyRuntime();
-                }
-
-                HandleStudyControls();
                 return;
             }
 
@@ -1051,11 +1071,19 @@ namespace MemPalaceLLM
                         GUILayout.Label(geminiProviderStatus, mutedStyle);
                     }
                 }
-
                 GUILayout.Label("The LLM is used only for one continuous English story. It does not generate the local word pictures.", mutedStyle);
                 enableVoiceGuidance = GUILayout.Toggle(enableVoiceGuidance, "Use guided voice route in the study room");
                 if (enableVoiceGuidance)
                 {
+                    GUILayout.Label("Unlimited Local TTS", smallTitleStyle);
+                    useLocalUnlimitedTts = GUILayout.Toggle(useLocalUnlimitedTts, "Prefer local Chatterbox / Kokoro speech");
+                    if (useLocalUnlimitedTts)
+                    {
+                        localTtsEndpoint = DrawLabeledTextField("Local TTS Base URL", localTtsEndpoint);
+                        localTtsModel = DrawLabeledTextField("Local TTS Model", localTtsModel);
+                        localTtsVoice = DrawLabeledTextField("Local Voice / Reference WAV", localTtsVoice);
+                        GUILayout.Label("Default: Chatterbox Multilingual on http://127.0.0.1:8880/v1. Repeated text is cached by the local server.", mutedStyle);
+                    }
                     GUILayout.Label("ElevenLabs Multilingual v2", smallTitleStyle);
                     GUILayout.Label("API Key", mutedStyle);
                     elevenLabsApiKey = GUILayout.PasswordField(elevenLabsApiKey ?? string.Empty, '*');
@@ -1063,7 +1091,7 @@ namespace MemPalaceLLM
                     ConfigureElevenLabsSpeech();
                     GUILayout.Label(textToSpeech?.Status ?? "ElevenLabs speech service is unavailable.", mutedStyle);
                     GUI.enabled = textToSpeech != null && textToSpeech.IsReady && !textToSpeech.IsSpeaking;
-                    if (GUILayout.Button("Test ElevenLabs Voice", buttonStyle))
+                    if (GUILayout.Button("Test Configured Voice", buttonStyle))
                     {
                         textToSpeech.Speak(
                             "Welcome. I will guide you through the memory palace in a warm, natural voice.",
@@ -4097,7 +4125,7 @@ namespace MemPalaceLLM
                 : ResolveProviderLabel();
             var storyModel = currentStory != null && !string.IsNullOrWhiteSpace(currentStory.storyModel)
                 ? currentStory.storyModel
-                : ollamaModel;
+                : GetSelectedLiveMnemonicModelLabel();
             GUILayout.Label($"Story Source: {storyProvider} {storyModel}", labelStyle);
             GUILayout.Label($"Live LLM Request Used: {(isGenerating ? "In progress" : (IsUsingLiveLlm() ? "Yes" : "No"))}", labelStyle);
             GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
@@ -7133,13 +7161,74 @@ namespace MemPalaceLLM
 
         private void ConfigureElevenLabsSpeech()
         {
-            textToSpeech?.Configure(elevenLabsApiKey, elevenLabsVoiceId, ResolveGeminiApiKey());
+            EnsureTextToSpeechService();
+            textToSpeech?.Configure(
+                elevenLabsApiKey,
+                elevenLabsVoiceId,
+                ResolveGeminiApiKey(),
+                useLocalUnlimitedTts ? localTtsEndpoint : string.Empty,
+                localTtsModel,
+                localTtsVoice);
             if (!string.IsNullOrWhiteSpace(elevenLabsApiKey) &&
                 !string.Equals(PlayerPrefs.GetString("MemPalace.ElevenLabsApiKey", string.Empty), elevenLabsApiKey, StringComparison.Ordinal))
             {
                 PlayerPrefs.SetString("MemPalace.ElevenLabsApiKey", elevenLabsApiKey);
                 PlayerPrefs.Save();
             }
+
+            var localPrefsChanged = false;
+            if (!string.IsNullOrWhiteSpace(localTtsEndpoint)
+                && !string.Equals(PlayerPrefs.GetString("MemPalace.LocalTtsEndpoint", string.Empty), localTtsEndpoint, StringComparison.Ordinal))
+            {
+                PlayerPrefs.SetString("MemPalace.LocalTtsEndpoint", localTtsEndpoint);
+                localPrefsChanged = true;
+            }
+
+            var localTtsEnabledValue = useLocalUnlimitedTts ? 1 : 0;
+            if (PlayerPrefs.GetInt("MemPalace.UseLocalTts", -1) != localTtsEnabledValue)
+            {
+                PlayerPrefs.SetInt("MemPalace.UseLocalTts", localTtsEnabledValue);
+                localPrefsChanged = true;
+            }
+
+            var savedLocalModel = localTtsModel ?? string.Empty;
+            if (!string.Equals(PlayerPrefs.GetString("MemPalace.LocalTtsModel", string.Empty), savedLocalModel, StringComparison.Ordinal))
+            {
+                PlayerPrefs.SetString("MemPalace.LocalTtsModel", savedLocalModel);
+                localPrefsChanged = true;
+            }
+
+            var savedLocalVoice = localTtsVoice ?? string.Empty;
+            if (!string.Equals(PlayerPrefs.GetString("MemPalace.LocalTtsVoice", string.Empty), savedLocalVoice, StringComparison.Ordinal))
+            {
+                PlayerPrefs.SetString("MemPalace.LocalTtsVoice", savedLocalVoice);
+                localPrefsChanged = true;
+            }
+
+            if (localPrefsChanged)
+            {
+                PlayerPrefs.Save();
+            }
+        }
+
+        private void EnsureTextToSpeechService()
+        {
+            if (textToSpeech != null)
+            {
+                return;
+            }
+
+            textToSpeech = new ElevenLabsTextToSpeechService(transform);
+            textToSpeech.Configure(
+                elevenLabsApiKey,
+                elevenLabsVoiceId,
+                ResolveGeminiApiKey(),
+                useLocalUnlimitedTts ? localTtsEndpoint : string.Empty,
+                localTtsModel,
+                localTtsVoice);
+            textToSpeech.UtteranceCompleted += HandleVoiceUtteranceCompleted;
+            textToSpeech.UtteranceFailed += HandleVoiceUtteranceFailed;
+            textToSpeech.Initialize();
         }
 
         private void SaveGeminiApiKeyLocally()

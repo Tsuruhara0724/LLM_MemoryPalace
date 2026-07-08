@@ -191,7 +191,15 @@ VR HMD 模式会在 world-space 学习面板显示当前正在播放的引导语
 9. 若使用 VR，在目标头显上重复全流程。
 10. 验证语音引导、到达判定、小节播放、自动下一站、重播和路线重启。
 
-## 12. 当前技术债
+## 12. 本地不限量语音
+
+- 首选稳定版 Chatterbox Multilingual；RTX 显卡运行 `Tools/LocalTtsServer/Setup-Chatterbox.cmd` 安装，之后用 `Start-Chatterbox.cmd` 启动。
+- 低配置机器可运行 `Setup-Kokoro.cmd` 和 `Start-Kokoro.cmd`，Unity 接口不需要修改。
+- 默认地址为 `http://127.0.0.1:8880/v1/audio/speech`，输出 16-bit PCM WAV，并缓存相同文本。
+- Unity 优先使用本地语音，失败时依次回退 ElevenLabs 和官方 Gemini TTS。
+- Quest 独立运行时，把 Base URL 改为同一局域网电脑的 IP；`127.0.0.1` 只表示 Quest 自身。
+
+## 13. 当前技术债
 
 - 主控制器过大，混合 UI、房间、学习、测验、VR 和导出。
 - 旧 mnemonic、Gemini、Stable Diffusion 和 A-D 图片候选代码尚未清除。
