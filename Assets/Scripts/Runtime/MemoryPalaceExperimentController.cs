@@ -721,29 +721,37 @@ namespace MemPalaceLLM
 
         private void DrawVoiceProgressBarOverlay()
         {
-            if (textToSpeech == null || !textToSpeech.HasPlayableClip)
+            var hasClip = textToSpeech != null && textToSpeech.HasPlayableClip;
+            if (!hasClip)
             {
                 desktopAudioScrubbing = false;
-                return;
             }
 
-            var barRect = new Rect(64f, 76f, Mathf.Max(180f, Screen.width - 236f), 6f);
-            var interactionRect = new Rect(barRect.x - 4f, barRect.y - 6f, barRect.width + 8f, 18f);
-            GUI.color = new Color(0.18f, 0.22f, 0.29f, 0.96f);
+            GUI.Label(new Rect(22f, 68f, 52f, 20f), "VOICE", subtitleStyle);
+            var barRect = new Rect(76f, 76f, Mathf.Max(180f, Screen.width - 254f), 8f);
+            var interactionRect = new Rect(barRect.x - 4f, barRect.y - 7f, barRect.width + 8f, 24f);
+            GUI.color = hasClip
+                ? new Color(0.20f, 0.25f, 0.33f, 0.98f)
+                : new Color(0.30f, 0.34f, 0.40f, 0.88f);
             GUI.DrawTexture(barRect, Texture2D.whiteTexture);
-            var progress = textToSpeech.NormalizedPlaybackProgress;
-            GUI.color = new Color(0.32f, 0.72f, 0.96f, 0.98f);
-            GUI.DrawTexture(new Rect(barRect.x, barRect.y, barRect.width * progress, barRect.height), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(barRect.x + barRect.width * progress - 4f, barRect.y - 3f, 8f, 12f), Texture2D.whiteTexture);
+            var progress = hasClip ? textToSpeech.NormalizedPlaybackProgress : 0f;
+            if (hasClip)
+            {
+                GUI.color = new Color(0.32f, 0.72f, 0.96f, 0.98f);
+                GUI.DrawTexture(new Rect(barRect.x, barRect.y, barRect.width * progress, barRect.height), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(barRect.x + barRect.width * progress - 5f, barRect.y - 3f, 10f, 14f), Texture2D.whiteTexture);
+            }
             GUI.color = Color.white;
             GUI.Label(
-                new Rect(Screen.width - 164f, 68f, 112f, 18f),
-                FormatVoiceTime(textToSpeech.PlaybackTime) + " / " + FormatVoiceTime(textToSpeech.PlaybackDuration),
+                new Rect(Screen.width - 166f, 68f, 124f, 20f),
+                hasClip
+                    ? FormatVoiceTime(textToSpeech.PlaybackTime) + " / " + FormatVoiceTime(textToSpeech.PlaybackDuration)
+                    : "00:00 / 00:00",
                 subtitleStyle);
             RegisterGuiRect(interactionRect);
 
             var currentEvent = Event.current;
-            if (currentEvent.type == EventType.MouseDown && currentEvent.button == 0 && interactionRect.Contains(currentEvent.mousePosition))
+            if (hasClip && currentEvent.type == EventType.MouseDown && currentEvent.button == 0 && interactionRect.Contains(currentEvent.mousePosition))
             {
                 desktopAudioScrubbing = true;
                 SeekVoicePlayback(Mathf.InverseLerp(barRect.x, barRect.xMax, currentEvent.mousePosition.x));
@@ -16596,7 +16604,7 @@ namespace MemPalaceLLM
             {
                 vrAudioTimeText.text = hasClip
                     ? FormatVoiceTime(textToSpeech.PlaybackTime) + " / " + FormatVoiceTime(textToSpeech.PlaybackDuration)
-                    : string.Empty;
+                    : "00:00 / 00:00";
             }
         }
 

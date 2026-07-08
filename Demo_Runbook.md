@@ -51,7 +51,7 @@ If either Ollama pass fails or the final story fails quality checks, the app sto
 - When the segment finishes, the voice automatically guides the participant to the next anchor.
 - The revealed image is offset toward the viewer and rendered as foreground study UI to avoid intersecting or disappearing behind room geometry.
 - In an active VR HMD, the world-space study panel displays the text currently being spoken as a subtitle. Use the existing Replay Voice button when repetition is needed.
-- A thin progress bar at the top of the Desktop and VR study UI shows the current utterance. Select or drag it to seek backward or forward; Replay Voice restarts the loaded utterance.
+- A thin `VOICE` progress bar is always visible directly below the top banner in Desktop Study and at the top of the VR study panel. It activates when an utterance is loaded; select or drag it to seek backward or forward, and Replay Voice restarts the loaded utterance.
 - Selecting an image shows its Spanish word, English meaning, and story beat.
 - The complete continuous story remains available in the study UI.
 - The researcher should record the true start/end time until an enforced timer is implemented.
