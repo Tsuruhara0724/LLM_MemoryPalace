@@ -13,6 +13,8 @@ namespace MemPalaceLLM
     {
         private const string ApiBaseUrl = "https://api.elevenlabs.io/v1/text-to-speech/";
         private const string ModelId = "eleven_multilingual_v2";
+        private const string GeminiTtsUrl = "https://generativelanguage.googleapis.com/v1beta/interactions";
+        private const string GeminiTtsModel = "gemini-2.5-flash-preview-tts";
 
         public event Action<string> UtteranceCompleted;
         public event Action<string, string> UtteranceFailed;
@@ -37,6 +39,11 @@ namespace MemPalaceLLM
         private string activeUtteranceId = string.Empty;
         private string apiKey = string.Empty;
         private string voiceId = string.Empty;
+        private string geminiApiKey = string.Empty;
+        private string pendingText = string.Empty;
+        private string playbackProvider = "Speech";
+        private bool activeRequestUsesGemini;
+        private bool elevenLabsUnavailableForSession;
         private bool playbackStarted;
 
         public ElevenLabsTextToSpeechService(Transform owner)
@@ -54,31 +61,34 @@ namespace MemPalaceLLM
             audioSource.volume = 1f;
         }
 
-        public void Configure(string configuredApiKey, string configuredVoiceId)
+        public void Configure(string configuredApiKey, string configuredVoiceId, string configuredGeminiApiKey = null)
         {
             var nextApiKey = string.IsNullOrWhiteSpace(configuredApiKey) ? string.Empty : configuredApiKey.Trim();
             var nextVoiceId = string.IsNullOrWhiteSpace(configuredVoiceId) ? string.Empty : configuredVoiceId.Trim();
+            var nextGeminiApiKey = string.IsNullOrWhiteSpace(configuredGeminiApiKey) ? string.Empty : configuredGeminiApiKey.Trim();
             if (string.Equals(apiKey, nextApiKey, StringComparison.Ordinal) &&
-                string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal))
+                string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal) &&
+                string.Equals(geminiApiKey, nextGeminiApiKey, StringComparison.Ordinal))
             {
                 return;
             }
 
+            var elevenLabsCredentialsChanged = !string.Equals(apiKey, nextApiKey, StringComparison.Ordinal) ||
+                                               !string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal);
             apiKey = nextApiKey;
             voiceId = nextVoiceId;
-            IsReady = !string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(voiceId);
-            Status = IsReady
-                ? "ElevenLabs Multilingual v2 is ready."
-                : "Enter an ElevenLabs API key and voice ID in Setup.";
+            geminiApiKey = nextGeminiApiKey;
+            if (elevenLabsCredentialsChanged)
+            {
+                elevenLabsUnavailableForSession = false;
+            }
+            UpdateReadyStatus();
         }
 
         public void Initialize()
         {
             IsSupported = true;
-            IsReady = !string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(voiceId);
-            Status = IsReady
-                ? "ElevenLabs Multilingual v2 is ready."
-                : "Enter an ElevenLabs API key and voice ID in Setup.";
+            UpdateReadyStatus();
         }
 
         public void Tick()
@@ -97,7 +107,7 @@ namespace MemPalaceLLM
             activeUtteranceId = string.Empty;
             playbackStarted = false;
             ReleaseActiveClip();
-            Status = "ElevenLabs speech completed.";
+            Status = playbackProvider + " speech completed.";
             UtteranceCompleted?.Invoke(completedId);
         }
 
@@ -105,7 +115,7 @@ namespace MemPalaceLLM
         {
             if (!IsReady)
             {
-                Status = "Enter an ElevenLabs API key and voice ID in Setup.";
+                Status = "Configure ElevenLabs or Gemini speech in Setup.";
                 return false;
             }
 
@@ -119,10 +129,27 @@ namespace MemPalaceLLM
             activeUtteranceId = string.IsNullOrWhiteSpace(utteranceId)
                 ? "speech_" + Guid.NewGuid().ToString("N")
                 : utteranceId.Trim();
+            pendingText = text.Trim();
+
+            if (CanUseElevenLabs())
+            {
+                StartElevenLabsRequest(pendingText);
+            }
+            else
+            {
+                StartGeminiRequest(pendingText);
+            }
+
+            return true;
+        }
+
+        private void StartElevenLabsRequest(string text)
+        {
+            activeRequestUsesGemini = false;
 
             var payload = new SpeechRequest
             {
-                text = text.Trim(),
+                text = text,
                 model_id = ModelId,
                 voice_settings = new VoiceSettings
                 {
@@ -146,7 +173,32 @@ namespace MemPalaceLLM
             activeRequest.SetRequestHeader("xi-api-key", apiKey);
             requestOperation = activeRequest.SendWebRequest();
             Status = "Generating natural speech with ElevenLabs Multilingual v2.";
-            return true;
+        }
+
+        private void StartGeminiRequest(string text)
+        {
+            activeRequestUsesGemini = true;
+            var payload = new GeminiTtsRequest
+            {
+                model = GeminiTtsModel,
+                input = "Read warmly, naturally, and conversationally at a steady pace. Speak exactly this text:\n" + text,
+                response_format = new GeminiResponseFormat { type = "audio" },
+                generation_config = new GeminiGenerationConfig
+                {
+                    speech_config = new[] { new GeminiSpeechConfig { voice = "Sulafat" } }
+                }
+            };
+
+            activeRequest = new UnityWebRequest(GeminiTtsUrl, UnityWebRequest.kHttpVerbPOST)
+            {
+                uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload))),
+                downloadHandler = new DownloadHandlerBuffer()
+            };
+            activeRequest.SetRequestHeader("Content-Type", "application/json");
+            activeRequest.SetRequestHeader("x-goog-api-key", geminiApiKey);
+            activeRequest.SetRequestHeader("Api-Revision", "2026-05-20");
+            requestOperation = activeRequest.SendWebRequest();
+            Status = "Generating natural speech with Gemini Flash TTS.";
         }
 
         public bool SeekNormalized(float normalizedTime)
@@ -165,7 +217,7 @@ namespace MemPalaceLLM
             }
 
             playbackStarted = true;
-            Status = "Seeking within the current ElevenLabs sentence.";
+            Status = "Seeking within the current spoken sentence.";
             return true;
         }
 
@@ -199,6 +251,8 @@ namespace MemPalaceLLM
 
             playbackStarted = false;
             activeUtteranceId = string.Empty;
+            pendingText = string.Empty;
+            activeRequestUsesGemini = false;
             ReleaseActiveClip();
         }
 
@@ -223,42 +277,43 @@ namespace MemPalaceLLM
 
             if (request.result != UnityWebRequest.Result.Success)
             {
-                var failedId = activeUtteranceId;
-                activeUtteranceId = string.Empty;
-                var responseCode = request.responseCode;
-                var requestError = string.IsNullOrWhiteSpace(request.error) ? "unknown request error" : request.error;
-                var responseDetail = string.Empty;
-                if (request.downloadHandler?.data != null && request.downloadHandler.data.Length > 0)
+                if (!activeRequestUsesGemini && CanUseGemini() && !string.IsNullOrWhiteSpace(pendingText))
                 {
-                    responseDetail = Encoding.UTF8.GetString(request.downloadHandler.data).Trim();
-                    if (responseDetail.Length > 320)
+                    var elevenLabsFailure = BuildRequestFailureStatus("ElevenLabs", request);
+                    if (request.responseCode == 401 || elevenLabsFailure.IndexOf("quota_exceeded", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        responseDetail = responseDetail.Substring(0, 320) + "...";
+                        elevenLabsUnavailableForSession = true;
                     }
+                    Debug.LogWarning(elevenLabsFailure + " Falling back to Gemini Flash TTS.");
+                    request.Dispose();
+                    StartGeminiRequest(pendingText);
+                    return;
                 }
 
-                Status = $"ElevenLabs speech request failed ({responseCode}): {requestError}";
-                if (!string.IsNullOrWhiteSpace(responseDetail))
-                {
-                    Status += " " + responseDetail;
-                }
+                var failedId = activeUtteranceId;
+                activeUtteranceId = string.Empty;
+                Status = BuildRequestFailureStatus(activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs", request);
                 Debug.LogWarning(Status);
                 request.Dispose();
+                pendingText = string.Empty;
                 UtteranceFailed?.Invoke(failedId, Status);
                 return;
             }
 
             try
             {
-                activeClip = DownloadHandlerAudioClip.GetContent(request);
+                activeClip = activeRequestUsesGemini
+                    ? DecodeGeminiPcmClip(request.downloadHandler.text)
+                    : DownloadHandlerAudioClip.GetContent(request);
             }
             catch (Exception ex)
             {
                 var failedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
-                Status = "ElevenLabs audio decoding failed: " + ex.Message;
+                Status = (activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs") + " audio decoding failed: " + ex.Message;
                 Debug.LogWarning(Status);
                 request.Dispose();
+                pendingText = string.Empty;
                 UtteranceFailed?.Invoke(failedId, Status);
                 return;
             }
@@ -268,9 +323,10 @@ namespace MemPalaceLLM
             {
                 var failedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
-                Status = "ElevenLabs returned no playable audio.";
+                Status = (activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs") + " returned no playable audio.";
                 Debug.LogWarning(Status);
                 ReleaseActiveClip();
+                pendingText = string.Empty;
                 UtteranceFailed?.Invoke(failedId, Status);
                 return;
             }
@@ -278,7 +334,106 @@ namespace MemPalaceLLM
             audioSource.clip = activeClip;
             audioSource.Play();
             playbackStarted = true;
-            Status = "Speaking with ElevenLabs Multilingual v2.";
+            playbackProvider = activeRequestUsesGemini ? "Gemini Flash TTS" : "ElevenLabs Multilingual v2";
+            pendingText = string.Empty;
+            Status = "Speaking with " + playbackProvider + ".";
+        }
+
+        private void UpdateReadyStatus()
+        {
+            IsReady = CanUseElevenLabs() || CanUseGemini();
+            if (CanUseElevenLabs() && CanUseGemini())
+            {
+                Status = "ElevenLabs is ready, with Gemini Flash TTS as a free fallback.";
+            }
+            else if (CanUseElevenLabs())
+            {
+                Status = "ElevenLabs Multilingual v2 is ready.";
+            }
+            else if (CanUseGemini())
+            {
+                Status = "Gemini Flash TTS is ready.";
+            }
+            else
+            {
+                Status = "Configure an ElevenLabs key or Gemini API key in Setup.";
+            }
+        }
+
+        private bool CanUseElevenLabs()
+        {
+            return !elevenLabsUnavailableForSession &&
+                   !string.IsNullOrWhiteSpace(apiKey) &&
+                   !string.IsNullOrWhiteSpace(voiceId);
+        }
+
+        private bool CanUseGemini()
+        {
+            return !string.IsNullOrWhiteSpace(geminiApiKey);
+        }
+
+        private static string BuildRequestFailureStatus(string provider, UnityWebRequest request)
+        {
+            var requestError = string.IsNullOrWhiteSpace(request?.error) ? "unknown request error" : request.error;
+            var status = $"{provider} speech request failed ({request?.responseCode ?? 0}): {requestError}";
+            var responseDetail = request?.downloadHandler?.data != null && request.downloadHandler.data.Length > 0
+                ? Encoding.UTF8.GetString(request.downloadHandler.data).Trim()
+                : string.Empty;
+            if (responseDetail.Length > 320)
+            {
+                responseDetail = responseDetail.Substring(0, 320) + "...";
+            }
+
+            return string.IsNullOrWhiteSpace(responseDetail) ? status : status + " " + responseDetail;
+        }
+
+        private static AudioClip DecodeGeminiPcmClip(string responseJson)
+        {
+            var response = JsonUtility.FromJson<GeminiTtsResponse>(responseJson);
+            if (response?.steps == null)
+            {
+                throw new InvalidOperationException("Gemini response did not contain output steps.");
+            }
+
+            for (var stepIndex = 0; stepIndex < response.steps.Length; stepIndex++)
+            {
+                var contents = response.steps[stepIndex]?.content;
+                if (contents == null)
+                {
+                    continue;
+                }
+
+                for (var contentIndex = 0; contentIndex < contents.Length; contentIndex++)
+                {
+                    var output = contents[contentIndex];
+                    if (output == null || string.IsNullOrWhiteSpace(output.data) ||
+                        !string.Equals(output.type, "audio", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var pcm = Convert.FromBase64String(output.data);
+                    var sampleCount = pcm.Length / 2;
+                    if (sampleCount <= 0)
+                    {
+                        throw new InvalidOperationException("Gemini returned empty PCM audio.");
+                    }
+
+                    var samples = new float[sampleCount];
+                    for (var i = 0; i < sampleCount; i++)
+                    {
+                        var sample = (short)(pcm[i * 2] | (pcm[i * 2 + 1] << 8));
+                        samples[i] = sample / 32768f;
+                    }
+
+                    var sampleRate = output.sample_rate > 0 ? output.sample_rate : 24000;
+                    var clip = AudioClip.Create("GeminiTtsSpeech", sampleCount, 1, sampleRate, false);
+                    clip.SetData(samples, 0);
+                    return clip;
+                }
+            }
+
+            throw new InvalidOperationException("Gemini response did not contain an audio block.");
         }
 
         private void ReleaseActiveClip()
@@ -311,6 +466,54 @@ namespace MemPalaceLLM
             public float style;
             public bool use_speaker_boost;
             public float speed;
+        }
+
+        [Serializable]
+        private sealed class GeminiTtsRequest
+        {
+            public string model;
+            public string input;
+            public GeminiResponseFormat response_format;
+            public GeminiGenerationConfig generation_config;
+        }
+
+        [Serializable]
+        private sealed class GeminiResponseFormat
+        {
+            public string type;
+        }
+
+        [Serializable]
+        private sealed class GeminiGenerationConfig
+        {
+            public GeminiSpeechConfig[] speech_config;
+        }
+
+        [Serializable]
+        private sealed class GeminiSpeechConfig
+        {
+            public string voice;
+        }
+
+        [Serializable]
+        private sealed class GeminiTtsResponse
+        {
+            public GeminiTtsStep[] steps;
+        }
+
+        [Serializable]
+        private sealed class GeminiTtsStep
+        {
+            public GeminiTtsContent[] content;
+        }
+
+        [Serializable]
+        private sealed class GeminiTtsContent
+        {
+            public string type;
+            public string mime_type;
+            public string data;
+            public int sample_rate;
         }
     }
 }

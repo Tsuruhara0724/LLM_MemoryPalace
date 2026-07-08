@@ -159,7 +159,7 @@ LLM 输出：
 3. 播放该词对应的 `StorySessionData.orderedItems[].storySegment`。
 4. 收到播放完成回调后进入下一个锚点。
 
-Windows 编辑器、桌面版和 Android/Quest 均调用 ElevenLabs `eleven_multilingual_v2`。Setup 中输入 API Key 和 Voice ID；桌面环境也可用 `ELEVENLABS_API_KEY`、`ELEVENLABS_VOICE_ID`。API Key 只保存在运行时内存中，不应写入项目或提交到版本库。服务使用 Stability `0.42`、Similarity `0.78`、Style `0.20`、Speed `0.96`，以减少系统语音的机械感，同时保留路线推进所需的播放完成回调。
+Windows 编辑器、桌面版和 Android/Quest 优先调用 ElevenLabs `eleven_multilingual_v2`。Setup 中输入 API Key 和 Voice ID；桌面环境也可用 `ELEVENLABS_API_KEY`、`ELEVENLABS_VOICE_ID`。ElevenLabs 返回鉴权或额度错误时，程序自动改用已有 Gemini Key 调用免费的 `gemini-2.5-flash-preview-tts`，并把 24 kHz PCM 转成 Unity `AudioClip`；字幕、顺序推进、进度条、拖动和重播共用原状态机。API Key 不应写入项目或提交到版本库。
 
 VR HMD 模式会在 world-space 学习面板显示当前正在播放的引导语或故事片段字幕。桌面和 VR 学习画面顶部都有细进度条，可在当前已加载语句内任意前后拖动；`Replay Voice` 会直接从头重播该语句。
 

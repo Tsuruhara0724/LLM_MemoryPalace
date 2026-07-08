@@ -71,7 +71,7 @@ Responsibilities:
 - `OllamaLlmService.GenerateStory`: runs the causal-plan and final-story passes through local Ollama.
 - `OllamaLlmService.GenerateGeminiStory`: runs the same plan, repair, parsing, and validation pipeline through the Gemini API.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
-- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2`, decodes the returned MP3 into a Unity `AudioClip`, preserves route completion callbacks, and exposes loaded-clip duration, progress, seek, and restart controls.
+- `ElevenLabsTextToSpeechService`: calls ElevenLabs `eleven_multilingual_v2` first, then automatically falls back to free Gemini Flash Preview TTS when ElevenLabs reports an authorization/quota failure. It decodes ElevenLabs MP3 or Gemini 24 kHz mono PCM into a Unity `AudioClip` while preserving the same route callbacks, progress, seek, and replay controls.
 - `ExperimentModels`: story, word-image, response, questionnaire, and export models.
 - `RoomSpecModels`: room shell, furniture anchors, resource loading, and fallback room.
 
@@ -124,7 +124,7 @@ Rules and guards:
 - Story order can be recovered from first occurrence in `fullStory`.
 - Fragmented-object-scene heuristics can reject low-coherence output.
 
-If either provider pass fails or the final story fails validation, generation stops with an explicit error. The legacy fallback builder remains in code for compatibility but is no longer presented as a successful story.
+Minor plan-link paraphrases are canonicalized rather than rejected. If the first final story fails parsing/quality checks or omits a target annotation, the same provider receives one constrained rewrite request. A remaining failure returns to Setup with an explicit error; the runtime does not open an empty Preview or append isolated dream-like repair sentences.
 
 Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking remain disabled. Gemini is active only as an online provider for the continuous-story pipeline.
 

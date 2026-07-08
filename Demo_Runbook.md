@@ -39,7 +39,7 @@ Recommended Gemini setting:
 - Model: `gemini-2.5-flash` (verified with the Gemini API free tier on 2026-07-08)
 - Key source on Windows desktop: user-level `GEMINI_API_KEY`, with Setup input as a fallback
 
-If either Ollama pass fails or the final story fails quality checks, the app stops and shows the error instead of presenting an incoherent fallback as participant material.
+Minor causal-plan wording differences are normalized automatically. If the first story omits a target or fails quality checks, the selected LLM receives one repair request; the app starts Study only after the repaired story passes validation. A remaining failure returns to Setup instead of opening an empty Preview.
 
 ## Participant study period
 
@@ -95,8 +95,8 @@ Exports are written to `ExperimentExports/`:
 - All selected words display their real image rather than `_placeholder.png`.
 - Ollama connection and model are available.
 - For Gemini runs, `gemini-2.5-flash` passes `Test Gemini` and the key is available from Setup or user-level `GEMINI_API_KEY`.
-- An ElevenLabs API key with text-to-speech access is entered in Setup or supplied through `ELEVENLABS_API_KEY` on desktop.
-- Press `Test ElevenLabs Voice` in Setup and confirm audible speech before entering the room. The voice route is blocked when the API key or Voice ID is missing.
+- Speech uses ElevenLabs first when its key has quota. If ElevenLabs reports an authorization/quota failure, the runtime automatically uses the configured Gemini key with free `gemini-2.5-flash-preview-tts` for the same subtitle, completion callback, route order, progress, seek, and replay flow.
+- Press `Test ElevenLabs Voice` in Setup and confirm audible speech before entering the room. The voice route can start with either a ready ElevenLabs configuration or a Gemini API key.
 - A valid ElevenLabs Voice ID is entered; the default is the voice used by the current ElevenLabs API example.
 - The device has internet access to `api.elevenlabs.io` and audio output is audible.
 - The generated story contains each selected `meaning (Spanish word)` exactly once as a route item.

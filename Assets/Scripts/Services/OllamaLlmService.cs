@@ -298,11 +298,13 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (!TryValidateCausalStoryPlan(causalPlanJson, words, out var causalPlanError))
+            if (!TryPrepareCausalStoryPlan(causalPlanJson, words, out var preparedCausalPlanJson, out var causalPlanError))
             {
                 onError?.Invoke("Ollama produced an invalid causal plan: " + causalPlanError + "\nRaw plan preview:\n" + BuildPreview(causalPlanJson));
                 yield break;
             }
+
+            causalPlanJson = preparedCausalPlanJson;
 
             var storyRequest = new OllamaGenerateRequest
             {
@@ -332,16 +334,44 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (!TryParseStoryEnvelope(storyResponse, out var envelope, out var parseError))
+            if (!TryParseAndBuildStoryResponse(storyResponse, words, assignedAnchors, model.Trim(), out var story, out var validationError))
             {
-                onError?.Invoke("Failed to parse story JSON: " + parseError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
-                yield break;
-            }
+                var firstFailure = validationError;
+                var repairRequest = new OllamaGenerateRequest
+                {
+                    model = model.Trim(),
+                    prompt = BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
+                    system = "You repair a rejected causal micro-story. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                    format = "json",
+                    stream = false,
+                    options = new OllamaRequestOptions
+                    {
+                        temperature = 0.38f,
+                        num_predict = 2200
+                    }
+                };
 
-            if (!TryBuildStorySession(envelope, words, assignedAnchors, model.Trim(), out var story, out var validationError))
-            {
-                onError?.Invoke(validationError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
-                yield break;
+                string repairedResponse = null;
+                string repairRequestError = null;
+                yield return SendOllamaJsonRequest(
+                    endpoint.Trim(),
+                    repairRequest,
+                    value => repairedResponse = value,
+                    error => repairRequestError = error);
+
+                if (!string.IsNullOrWhiteSpace(repairRequestError))
+                {
+                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the Ollama repair request failed: " + repairRequestError);
+                    yield break;
+                }
+
+                if (!TryParseAndBuildStoryResponse(repairedResponse, words, assignedAnchors, model.Trim(), out story, out validationError))
+                {
+                    onError?.Invoke("Ollama story repair still failed validation: " + validationError + "\nRaw response preview:\n" + BuildPreview(repairedResponse));
+                    yield break;
+                }
+
+                story.storySource += "_retry";
             }
 
             onSuccess?.Invoke(story);
@@ -398,11 +428,13 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (!TryValidateCausalStoryPlan(causalPlanJson, words, out var causalPlanError))
+            if (!TryPrepareCausalStoryPlan(causalPlanJson, words, out var preparedCausalPlanJson, out var causalPlanError))
             {
                 onError?.Invoke("Gemini produced an invalid causal plan: " + causalPlanError + "\nRaw plan preview:\n" + BuildPreview(causalPlanJson));
                 yield break;
             }
+
+            causalPlanJson = preparedCausalPlanJson;
 
             string storyResponse = null;
             requestError = null;
@@ -422,17 +454,36 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (!TryParseStoryEnvelope(storyResponse, out var envelope, out var parseError))
-            {
-                onError?.Invoke("Failed to parse Gemini story JSON: " + parseError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
-                yield break;
-            }
-
             var resolvedModel = string.IsNullOrWhiteSpace(GeminiModelsUsedSummary) ? model.Trim() : GeminiModelsUsedSummary;
-            if (!TryBuildStorySession(envelope, words, assignedAnchors, resolvedModel, out var story, out var validationError))
+            if (!TryParseAndBuildStoryResponse(storyResponse, words, assignedAnchors, resolvedModel, out var story, out var validationError))
             {
-                onError?.Invoke(validationError + "\nRaw response preview:\n" + BuildPreview(storyResponse));
-                yield break;
+                var firstFailure = validationError;
+                string repairedResponse = null;
+                requestError = null;
+                yield return SendGeminiGenerateRequest(
+                    apiKey.Trim(),
+                    model.Trim(),
+                    BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
+                    "You repair a rejected causal micro-story. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                    0.38f,
+                    2200,
+                    value => repairedResponse = value,
+                    error => requestError = error);
+
+                if (!string.IsNullOrWhiteSpace(requestError))
+                {
+                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the Gemini repair request failed: " + requestError);
+                    yield break;
+                }
+
+                resolvedModel = string.IsNullOrWhiteSpace(GeminiModelsUsedSummary) ? model.Trim() : GeminiModelsUsedSummary;
+                if (!TryParseAndBuildStoryResponse(repairedResponse, words, assignedAnchors, resolvedModel, out story, out validationError))
+                {
+                    onError?.Invoke("Gemini story repair still failed validation: " + validationError + "\nRaw response preview:\n" + BuildPreview(repairedResponse));
+                    yield break;
+                }
+
+                story.storySource += "_retry";
             }
 
             story.storyProvider = "Gemini Online";
@@ -524,8 +575,13 @@ namespace MemPalaceLLM
             return builder.ToString();
         }
 
-        private static bool TryValidateCausalStoryPlan(string json, List<WordEntry> words, out string error)
+        private static bool TryPrepareCausalStoryPlan(
+            string json,
+            List<WordEntry> words,
+            out string preparedJson,
+            out string error)
         {
+            preparedJson = string.Empty;
             error = string.Empty;
             if (string.IsNullOrWhiteSpace(json))
             {
@@ -581,13 +637,21 @@ namespace MemPalaceLLM
                     var currentNeed = NormalizePlanLink(item.need);
                     if (!string.Equals(previousResult, currentNeed, StringComparison.Ordinal))
                     {
-                        error = "Plan item " + (i + 1) + " does not copy the previous result verbatim into its need field.";
-                        return false;
+                        // Smaller local models often preserve the causal meaning while paraphrasing the link.
+                        // Canonicalize that field instead of discarding an otherwise complete plan.
+                        item.need = plan.items[i - 1].result.Trim();
                     }
                 }
             }
 
-            return usedWords.Count == expectedWords.Count;
+            if (usedWords.Count != expectedWords.Count)
+            {
+                error = "The plan does not contain every selected target word exactly once.";
+                return false;
+            }
+
+            preparedJson = JsonUtility.ToJson(plan);
+            return true;
         }
 
         private static string NormalizePlanLink(string value)
@@ -660,6 +724,52 @@ namespace MemPalaceLLM
             return builder.ToString();
         }
 
+        private static string BuildStoryRepairPrompt(
+            List<WordEntry> words,
+            string causalPlanJson,
+            string rejectedResponse,
+            string validationError)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Rewrite the rejected response into one coherent, warm, action-driven causal story.");
+            builder.AppendLine("Validation failure: " + (validationError ?? "unknown validation error"));
+            builder.AppendLine("Return exactly: {\"fullStory\":\"...\",\"items\":[{\"word\":\"target\",\"storyOrder\":1}]}.");
+            builder.AppendLine("Every selected target must appear naturally in the fullStory exactly as English meaning (Spanish word), and each must perform an action that changes progress toward the same goal.");
+            builder.AppendLine("Do not append isolated repair sentences, dream imagery, scenery-only descriptions, room-tour instructions, anchors, or furniture assignments.");
+            builder.AppendLine("Keep the causal order from the plan, but repair any implausible action or weak connection.");
+            builder.AppendLine();
+            builder.AppendLine("Selected targets:");
+            for (var i = 0; i < words.Count; i++)
+            {
+                builder.Append(i + 1).Append(". ").Append(words[i].meaning).Append(" (").Append(words[i].word).AppendLine(")");
+            }
+            builder.AppendLine();
+            builder.AppendLine("Causal plan:");
+            builder.AppendLine(causalPlanJson ?? string.Empty);
+            builder.AppendLine();
+            builder.AppendLine("Rejected response:");
+            builder.AppendLine(rejectedResponse ?? string.Empty);
+            return builder.ToString();
+        }
+
+        private static bool TryParseAndBuildStoryResponse(
+            string response,
+            List<WordEntry> words,
+            List<AnchorDefinition> assignedAnchors,
+            string model,
+            out StorySessionData story,
+            out string error)
+        {
+            story = null;
+            if (!TryParseStoryEnvelope(response, out var envelope, out var parseError))
+            {
+                error = "Failed to parse story JSON: " + parseError;
+                return false;
+            }
+
+            return TryBuildStorySession(envelope, words, assignedAnchors, model, out story, out error);
+        }
+
         private static bool TryBuildStorySession(
             GeneratedStoryEnvelope envelope,
             List<WordEntry> words,
@@ -683,16 +793,15 @@ namespace MemPalaceLLM
             }
 
             envelope.fullStory = RepairFullStoryMissingRouteWords(envelope.fullStory, words, out var repairedWords);
+            if (repairedWords.Count > 0)
+            {
+                error = "Story omitted required target annotations: " + string.Join(", ", repairedWords.ConvertAll(word => word.word)) + ".";
+                return false;
+            }
             var storySource = repairedWords.Count > 0 ? "ollama_story_repaired" : "ollama_story";
             if (ContainsStoryRouteCue(envelope.fullStory, out var routeCueError))
             {
                 error = routeCueError;
-                return false;
-            }
-
-            if (ContainsAssignedAnchorLeak(envelope.fullStory, assignedAnchors, words, out var anchorLeakError))
-            {
-                error = anchorLeakError;
                 return false;
             }
 

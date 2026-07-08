@@ -461,7 +461,7 @@ namespace MemPalaceLLM
             }
 
             textToSpeech = new ElevenLabsTextToSpeechService(transform);
-            textToSpeech.Configure(elevenLabsApiKey, elevenLabsVoiceId);
+            textToSpeech.Configure(elevenLabsApiKey, elevenLabsVoiceId, ResolveGeminiApiKey());
             textToSpeech.UtteranceCompleted += HandleVoiceUtteranceCompleted;
             textToSpeech.UtteranceFailed += HandleVoiceUtteranceFailed;
             textToSpeech.Initialize();
@@ -5148,7 +5148,8 @@ namespace MemPalaceLLM
                 localFallbackMnemonicCount = 0;
                 usedLiveLlmForCurrentSession = false;
                 generationError = GetSelectedLiveMnemonicProviderLabel() + " rejected the story instead of showing an incoherent fallback. Error: " + BuildShortPreview(error);
-                statusMessage = "Story generation failed quality checks. Return to Setup and generate again.";
+                statusMessage = "Story generation failed. The session was not started; adjust the model or retry from Setup.";
+                stage = ExperimentStage.Setup;
             }
             else
             {
@@ -7099,7 +7100,7 @@ namespace MemPalaceLLM
 
         private void ConfigureElevenLabsSpeech()
         {
-            textToSpeech?.Configure(elevenLabsApiKey, elevenLabsVoiceId);
+            textToSpeech?.Configure(elevenLabsApiKey, elevenLabsVoiceId, ResolveGeminiApiKey());
             if (!string.IsNullOrWhiteSpace(elevenLabsApiKey) &&
                 !string.Equals(PlayerPrefs.GetString("MemPalace.ElevenLabsApiKey", string.Empty), elevenLabsApiKey, StringComparison.Ordinal))
             {
