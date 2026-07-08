@@ -5,9 +5,9 @@ Last verified: 2026-07-08
 ## 1. Current development state
 
 - Active branch: `codex/story-only-memory-palace`
-- Current commit before this feature batch: `356e616` (`Add guided VR study media and causal stories`)
+- Current commit before this feature batch: `c82c307` (`Add unlimited local TTS support`)
 - Unity version: `6000.3.12f1`
-- Current design label: `LLM Story vs Self-Chosen Pictures + Local Word Images`
+- Current design label: `LLM Story + Own Order vs Participant Story + Own Order vs Empty Room`
 - The redesign is active through `IsStoryOnlyRedesignEnabled() => true` in both the controller and LLM service.
 - The active branch is synchronized with its remote but has not been merged into `main`.
 
@@ -17,16 +17,17 @@ Maintenance rule: update this document whenever story schema, word-image handlin
 
 This is a Unity Desktop/VR experiment for Spanish vocabulary learning in a memory palace.
 
-Current intended participant protocol has two conditions:
+Current intended participant protocol has three conditions:
 
 1. Select a room and a set of Spanish target words.
-2. `LLM Story`: generate one continuous English story with Ollama or the official Gemini API and assign its fixed local word pictures to stable furniture anchors.
-3. `Self-Chosen Pictures`: let the participant pair every fixed local word picture with a different selectable furniture marker before Study; no LLM story or generated narration is used.
-4. Let the participant enter the room and study independently for 20 minutes.
-5. After Study, optionally reveal every assigned furniture word-picture UI simultaneously in the same room. The participant controls entry and finish; there is no countdown.
-6. Run the finalized post-study assessment and export research data.
+2. `LLM Story + Own Order`: generate one continuous story, then let the participant click actual furniture models on PC and assign one of eight words from a 2 x 4 card. Spatial assignment never reorders the story.
+3. `Write Story + Own Order`: collect eight participant-written segments as one coherent whole story, then use the same PC furniture assignment. Study retains TTS, subtitles, replay, and segmented route progress.
+4. `Empty Room`: enter the empty VR room shell with no furniture, word pictures, labels, story, subtitle, or voice route; skip picture-dependent assessment and all-picture display.
+5. Let the participant enter the room and study independently for 20 minutes.
+6. After Study in either story condition, optionally reveal every assigned furniture word-picture UI simultaneously in the same room. The participant controls entry and finish; there is no countdown.
+7. Run the finalized post-study assessment and export research data.
 
-The legacy `Self Generated` label has been replaced in the active UI by `Self-Chosen Pictures`. The participant chooses spatial word-picture pairings rather than generating new images.
+The former `Self-Chosen Pictures` condition has been replaced by the participant-written-story condition plus an empty-room baseline. Both story conditions use participant-defined spatial mapping.
 
 The 20-minute duration is a protocol requirement. The runtime currently displays elapsed study time but does not enforce a hard 20-minute minimum or automatic transition. Until that is implemented, the researcher must control timing externally.
 
@@ -37,8 +38,11 @@ The active UI flow is:
 ```text
 Setup
 -> optional Room Builder
--> LLM Story Preview OR Self-Chosen Furniture Assignment
--> Study Room
+-> LLM Story Preview OR Participant Story Authoring
+-> PC Furniture Assignment
+-> Story Study Room
+OR
+-> Empty Room Study
 -> existing Mid Image Test
 -> optional All-Picture Display in the Study Room
 -> existing Final Image Test
@@ -205,8 +209,9 @@ Study UI currently provides:
 - Word-image markers are proximity-gated: only the current route marker is revealed at roughly 8 m and its detail UI remains available to roughly 8.5 m, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
 - VR HMD users see the currently spoken guide or story segment as a subtitle in the world-space study panel; the existing replay control is unchanged.
 - The first spoken Study pass is sequential and cannot be skipped. After it completes, Desktop and VR expose one thin whole-route bar split into one segment per word/story section. Selecting a segment restarts its anchor guide from the beginning; arbitrary within-audio seeking is intentionally disabled. Replay Voice, Restart Route, and automatic advancement stay synchronized with the route bar.
-- `Self-Chosen Pictures` furniture selection before Study, with one word picture per furniture and one furniture per word; doors and windows are excluded.
-- An optional post-Study all-picture room display in both conditions. It reveals every furniture marker at once, has no countdown, and can be entered/finished or skipped by the participant.
+- PC furniture selection before Study in both story conditions: click an actual furniture model, then choose from a 2 x 4 word card; one word per furniture and one furniture per word, with doors and windows excluded.
+- An optional post-Study all-picture room display in both story conditions. It reveals every furniture marker at once, has no countdown, and can be entered/finished or skipped by the participant.
+- The empty-room baseline builds only architectural floor/wall/ceiling/window primitives and omits all furniture anchors and study stimuli.
 - Elapsed study time.
 - Snapshot capture for the legacy recognition tests.
 
@@ -235,7 +240,7 @@ Formats:
 - JSON session record
 - CSV recall/recognition summary
 
-The export includes participant/session identifiers, room metadata, provider/model metadata, self-choice duration, Study duration, whether the optional all-picture display was entered, its duration, viewed/memorized counts, the complete `StorySessionData`, word entries, snapshot-test responses, questionnaire values, and interaction logs.
+The export includes participant/session identifiers, room metadata, provider/model metadata, participant story-authoring duration, furniture-assignment duration, Study duration, whether the optional all-picture display was entered, its duration, viewed/memorized counts, the complete `StorySessionData`, word entries, snapshot-test responses, questionnaire values, and interaction logs.
 
 The current redesign still needs a fresh end-to-end exported test session before formal use.
 
@@ -246,6 +251,7 @@ Verified on 2026-07-08:
 - Active source compiles in the open Unity project after an earlier fixed `TryParseStoryEnvelope` error.
 - The ElevenLabs voice-route implementation compiles in Unity and preserves the existing route, subtitle, replay, and completion-callback behavior.
 - Unity successfully rebuilt and reloaded `Assembly-CSharp.dll` after the new condition, display, progress, Gemini, and export changes with no C# errors in the latest compile log.
+- The three-condition redesign compiles through Unity's Bee/Tundra script pipeline with no C# errors; only five pre-existing unused-field warnings remain.
 - A direct `gemini-2.5-flash` API request using the configured user-level key returned valid JSON. `gemini-3.5-flash` returned HTTP 503 in three consecutive attempts, so 2.5 Flash remains the verified default.
 - All 26 word-image files are valid readable PNGs.
 - All preset/formal word keys have matching image filenames.
@@ -256,8 +262,8 @@ Verified on 2026-07-08:
 
 ## 12. Immediate priorities
 
-1. Run complete Desktop sessions for both conditions through export and inspect JSON/CSV.
-2. Run both protocols on the intended OpenXR headset, including segmented route jumping after the first pass, subtitles, self-choice assignment, and all-picture display.
+1. Run complete Desktop sessions for all three conditions through export and inspect JSON/CSV.
+2. Run all three protocols on the intended OpenXR headset, including segmented route jumping after the first pass, subtitles, PC furniture assignment, the empty-room shell, and all-picture display where applicable.
 3. Pilot-review the 26 downloaded word images and replace ambiguous ones while preserving filenames and attribution.
 4. Decide whether the application should enforce the 20-minute study window or only display a timer.
 5. Confirm the final assessment after the 20-minute room period.

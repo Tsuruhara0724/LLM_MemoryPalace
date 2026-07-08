@@ -12,9 +12,10 @@ The old 12 x 10 mnemonic catalog and 480-image anchor-pair catalog are not used 
 - Story source in the LLM condition: one live Ollama or Gemini continuous story
 - Visual source: one fixed local image per Spanish word
 - Study protocol: independent room study for 20 minutes
-- Comparison conditions: `LLM Story` and `Self-Chosen Pictures`
-- Self-chosen procedure: before Study, the participant pairs every selected word picture with a different furniture marker; doors and windows are not selectable furniture
-- Post-study option in both conditions: reveal every furniture word-picture UI simultaneously in the room, with participant-controlled entry and finish and no countdown
+- Comparison conditions: `LLM Story + Own Order`, `Write Story + Own Order`, and `Empty Room`
+- Spatial-order procedure for both story conditions: before Study, the participant clicks actual furniture models on PC and chooses one unused word from a 2 x 4 card; doors and windows are not selectable
+- Post-study option in both story conditions: reveal every furniture word-picture UI simultaneously in the room, with participant-controlled entry and finish and no countdown
+- Empty-room baseline: room shell only, with no furniture, words, pictures, story, narration, or picture-dependent tests
 
 Formal pool:
 
@@ -52,7 +53,7 @@ Before freezing a formal session story, confirm:
 - each selected word creates exactly one route item;
 - the story has one continuous premise rather than isolated object scenes;
 - no furniture/anchor names leak into the story;
-- story order matches the room route assignment;
+- the participant's furniture mapping does not change story order;
 - no missing-word repair sentence makes the ending feel artificial;
 - local fallback material is not being used.
 
@@ -63,7 +64,9 @@ Before freezing a formal session story, confirm:
 - Verify Desktop or OpenXR controls on the study machine.
 - Verify ElevenLabs voice output, route order, correct-anchor gating, story-segment completion, replay, and restart controls with the formal-session Voice ID.
 - Verify that the first spoken pass cannot be skipped, then verify segment-start route jumping from the whole-route Desktop/VR progress bar.
-- For `Self-Chosen Pictures`, verify one-to-one furniture assignment and that Study uses the participant's assignment order.
+- For both story conditions, verify one-to-one furniture assignment through actual model clicks and a 2 x 4 word card; verify that only spatial mapping changes.
+- For the participant-written condition, verify eight segments are exported as one continuous story and narrated by the normal Study route.
+- For the empty-room condition, verify no furniture, word-picture UI, story text, subtitle, route progress, or voice is present.
 - Verify enter/finish/skip behavior for the optional post-Study all-picture room display.
 - Complete the configured post-study assessment.
 - Export JSON and CSV and inspect participant ID, story, word order, anchors, study duration, responses, and questionnaire values.

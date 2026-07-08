@@ -250,6 +250,7 @@ namespace MemPalaceLLM
 
         private Vector2 setupScroll;
         private Vector2 authoringScroll;
+        private Vector2 storyAuthoringScroll;
         private Vector2 generationScroll;
         private Vector2 studyInfoScroll;
         private Vector2 studyDetailScroll;
@@ -410,6 +411,9 @@ namespace MemPalaceLLM
         private int selfChoiceCandidateIndex;
         private float selfChoiceStartTime;
         private float selfChoiceDurationSeconds;
+        private readonly List<string> participantStorySegments = new();
+        private float storyAuthoringStartTime;
+        private float storyAuthoringDurationSeconds;
         private bool allPhotoShowcaseActive;
         private bool allPhotoShowcaseCompleted;
         private bool allPhotoShowcaseEntered;
@@ -524,6 +528,12 @@ namespace MemPalaceLLM
                 return;
             }
 
+            if (stage == ExperimentStage.SelfAuthoring)
+            {
+                HandleStudyControls();
+                return;
+            }
+
             if (stage == ExperimentStage.RoomBuilder)
             {
                 HandleRoomBuilderControls();
@@ -573,8 +583,11 @@ namespace MemPalaceLLM
                 case ExperimentStage.Generation:
                     DrawGenerationView();
                     break;
+                case ExperimentStage.StoryAuthoring:
+                    DrawParticipantStoryAuthoringView();
+                    break;
                 case ExperimentStage.SelfAuthoring:
-                    DrawSelfChoiceView();
+                    DrawFurnitureAssignmentView();
                     break;
                 case ExperimentStage.Study:
                     DrawStudyView();
@@ -735,13 +748,13 @@ namespace MemPalaceLLM
             RegisterGuiRect(bannerRect);
 
             GUI.Label(new Rect(28f, 18f, 520f, 28f), "LLM Memory Palace Experiment Demo", titleStyle);
-            GUI.Label(new Rect(30f, 46f, 1120f, 18f), "Flow: Setup / Room Builder -> Preview / Assign -> Study -> Mid Test -> Optional All Photos -> Final Test -> Questionnaire -> Export", subtitleStyle);
+            GUI.Label(new Rect(30f, 46f, 1120f, 18f), "Flow: Setup / Room Builder -> Generate or Write -> PC Furniture Assignment -> VR Study -> Tests / Questionnaire -> Export", subtitleStyle);
             GUI.Box(new Rect(Screen.width - 282f, 24f, 252f, 24f), $"Step {GetStageStepNumber()} / 7 - {GetStageDisplayName()}", badgeStyle);
         }
 
         private void DrawVoiceProgressBarOverlay()
         {
-            if (condition != ExperimentCondition.LlmGenerated ||
+            if (!ConditionUsesStoryNarration() ||
                 !enableVoiceGuidance ||
                 !voiceRouteInitialPassCompleted)
             {
@@ -798,7 +811,7 @@ namespace MemPalaceLLM
         private bool CanNavigateVoiceRoute()
         {
             return stage == ExperimentStage.Study &&
-                   condition == ExperimentCondition.LlmGenerated &&
+                   ConditionUsesStoryNarration() &&
                    enableVoiceGuidance &&
                    voiceRouteInitialPassCompleted &&
                    currentItems != null &&
@@ -853,6 +866,7 @@ namespace MemPalaceLLM
                 case ExperimentStage.RoomBuilder:
                     return 1;
                 case ExperimentStage.Generation:
+                case ExperimentStage.StoryAuthoring:
                 case ExperimentStage.SelfAuthoring:
                     return 2;
                 case ExperimentStage.Study:
@@ -878,8 +892,10 @@ namespace MemPalaceLLM
                     return "Room Builder";
                 case ExperimentStage.Generation:
                     return "Story Preview";
+                case ExperimentStage.StoryAuthoring:
+                    return "Write Story";
                 case ExperimentStage.SelfAuthoring:
-                    return "Choose Pictures";
+                    return "Assign Words";
                 case ExperimentStage.Study:
                     return "Study Room";
                 case ExperimentStage.Recall:
@@ -895,7 +911,19 @@ namespace MemPalaceLLM
 
         private string GetConditionDisplayName()
         {
-            return condition == ExperimentCondition.LlmGenerated ? "LLM Story" : "Self-Chosen Pictures";
+            return condition switch
+            {
+                ExperimentCondition.LlmGenerated => "LLM Story + Participant Order",
+                ExperimentCondition.ParticipantWrittenStory => "Participant Story + Participant Order",
+                ExperimentCondition.EmptyRoom => "Empty Room Baseline",
+                _ => condition.ToString()
+            };
+        }
+
+        private bool ConditionUsesStoryNarration()
+        {
+            return condition == ExperimentCondition.LlmGenerated
+                   || condition == ExperimentCondition.ParticipantWrittenStory;
         }
 
         private string GetStudyProgressHint()
@@ -950,12 +978,12 @@ namespace MemPalaceLLM
             setupScroll = GUILayout.BeginScrollView(setupScroll);
 
             GUILayout.Label("Step 1 of 7 - Experiment Setup", titleStyle);
-            GUILayout.Label("Configure the participant, room, words, and condition. Word images are loaded locally in both conditions.", mutedStyle);
+            GUILayout.Label("Configure the participant, room, words, and one of the three experiment conditions.", mutedStyle);
             GUILayout.Space(10);
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Demo Flow", smallTitleStyle);
-            GUILayout.Label("1. Setup the participant, room, words, and condition.\n2. Generate an LLM story or let the participant assign word pictures to furniture.\n3. Enter the room and study the word images above furniture.\n4. Run a mid image-choice test.\n5. Optionally reveal all furniture pictures, then run the final test.\n6. Collect questionnaire ratings.\n7. Export JSON and CSV results.", guideStyle);
+            GUILayout.Label("1. Select one of three experimental conditions.\n2. Story conditions generate or write one continuous story.\n3. On PC, click the actual furniture and assign each word from a 2 x 4 card without duplicates.\n4. Enter VR for Study with the existing voice, subtitle, replay, and test flow.\n5. The empty-room baseline enters VR with no words, pictures, or narration.\n6. Collect questionnaire ratings.\n7. Export JSON and CSV results.", guideStyle);
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
@@ -965,14 +993,22 @@ namespace MemPalaceLLM
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Experiment Condition", smallTitleStyle);
-            var conditionIndex = condition == ExperimentCondition.LlmGenerated ? 0 : 1;
-            var nextConditionIndex = GUILayout.Toolbar(conditionIndex, new[] { "LLM Story", "Self-Chosen Pictures" });
-            condition = nextConditionIndex == 0
-                ? ExperimentCondition.LlmGenerated
-                : ExperimentCondition.SelfChosenPictures;
-            GUILayout.Label(condition == ExperimentCondition.LlmGenerated
-                ? "The model writes one causal story; word pictures are assigned to furniture automatically."
-                : "The participant enters the room and personally assigns each word picture to a furniture anchor. No LLM is called.", mutedStyle);
+            var conditionIndex = Mathf.Clamp((int)condition, 0, 2);
+            var nextConditionIndex = GUILayout.Toolbar(conditionIndex, new[]
+            {
+                "LLM Story + Own Order",
+                "Write Story + Own Order",
+                "Empty Room"
+            });
+            condition = (ExperimentCondition)nextConditionIndex;
+            var conditionDescription = condition switch
+            {
+                ExperimentCondition.LlmGenerated => "The LLM writes the story first. Then the participant clicks furniture in the PC room and assigns all eight words; this spatial mapping does not change the story order.",
+                ExperimentCondition.ParticipantWrittenStory => "The participant writes one coherent whole story as eight consecutive segments, then assigns the eight words to furniture in the PC room. The same TTS and Study functions are used.",
+                ExperimentCondition.EmptyRoom => "The participant enters an empty VR room shell with no furniture, word labels, pictures, story, or voice route.",
+                _ => string.Empty
+            };
+            GUILayout.Label(conditionDescription, mutedStyle);
             GUILayout.EndVertical();
 
             GUILayout.BeginVertical(sectionStyle);
@@ -1072,6 +1108,18 @@ namespace MemPalaceLLM
                     }
                 }
                 GUILayout.Label("The LLM is used only for one continuous English story. It does not generate the local word pictures.", mutedStyle);
+            }
+            else if (condition == ExperimentCondition.ParticipantWrittenStory)
+            {
+                GUILayout.Label("No LLM is called. The participant's eight story segments form one continuous story and use the same guided voice route.", mutedStyle);
+            }
+            else
+            {
+                GUILayout.Label("No story model, narration, words, or pictures are used in the empty-room condition.", mutedStyle);
+            }
+
+            if (ConditionUsesStoryNarration())
+            {
                 enableVoiceGuidance = GUILayout.Toggle(enableVoiceGuidance, "Use guided voice route in the study room");
                 if (enableVoiceGuidance)
                 {
@@ -1089,21 +1137,15 @@ namespace MemPalaceLLM
                     elevenLabsApiKey = GUILayout.PasswordField(elevenLabsApiKey ?? string.Empty, '*');
                     elevenLabsVoiceId = DrawLabeledTextField("Voice ID", elevenLabsVoiceId);
                     ConfigureElevenLabsSpeech();
-                    GUILayout.Label(textToSpeech?.Status ?? "ElevenLabs speech service is unavailable.", mutedStyle);
+                    GUILayout.Label(textToSpeech?.Status ?? "Speech service is unavailable.", mutedStyle);
                     GUI.enabled = textToSpeech != null && textToSpeech.IsReady && !textToSpeech.IsSpeaking;
                     if (GUILayout.Button("Test Configured Voice", buttonStyle))
                     {
-                        textToSpeech.Speak(
-                            "Welcome. I will guide you through the memory palace in a warm, natural voice.",
-                            "setup_elevenlabs_voice_test");
+                        textToSpeech.Speak("Welcome. I will guide you through the memory palace in a warm, natural voice.", "setup_voice_test");
                     }
                     GUI.enabled = true;
                 }
                 GUILayout.Label("Voice route: hear the next anchor, inspect its word image, then hear that story segment.", mutedStyle);
-            }
-            else
-            {
-                GUILayout.Label("No story model or generated narration is used in this condition.", mutedStyle);
             }
             enableVrStudyMode = GUILayout.Toggle(enableVrStudyMode, "Use VR study runtime after entering the room");
             GUILayout.EndVertical();
@@ -1114,8 +1156,10 @@ namespace MemPalaceLLM
             GUILayout.Label("If an image is missing, Assets/Resources/WordImages/_placeholder.png is shown. The Spanish word and English meaning are displayed above the picture.", mutedStyle);
             GUILayout.EndVertical();
 
+            var wordMaterialUiEnabled = GUI.enabled;
+            GUI.enabled = wordMaterialUiEnabled && condition != ExperimentCondition.EmptyRoom;
             GUILayout.BeginVertical(sectionStyle);
-            GUILayout.Label("Word Material", smallTitleStyle);
+            GUILayout.Label(condition == ExperimentCondition.EmptyRoom ? "Word Material (not used in this condition)" : "Word Material", smallTitleStyle);
 
             var wordSetNames = BuildWordSetNames();
             if (wordSetNames.Length > 0)
@@ -1164,23 +1208,32 @@ namespace MemPalaceLLM
             }
 
             GUILayout.EndVertical();
+            GUI.enabled = wordMaterialUiEnabled;
 
             GUILayout.BeginVertical(sectionStyle);
             GUILayout.Label("Next Step", smallTitleStyle);
 
             GUI.enabled = !isGeneratingRoom && !isGenerating;
-            var nextStepLabel = condition == ExperimentCondition.LlmGenerated
-                ? (isGenerating ? "Generating Continuous Story..." : "Next: Generate Continuous Story")
-                : "Next: Enter Room And Choose Pictures";
+            var nextStepLabel = condition switch
+            {
+                ExperimentCondition.LlmGenerated => isGenerating ? "Generating Continuous Story..." : "Next: Generate Continuous Story",
+                ExperimentCondition.ParticipantWrittenStory => "Next: Write One Continuous Story",
+                ExperimentCondition.EmptyRoom => "Next: Enter Empty VR Room",
+                _ => "Next"
+            };
             if (GUILayout.Button(nextStepLabel, buttonStyle))
             {
-                if (condition == ExperimentCondition.LlmGenerated)
+                switch (condition)
                 {
-                    BeginLlmFlow();
-                }
-                else
-                {
-                    BeginSelfChoiceFlow();
+                    case ExperimentCondition.LlmGenerated:
+                        BeginLlmFlow();
+                        break;
+                    case ExperimentCondition.ParticipantWrittenStory:
+                        BeginParticipantStoryFlow();
+                        break;
+                    case ExperimentCondition.EmptyRoom:
+                        BeginEmptyRoomFlow();
+                        break;
                 }
             }
             GUI.enabled = true;
@@ -4172,10 +4225,9 @@ namespace MemPalaceLLM
 
             GUILayout.Space(12);
             GUI.enabled = !isGenerating && currentItems.Count > 0;
-            if (GUILayout.Button("Next: Enter Study Room", buttonStyle))
+            if (GUILayout.Button("Next: Assign Words To Furniture On PC", buttonStyle))
             {
-                LoadWordImagesForCurrentItems();
-                EnterStudyRoom();
+                BeginFurnitureAssignmentFlow();
             }
             GUI.enabled = true;
 
@@ -4655,6 +4707,116 @@ namespace MemPalaceLLM
                    && texture != null;
         }
 
+        private void DrawFurnitureAssignmentView()
+        {
+            var leftRect = new Rect(18f, ContentTop, 410f, ContentHeight);
+            GUI.Box(leftRect, GUIContent.none, panelStyle);
+            RegisterGuiRect(leftRect);
+            GUILayout.BeginArea(leftRect);
+            authoringScroll = GUILayout.BeginScrollView(authoringScroll, false, true);
+            GUILayout.Label("Assign Words To Furniture", titleStyle);
+            GUILayout.Label("PC phase: walk through the room and click an actual furniture model. Its eight-word selection card opens on the right.", mutedStyle);
+            GUILayout.Space(8f);
+            GUILayout.Label($"Assigned: {CountSelfChoiceAssignments()} / {currentItems.Count}", labelStyle);
+            GUILayout.Label($"Elapsed: {(Time.unscaledTime - selfChoiceStartTime):F1}s", labelStyle);
+            GUILayout.Space(8f);
+            for (var i = 0; i < currentItems.Count; i++)
+            {
+                var item = currentItems[i];
+                var assignment = string.IsNullOrWhiteSpace(item.anchorId) ? "Not assigned" : item.anchorLabel;
+                GUILayout.Label($"{i + 1}. {item.word} ({item.meaning}): {assignment}", mutedStyle);
+            }
+
+            GUILayout.Space(10f);
+            GUI.enabled = AllSelfChoiceAssignmentsComplete();
+            if (GUILayout.Button("Finish Assignment And Enter VR Study", buttonStyle))
+            {
+                FinalizeSelfChoiceAndEnterStudy();
+            }
+            GUI.enabled = true;
+            if (!AllSelfChoiceAssignmentsComplete())
+            {
+                GUILayout.Label("Assign every word once. Each furniture and each word can be used only once.", mutedStyle);
+            }
+            if (GUILayout.Button("Back To Setup", buttonStyle))
+            {
+                ClearStudyRoom();
+                stage = ExperimentStage.Setup;
+                selectedStudyItem = null;
+                MoveCameraToOverview();
+            }
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+
+            var rightRect = new Rect(Screen.width - 448f, ContentTop, 430f, ContentHeight);
+            GUI.Box(rightRect, GUIContent.none, panelStyle);
+            RegisterGuiRect(rightRect);
+            GUILayout.BeginArea(rightRect);
+            GUILayout.Label(selectedStudyItem == null ? "Click Furniture" : selectedStudyItem.anchorLabel, titleStyle);
+            if (selectedStudyItem == null)
+            {
+                GUILayout.Label("Click directly on a furniture model in the room. The 2-column x 4-row word card will appear here.", guideStyle);
+            }
+            else
+            {
+                GUILayout.Label("Choose one word for this furniture", smallTitleStyle);
+                GUILayout.Label("Used words are disabled. Clear an assignment first when you need to rearrange completed choices.", mutedStyle);
+                GUILayout.Space(8f);
+                var wordCardStyle = new GUIStyle(buttonStyle)
+                {
+                    fixedHeight = 58f,
+                    wordWrap = true
+                };
+                for (var row = 0; row < 4; row++)
+                {
+                    GUILayout.BeginHorizontal();
+                    for (var column = 0; column < 2; column++)
+                    {
+                        var index = row * 2 + column;
+                        if (index >= currentItems.Count)
+                        {
+                            GUILayout.Space(190f);
+                            continue;
+                        }
+
+                        var item = currentItems[index];
+                        var assignedHere = string.Equals(item.anchorId, selectedStudyItem.anchorId, StringComparison.OrdinalIgnoreCase);
+                        var usedElsewhere = !string.IsNullOrWhiteSpace(item.anchorId) && !assignedHere;
+                        var oldEnabled = GUI.enabled;
+                        GUI.enabled = oldEnabled && !usedElsewhere;
+                        var cardLabel = assignedHere
+                            ? $"Selected: {item.word}\n{item.meaning}"
+                            : usedElsewhere
+                                ? $"{item.word}\nUsed: {item.anchorLabel}"
+                                : $"{item.word}\n{item.meaning}";
+                        if (GUILayout.Button(cardLabel, wordCardStyle, GUILayout.Width(190f)))
+                        {
+                            AssignWordToSelectedFurniture(item);
+                        }
+                        GUI.enabled = oldEnabled;
+                    }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(5f);
+                }
+
+                var assigned = GetAssignedSelfChoiceItem(selectedStudyItem.anchorId);
+                if (assigned != null)
+                {
+                    GUILayout.Space(8f);
+                    GUILayout.Label($"Current: {assigned.word} ({assigned.meaning})", smallTitleStyle);
+                    if (mnemonicImageCues.TryGetValue(assigned.word, out var texture) && texture != null)
+                    {
+                        GUILayout.Box(texture, GUILayout.Width(390f), GUILayout.Height(220f));
+                    }
+                    if (GUILayout.Button("Clear This Furniture Assignment", buttonStyle))
+                    {
+                        ClearSelectedFurnitureAssignment();
+                    }
+                }
+            }
+            GUILayout.EndArea();
+        }
+
         private void DrawSelfChoiceView()
         {
             var leftRect = new Rect(18f, ContentTop, 410f, ContentHeight);
@@ -4662,8 +4824,8 @@ namespace MemPalaceLLM
             RegisterGuiRect(leftRect);
             GUILayout.BeginArea(leftRect);
             authoringScroll = GUILayout.BeginScrollView(authoringScroll, false, true);
-            GUILayout.Label("Self-Chosen Pictures", titleStyle);
-            GUILayout.Label("Walk through the room, select a furniture marker, then choose which word picture belongs there.", mutedStyle);
+            GUILayout.Label("Assign Words To Furniture", titleStyle);
+            GUILayout.Label("PC phase: walk through the room and click an actual furniture model. Its eight-word selection card opens on the right.", mutedStyle);
             GUILayout.Space(8);
             GUILayout.Label($"Assigned: {CountSelfChoiceAssignments()} / {currentItems.Count}", labelStyle);
             GUILayout.Label($"Elapsed: {(Time.unscaledTime - selfChoiceStartTime):F1}s", labelStyle);
@@ -4678,14 +4840,14 @@ namespace MemPalaceLLM
 
             GUILayout.Space(10);
             GUI.enabled = AllSelfChoiceAssignmentsComplete();
-            if (GUILayout.Button("Finish Choices And Begin Study", buttonStyle))
+            if (GUILayout.Button("Finish Assignment And Enter VR Study", buttonStyle))
             {
                 FinalizeSelfChoiceAndEnterStudy();
             }
             GUI.enabled = true;
             if (!AllSelfChoiceAssignmentsComplete())
             {
-                GUILayout.Label("Every word picture must have a different furniture anchor before Study can begin.", mutedStyle);
+                GUILayout.Label("Assign every word once. Each furniture and each word can be used only once.", mutedStyle);
             }
 
             if (GUILayout.Button("Back To Setup", buttonStyle))
@@ -4702,14 +4864,61 @@ namespace MemPalaceLLM
             GUI.Box(rightRect, GUIContent.none, panelStyle);
             RegisterGuiRect(rightRect);
             GUILayout.BeginArea(rightRect);
-            GUILayout.Label(selectedStudyItem == null ? "Select Furniture" : selectedStudyItem.anchorLabel, titleStyle);
+            GUILayout.Label(selectedStudyItem == null ? "Click Furniture" : selectedStudyItem.anchorLabel, titleStyle);
             if (selectedStudyItem == null)
             {
-                GUILayout.Label("Click a floating furniture marker in the room. In VR, point at it and press the trigger.", guideStyle);
+                GUILayout.Label("Click directly on a furniture model in the room. The 2-column x 4-row word card will appear here.", guideStyle);
             }
             else
             {
-                var candidate = GetSelfChoiceCandidateItem();
+                GUILayout.Label("Choose one word for this furniture", smallTitleStyle);
+                GUILayout.Label("Used words are disabled. Choosing a new word here replaces this furniture's previous word.", mutedStyle);
+                GUILayout.Space(8f);
+                for (var row = 0; row < 4; row++)
+                {
+                    GUILayout.BeginHorizontal();
+                    for (var column = 0; column < 2; column++)
+                    {
+                        var index = row * 2 + column;
+                        if (index >= currentItems.Count)
+                        {
+                            GUILayout.Space(190f);
+                            continue;
+                        }
+
+                        var item = currentItems[index];
+                        var assignedHere = string.Equals(item.anchorId, selectedStudyItem.anchorId, StringComparison.OrdinalIgnoreCase);
+                        var usedElsewhere = !string.IsNullOrWhiteSpace(item.anchorId) && !assignedHere;
+                        var oldEnabled = GUI.enabled;
+                        GUI.enabled = oldEnabled && !usedElsewhere;
+                        var cardLabel = assignedHere
+                            ? $"✓ {item.word}\n{item.meaning}"
+                            : usedElsewhere
+                                ? $"{item.word}\nUsed: {item.anchorLabel}"
+                                : $"{item.word}\n{item.meaning}";
+                        if (GUILayout.Button(cardLabel, buttonStyle, GUILayout.Width(190f), GUILayout.Height(58f)))
+                        {
+                            AssignWordToSelectedFurniture(item);
+                        }
+                        GUI.enabled = oldEnabled;
+                    }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(5f);
+                }
+
+                var assigned = GetAssignedSelfChoiceItem(selectedStudyItem.anchorId);
+                if (assigned != null && mnemonicImageCues.TryGetValue(assigned.word, out var assignedTexture) && assignedTexture != null)
+                {
+                    GUILayout.Space(8f);
+                    GUILayout.Label($"Current: {assigned.word} ({assigned.meaning})", smallTitleStyle);
+                    GUILayout.Box(assignedTexture, GUILayout.Width(390f), GUILayout.Height(220f));
+                }
+                if (assigned != null && GUILayout.Button("Clear This Furniture Assignment", buttonStyle))
+                {
+                    ClearSelectedFurnitureAssignment();
+                }
+
+                var candidate = (MnemonicItemData)null;
                 if (candidate != null)
                 {
                     GUILayout.Label($"{candidate.word} — {candidate.meaning}", smallTitleStyle);
@@ -4741,6 +4950,187 @@ namespace MemPalaceLLM
             GUILayout.EndArea();
         }
 
+        private void BeginParticipantStoryFlow()
+        {
+            if (!PrepareWordSetFromSetup())
+            {
+                return;
+            }
+
+            ResetSessionState();
+            condition = ExperimentCondition.ParticipantWrittenStory;
+            sessionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            participantStorySegments.Clear();
+            for (var i = 0; i < activeWordSet.words.Count; i++)
+            {
+                participantStorySegments.Add(string.Empty);
+            }
+
+            storyAuthoringStartTime = Time.unscaledTime;
+            storyAuthoringDurationSeconds = 0f;
+            stage = ExperimentStage.StoryAuthoring;
+            statusMessage = "Write every segment as part of one coherent, continuous story.";
+            LogInteraction("participant_story_started", string.Empty, string.Empty, statusMessage);
+        }
+
+        private void BeginEmptyRoomFlow()
+        {
+            ResetSessionState();
+            condition = ExperimentCondition.EmptyRoom;
+            sessionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            currentStory = new StorySessionData
+            {
+                fullStory = string.Empty,
+                storySource = "empty_room_baseline",
+                storyProvider = "None",
+                storyModel = "none",
+                generatedAtUtc = DateTime.UtcNow.ToString("o"),
+                orderedItems = new List<WordImageItemData>()
+            };
+            currentItems = new List<MnemonicItemData>();
+            BuildStudyRoom();
+            stage = ExperimentStage.Study;
+            studyStartTime = Time.unscaledTime;
+            selectedStudyItem = null;
+            ResetCameraForStudy();
+            SetupVrStudyRuntime();
+            if (vrWorldUiRoot != null)
+            {
+                vrWorldUiRoot.gameObject.SetActive(false);
+            }
+            StopVoiceRoute("Empty-room baseline: no voice route.", true);
+            statusMessage = "Empty-room baseline started. No words, pictures, story, or narration are present.";
+            LogInteraction("empty_room_started", string.Empty, string.Empty, statusMessage);
+        }
+
+        private void DrawParticipantStoryAuthoringView()
+        {
+            var rect = new Rect(18f, ContentTop, Screen.width - 36f, ContentHeight);
+            GUI.Box(rect, GUIContent.none, panelStyle);
+            RegisterGuiRect(rect);
+            GUILayout.BeginArea(rect);
+            storyAuthoringScroll = GUILayout.BeginScrollView(storyAuthoringScroll);
+
+            GUILayout.Label("Step 2 of 7 - Write One Whole Story", titleStyle);
+            GUILayout.Label("Write the story one segment at a time for later voice-route matching. All segments must connect into one complete, coherent story; do not write eight unrelated descriptions.", guideStyle);
+            GUILayout.Space(10f);
+
+            for (var i = 0; i < activeWordSet.words.Count; i++)
+            {
+                while (participantStorySegments.Count <= i)
+                {
+                    participantStorySegments.Add(string.Empty);
+                }
+
+                var word = activeWordSet.words[i];
+                GUILayout.BeginVertical(sectionStyle);
+                GUILayout.Label($"Segment {i + 1} / {activeWordSet.words.Count}: {word.word} ({word.meaning})", smallTitleStyle);
+                GUILayout.Label(i == 0
+                    ? "Begin the story and make this word take part in an action."
+                    : "Continue directly from the previous segment and make this word affect what happens next.", mutedStyle);
+                participantStorySegments[i] = GUILayout.TextArea(
+                    participantStorySegments[i] ?? string.Empty,
+                    textAreaStyle,
+                    GUILayout.MinHeight(72f));
+                if (!string.IsNullOrWhiteSpace(participantStorySegments[i])
+                    && participantStorySegments[i].IndexOf(word.word, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    GUILayout.Label($"Include the target word '{word.word}' in this segment so it can be matched and narrated.", mutedStyle);
+                }
+                GUILayout.EndVertical();
+            }
+
+            GUILayout.Space(10f);
+            GUI.enabled = AreParticipantStorySegmentsComplete();
+            if (GUILayout.Button("Continue: Assign Words To Furniture On PC", buttonStyle))
+            {
+                FinalizeParticipantStory();
+            }
+            GUI.enabled = true;
+            if (!AreParticipantStorySegmentsComplete())
+            {
+                GUILayout.Label("Complete all eight story segments before continuing.", mutedStyle);
+            }
+
+            if (GUILayout.Button("Back To Setup", buttonStyle))
+            {
+                stage = ExperimentStage.Setup;
+                statusMessage = "Returned to setup.";
+            }
+
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+        }
+
+        private bool AreParticipantStorySegmentsComplete()
+        {
+            if (activeWordSet?.words == null || participantStorySegments.Count != activeWordSet.words.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < participantStorySegments.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(participantStorySegments[i])
+                    || participantStorySegments[i].IndexOf(activeWordSet.words[i].word, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void FinalizeParticipantStory()
+        {
+            if (!AreParticipantStorySegmentsComplete())
+            {
+                statusMessage = "Every story segment is required.";
+                return;
+            }
+
+            storyAuthoringDurationSeconds = Time.unscaledTime - storyAuthoringStartTime;
+            currentStory = new StorySessionData
+            {
+                fullStory = string.Join(" ", participantStorySegments.ConvertAll(segment => segment.Trim())),
+                storySource = "participant_written_story",
+                storyProvider = "Participant",
+                storyModel = "none",
+                generatedAtUtc = DateTime.UtcNow.ToString("o"),
+                orderedItems = new List<WordImageItemData>()
+            };
+            currentItems = new List<MnemonicItemData>();
+            for (var i = 0; i < activeWordSet.words.Count; i++)
+            {
+                var word = activeWordSet.words[i];
+                var segment = participantStorySegments[i].Trim();
+                currentStory.orderedItems.Add(new WordImageItemData
+                {
+                    word = word.word,
+                    meaning = word.meaning,
+                    storyOrder = i + 1,
+                    storySegment = segment,
+                    imageResourcePath = WordImageCatalog.BuildResourcePath(word.word)
+                });
+                currentItems.Add(new MnemonicItemData
+                {
+                    word = word.word,
+                    meaning = word.meaning,
+                    mnemonicSource = "participant_written_story",
+                    associationPrompt = $"{word.meaning} ({word.word})",
+                    mnemonic = segment,
+                    mnemonicMode = "PARTICIPANT_STORY",
+                    imageCuePath = WordImageCatalog.BuildResourcePath(word.word),
+                    imageSelectionReason = "Local word picture paired with a participant-written story segment.",
+                    objectShape = "quad",
+                    colorHex = PickColor(i),
+                    visualObjects = new List<VisualObjectSpec>()
+                });
+            }
+
+            LogInteraction("participant_story_completed", string.Empty, string.Empty, $"Completed {currentItems.Count} segments in {storyAuthoringDurationSeconds:F1}s.");
+            BeginFurnitureAssignmentFlow();
+        }
+
         private string BuildMissingImageCueWordSummary()
         {
             if (currentItems == null || currentItems.Count == 0)
@@ -4770,6 +5160,12 @@ namespace MemPalaceLLM
 
         private void DrawStudyView()
         {
+            if (condition == ExperimentCondition.EmptyRoom)
+            {
+                DrawEmptyRoomStudyView();
+                return;
+            }
+
             var topLeftHeight = Mathf.Min(282f, ContentHeight - 150f);
             var topLeft = new Rect(18f, ContentTop, 386f, topLeftHeight);
             GUI.Box(topLeft, GUIContent.none, panelStyle);
@@ -5050,11 +5446,14 @@ namespace MemPalaceLLM
             questionnaire.effort = DrawSlider("Effort", questionnaire.effort, 0, 20);
             questionnaire.frustration = DrawSlider("Frustration", questionnaire.frustration, 0, 20);
 
-            GUILayout.Space(10);
-            GUILayout.Label("Story and image quality ratings (1-7)", titleStyle);
-            questionnaire.vividness = DrawSevenPointScale("Vividness", questionnaire.vividness);
-            questionnaire.helpfulness = DrawSevenPointScale("Helpfulness", questionnaire.helpfulness);
-            questionnaire.trust = DrawSevenPointScale("Trust", questionnaire.trust);
+            if (condition != ExperimentCondition.EmptyRoom)
+            {
+                GUILayout.Space(10);
+                GUILayout.Label("Story and image quality ratings (1-7)", titleStyle);
+                questionnaire.vividness = DrawSevenPointScale("Vividness", questionnaire.vividness);
+                questionnaire.helpfulness = DrawSevenPointScale("Helpfulness", questionnaire.helpfulness);
+                questionnaire.trust = DrawSevenPointScale("Trust", questionnaire.trust);
+            }
 
             GUILayout.Space(10);
             GUILayout.Label("Notes", mutedStyle);
@@ -5071,6 +5470,10 @@ namespace MemPalaceLLM
                 stage = ExperimentStage.Study;
                 ResetCameraForStudy();
                 SetupVrStudyRuntime();
+                if (condition == ExperimentCondition.EmptyRoom && vrWorldUiRoot != null)
+                {
+                    vrWorldUiRoot.gameObject.SetActive(false);
+                }
             }
 
             GUILayout.EndScrollView();
@@ -5306,6 +5709,41 @@ namespace MemPalaceLLM
                 default:
                     return "The breeze lifts the whole celebration higher, and the " + phrase + " drifts above it like a ridiculous little flag for the night.";
             }
+        }
+
+        private void DrawEmptyRoomStudyView()
+        {
+            var rect = new Rect(18f, ContentTop, 420f, Mathf.Min(ContentHeight, 360f));
+            GUI.Box(rect, GUIContent.none, panelStyle);
+            RegisterGuiRect(rect);
+            GUILayout.BeginArea(rect);
+            GUILayout.Label("Step 3 of 7 - Empty Room", titleStyle);
+            GUILayout.Label("Baseline condition: explore the empty VR room shell. There is no furniture, word, word picture, story segment, subtitle, or voice route.", guideStyle);
+            GUILayout.Space(10f);
+            GUILayout.Label($"Participant: {participantId}", labelStyle);
+            GUILayout.Label($"Room: {RoomSpecCatalog.RoomName}", labelStyle);
+            GUILayout.Label($"Elapsed: {(Time.unscaledTime - studyStartTime):F1}s", labelStyle);
+            GUILayout.Space(12f);
+            GUILayout.Label("Controls", smallTitleStyle);
+            GUILayout.Label("Right mouse drag: look around\nWASD: move\nQ / E: move down / up", guideStyle);
+            GUILayout.Space(12f);
+            if (GUILayout.Button("Finish Empty-Room Session", buttonStyle))
+            {
+                studyDurationSeconds = Time.unscaledTime - studyStartTime;
+                LogInteraction("empty_room_completed", string.Empty, string.Empty, $"Explored for {studyDurationSeconds:F1}s.");
+                ClearVrStudyRuntime();
+                stage = ExperimentStage.Questionnaire;
+                Cursor.visible = true;
+                Cursor.lockState = CursorLockMode.None;
+                statusMessage = "Empty-room exploration completed.";
+            }
+            if (GUILayout.Button("Back To Setup", buttonStyle))
+            {
+                ClearStudyRoom();
+                stage = ExperimentStage.Setup;
+                MoveCameraToOverview();
+            }
+            GUILayout.EndArea();
         }
 
         private List<MnemonicItemData> ConvertStorySessionToMnemonicItems(
@@ -6776,60 +7214,34 @@ namespace MemPalaceLLM
 
         private void BeginSelfAuthoring()
         {
-            BeginSelfChoiceFlow();
+            BeginParticipantStoryFlow();
         }
 
         private void BeginSelfChoiceFlow()
         {
-            if (!PrepareWordSetFromSetup())
+            BeginFurnitureAssignmentFlow();
+        }
+
+        private void BeginFurnitureAssignmentFlow()
+        {
+            if (!ConditionUsesStoryNarration() || currentItems == null || currentItems.Count == 0)
             {
+                statusMessage = "A generated or participant-written story is required before furniture assignment.";
                 return;
             }
 
             var selfChoiceAnchorCount = GetSelfChoiceAnchorCount();
-            if (selfChoiceAnchorCount < activeWordSet.words.Count)
+            if (selfChoiceAnchorCount < currentItems.Count)
             {
-                statusMessage = $"The room has only {selfChoiceAnchorCount} selectable furniture anchors for {activeWordSet.words.Count} word pictures. Add more furniture before starting this condition.";
+                statusMessage = $"The room has only {selfChoiceAnchorCount} selectable furniture anchors for {currentItems.Count} words. Add more furniture before starting this condition.";
                 return;
             }
 
-            ResetSessionState();
-            condition = ExperimentCondition.SelfChosenPictures;
-            sessionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            currentStory = new StorySessionData
+            for (var i = 0; i < currentItems.Count; i++)
             {
-                fullStory = string.Empty,
-                storySource = "self_chosen_pictures",
-                storyProvider = "Participant",
-                storyModel = "none",
-                generatedAtUtc = DateTime.UtcNow.ToString("o"),
-                orderedItems = new List<WordImageItemData>()
-            };
-
-            currentItems = new List<MnemonicItemData>();
-            for (var i = 0; i < activeWordSet.words.Count; i++)
-            {
-                var word = activeWordSet.words[i];
-                currentItems.Add(new MnemonicItemData
-                {
-                    word = word.word,
-                    meaning = word.meaning,
-                    anchorId = string.Empty,
-                    anchorLabel = string.Empty,
-                    anchorType = string.Empty,
-                    mnemonicSource = "self_chosen_pictures",
-                    visualCue = string.Empty,
-                    mainCueObject = word.meaning,
-                    associationPrompt = $"{word.meaning} ({word.word})",
-                    mnemonic = string.Empty,
-                    mnemonicMode = "SELF_CHOSEN_PICTURE",
-                    storyCue = string.Empty,
-                    imageCuePath = WordImageCatalog.BuildResourcePath(word.word),
-                    imageSelectionReason = "Participant selected the word picture and furniture pairing.",
-                    objectShape = "quad",
-                    colorHex = PickColor(i),
-                    visualObjects = new List<VisualObjectSpec>()
-                });
+                currentItems[i].anchorId = string.Empty;
+                currentItems[i].anchorLabel = string.Empty;
+                currentItems[i].anchorType = string.Empty;
             }
 
             selfChoiceAssignmentOrder.Clear();
@@ -6841,9 +7253,9 @@ namespace MemPalaceLLM
             stage = ExperimentStage.SelfAuthoring;
             selectedStudyItem = null;
             ResetCameraForStudy();
-            SetupVrStudyRuntime();
-            statusMessage = "Select a furniture marker, browse the word pictures, and assign one picture to each chosen anchor.";
-            LogInteraction("self_choice_started", string.Empty, string.Empty, statusMessage);
+            ClearVrStudyRuntime();
+            statusMessage = "On PC, click an actual furniture model and choose one unused word from its 2 x 4 card.";
+            LogInteraction("furniture_assignment_started", string.Empty, string.Empty, statusMessage);
         }
 
         private void BuildSelfChoiceRoom()
@@ -6866,10 +7278,10 @@ namespace MemPalaceLLM
             for (var i = 0; i < RoomSpecCatalog.AnchorCount; i++)
             {
                 var anchor = RoomSpecCatalog.Anchors[i];
-                CreateAnchorPrimitive(anchor, roomRoot);
+                var furniture = CreateFurnitureModel(anchor, roomRoot, false, false, -1);
                 if (IsEligibleSelfChoiceAnchor(anchor))
                 {
-                    CreateSelfChoiceAnchorMarker(anchor, choiceMarkerIndex++);
+                    CreateSelfChoiceAnchorMarker(anchor, choiceMarkerIndex++, furniture);
                 }
             }
         }
@@ -6893,11 +7305,31 @@ namespace MemPalaceLLM
             return anchor != null && !IsDoorAnchor(anchor) && !IsWindowAnchor(anchor);
         }
 
-        private void CreateSelfChoiceAnchorMarker(AnchorDefinition anchor, int index)
+        private void CreateSelfChoiceAnchorMarker(AnchorDefinition anchor, int index, GameObject furniture)
         {
             if (anchor == null)
             {
                 return;
+            }
+
+            var placeholder = new MnemonicItemData
+            {
+                word = "__anchor__" + anchor.id,
+                meaning = "Choose a word",
+                anchorId = anchor.id,
+                anchorLabel = anchor.label,
+                anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor),
+                mnemonicSource = "furniture_assignment_anchor"
+            };
+            if (furniture != null)
+            {
+                furniture.AddComponent<StudyInteractable>().Data = placeholder;
+                var hitBox = furniture.GetComponent<BoxCollider>() ?? furniture.AddComponent<BoxCollider>();
+                hitBox.center = Vector3.zero;
+                hitBox.size = new Vector3(
+                    Mathf.Max(0.45f, Mathf.Abs(anchor.scale.x)),
+                    Mathf.Max(0.45f, Mathf.Abs(anchor.scale.y)),
+                    Mathf.Max(0.45f, Mathf.Abs(anchor.scale.z)));
             }
 
             var markerPosition = anchor.position + anchor.mnemonicOffset + new Vector3(0f, 0.95f + (index % 2) * 0.06f, 0f);
@@ -6906,25 +7338,6 @@ namespace MemPalaceLLM
             root.transform.SetParent(roomRoot);
             root.transform.position = markerPosition;
             root.AddComponent<BillboardToMainCamera>();
-
-            var marker = CreatePrimitiveLocal(
-                "SelectFurniture",
-                PrimitiveType.Cube,
-                Vector3.zero,
-                new Vector3(1.05f, 0.32f, 0.05f),
-                new Color(0.12f, 0.34f, 0.55f, 0.92f),
-                root.transform);
-            ConfigureStudyUiRenderer(marker.GetComponent<Renderer>(), 3990);
-            var placeholder = new MnemonicItemData
-            {
-                word = "__anchor__" + anchor.id,
-                meaning = "Choose a word picture",
-                anchorId = anchor.id,
-                anchorLabel = anchor.label,
-                anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor),
-                mnemonicSource = "self_choice_anchor"
-            };
-            marker.AddComponent<StudyInteractable>().Data = placeholder;
 
             var labelObject = new GameObject("ChoiceLabel_" + anchor.id);
             labelObject.transform.SetParent(root.transform);
@@ -6983,6 +7396,17 @@ namespace MemPalaceLLM
                 return;
             }
 
+            AssignWordToSelectedFurniture(candidate);
+        }
+
+        private void AssignWordToSelectedFurniture(MnemonicItemData candidate)
+        {
+            if (stage != ExperimentStage.SelfAuthoring || selectedStudyItem == null || candidate == null)
+            {
+                statusMessage = "Click a furniture model before choosing a word.";
+                return;
+            }
+
             var targetAnchor = RoomSpecCatalog.GetAnchor(selectedStudyItem.anchorId);
             if (targetAnchor == null)
             {
@@ -6991,6 +7415,7 @@ namespace MemPalaceLLM
             }
 
             var oldAnchorId = candidate.anchorId;
+            var previousAtTarget = GetAssignedSelfChoiceItem(targetAnchor.id);
             for (var i = 0; i < currentItems.Count; i++)
             {
                 var other = currentItems[i];
@@ -7005,6 +7430,10 @@ namespace MemPalaceLLM
             candidate.anchorId = targetAnchor.id;
             candidate.anchorLabel = targetAnchor.label;
             candidate.anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(targetAnchor);
+            if (previousAtTarget != null && previousAtTarget != candidate)
+            {
+                selfChoiceAssignmentOrder.Remove(previousAtTarget.word);
+            }
             if (!selfChoiceAssignmentOrder.Contains(candidate.word))
             {
                 selfChoiceAssignmentOrder.Add(candidate.word);
@@ -7016,7 +7445,30 @@ namespace MemPalaceLLM
             }
             UpdateSelfChoiceAnchorLabel(targetAnchor.id);
             statusMessage = $"Assigned {candidate.word} ({candidate.meaning}) to {targetAnchor.label}.";
-            LogInteraction("self_choice_picture_assigned", candidate.word, targetAnchor.id, statusMessage);
+            LogInteraction("furniture_word_assigned", candidate.word, targetAnchor.id, statusMessage);
+        }
+
+        private void ClearSelectedFurnitureAssignment()
+        {
+            if (selectedStudyItem == null)
+            {
+                return;
+            }
+
+            var assigned = GetAssignedSelfChoiceItem(selectedStudyItem.anchorId);
+            if (assigned == null)
+            {
+                return;
+            }
+
+            var anchorId = assigned.anchorId;
+            selfChoiceAssignmentOrder.Remove(assigned.word);
+            assigned.anchorId = string.Empty;
+            assigned.anchorLabel = string.Empty;
+            assigned.anchorType = string.Empty;
+            UpdateSelfChoiceAnchorLabel(anchorId);
+            statusMessage = $"Cleared {selectedStudyItem.anchorLabel}. Its previous word is available again.";
+            LogInteraction("furniture_assignment_cleared", assigned.word, anchorId, statusMessage);
         }
 
         private void UpdateSelfChoiceAnchorLabel(string anchorId)
@@ -7071,7 +7523,7 @@ namespace MemPalaceLLM
                 return;
             }
 
-            currentItems.Sort((a, b) => selfChoiceAssignmentOrder.IndexOf(a.word).CompareTo(selfChoiceAssignmentOrder.IndexOf(b.word)));
+            // Spatial assignment must never change the original LLM/participant story order.
             currentStory.orderedItems.Clear();
             for (var i = 0; i < currentItems.Count; i++)
             {
@@ -7084,7 +7536,7 @@ namespace MemPalaceLLM
                     anchorLabel = item.anchorLabel,
                     anchorType = item.anchorType,
                     storyOrder = i + 1,
-                    storySegment = string.Empty,
+                    storySegment = item.mnemonic ?? string.Empty,
                     imageResourcePath = WordImageCatalog.BuildResourcePath(item.word),
                     imageFilePath = item.imageCuePath,
                     imageLoaded = HasReadyImageCue(item)
@@ -7128,10 +7580,10 @@ namespace MemPalaceLLM
             expectedVoiceUtteranceId = string.Empty;
             currentVoiceSubtitle = string.Empty;
 
-            if (condition != ExperimentCondition.LlmGenerated)
+            if (!ConditionUsesStoryNarration())
             {
                 voiceRoutePhase = VoiceRoutePhase.Disabled;
-                voiceRouteStatus = "This condition uses participant-chosen pictures without generated narration.";
+                voiceRouteStatus = "Empty-room baseline: no voice route.";
                 return;
             }
 
@@ -10656,7 +11108,7 @@ namespace MemPalaceLLM
 
         private bool ApplyWeakMnemonicHookGuardrails(MnemonicItemData item)
         {
-            if (condition == ExperimentCondition.SelfGenerated)
+            if (condition == ExperimentCondition.ParticipantWrittenStory)
             {
                 return false;
             }
@@ -11901,6 +12353,7 @@ namespace MemPalaceLLM
                 usedLocalFallback = usedLocalFallbackForCurrentSession,
                 condition = condition,
                 studyDurationSeconds = studyDurationSeconds,
+                storyAuthoringDurationSeconds = storyAuthoringDurationSeconds,
                 selfChoiceDurationSeconds = selfChoiceDurationSeconds,
                 allPhotoShowcaseEntered = allPhotoShowcaseEntered,
                 allPhotoShowcaseDurationSeconds = allPhotoShowcaseDurationSeconds,
@@ -12142,6 +12595,9 @@ namespace MemPalaceLLM
             selfChoiceCandidateIndex = 0;
             selfChoiceStartTime = 0f;
             selfChoiceDurationSeconds = 0f;
+            participantStorySegments.Clear();
+            storyAuthoringStartTime = 0f;
+            storyAuthoringDurationSeconds = 0f;
             allPhotoShowcaseActive = false;
             allPhotoShowcaseCompleted = false;
             allPhotoShowcaseEntered = false;
@@ -12814,7 +13270,7 @@ namespace MemPalaceLLM
                 items[i].anchorType = PreGeneratedMnemonicCatalog.NormalizeAnchorType(anchor);
                 if (string.IsNullOrWhiteSpace(items[i].mnemonicSource))
                 {
-                    items[i].mnemonicSource = condition == ExperimentCondition.SelfGenerated
+                    items[i].mnemonicSource = condition == ExperimentCondition.ParticipantWrittenStory
                         ? "self_authored"
                         : "unknown";
                 }
@@ -12829,7 +13285,7 @@ namespace MemPalaceLLM
                     items[i].colorHex = PickColor(i);
                 }
 
-                if (condition == ExperimentCondition.SelfGenerated
+                if (condition == ExperimentCondition.ParticipantWrittenStory
                     && (items[i].visualObjects == null || items[i].visualObjects.Count == 0))
                 {
                     items[i].visualObjects = BuildDefaultVisualObjects(i);
@@ -15849,7 +16305,17 @@ namespace MemPalaceLLM
 
             for (int i = 0; i < roomSpec.environmentPrimitives.Count; i++)
             {
+                if (condition == ExperimentCondition.EmptyRoom
+                    && !IsEmptyRoomShellPrimitive(roomSpec.environmentPrimitives[i]))
+                {
+                    continue;
+                }
                 CreateEnvironmentPrimitive(roomSpec.environmentPrimitives[i], roomRoot);
+            }
+
+            if (condition == ExperimentCondition.EmptyRoom)
+            {
+                return;
             }
 
             for (int i = 0; i < RoomSpecCatalog.AnchorCount; i++)
@@ -15861,6 +16327,25 @@ namespace MemPalaceLLM
             {
                 CreateMnemonicObject(currentItems[i], i);
             }
+        }
+
+        private static bool IsEmptyRoomShellPrimitive(RoomPrimitiveDefinition primitive)
+        {
+            if (primitive == null)
+            {
+                return false;
+            }
+
+            var id = (primitive.id ?? string.Empty).ToLowerInvariant();
+            var label = (primitive.label ?? string.Empty).ToLowerInvariant();
+            return id.Contains("floor")
+                   || id.Contains("wall")
+                   || id.Contains("ceiling")
+                   || id.Contains("window")
+                   || label.Contains("floor")
+                   || label.Contains("wall")
+                   || label.Contains("ceiling")
+                   || label.Contains("window");
         }
 
         private void CreateMnemonicObject(MnemonicItemData item, int index)
@@ -16778,7 +17263,7 @@ namespace MemPalaceLLM
         private void UpdateVrAudioProgressVisual()
         {
             var showRouteBar = stage == ExperimentStage.Study &&
-                               condition == ExperimentCondition.LlmGenerated &&
+                               ConditionUsesStoryNarration() &&
                                enableVoiceGuidance &&
                                voiceRouteInitialPassCompleted;
             if (vrAudioProgressRoot != null && vrAudioProgressRoot.activeSelf != showRouteBar)
@@ -17153,18 +17638,8 @@ namespace MemPalaceLLM
             selectedStudyItem = item;
             if (stage == ExperimentStage.SelfAuthoring)
             {
-                var assigned = GetAssignedSelfChoiceItem(item.anchorId);
-                if (assigned != null)
-                {
-                    var assignedIndex = currentItems.IndexOf(assigned);
-                    if (assignedIndex >= 0)
-                    {
-                        selfChoiceCandidateIndex = assignedIndex;
-                    }
-                }
-
-                statusMessage = $"Selected {item.anchorLabel}. Choose a word picture for this furniture.";
-                LogInteraction("self_choice_anchor_selected", string.Empty, item.anchorId, details);
+                statusMessage = $"Selected {item.anchorLabel}. Choose one word from the 2 x 4 card.";
+                LogInteraction("furniture_selected", string.Empty, item.anchorId, details);
                 return;
             }
 
@@ -19174,9 +19649,13 @@ namespace MemPalaceLLM
 
         private string GetLlmStatusText()
         {
-            if (condition != ExperimentCondition.LlmGenerated)
+            if (condition == ExperimentCondition.ParticipantWrittenStory)
             {
-                return "This run uses participant-chosen word-picture and furniture assignments without an LLM story.";
+                return "This run uses the participant's continuous story and participant-defined furniture mapping; no LLM was called.";
+            }
+            if (condition == ExperimentCondition.EmptyRoom)
+            {
+                return "This is the empty-room baseline with no story, words, pictures, or narration.";
             }
             if (usedLocalFallbackForCurrentSession && usedLiveLlmForCurrentSession)
             {

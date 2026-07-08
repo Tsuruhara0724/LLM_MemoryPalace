@@ -4,10 +4,11 @@ Last verified: 2026-07-08
 
 ## Experiment design
 
-- Setup exposes two conditions: `LLM Story` and `Self-Chosen Pictures`.
+- Setup exposes three conditions: `LLM Story + Own Order`, `Write Story + Own Order`, and `Empty Room`.
 - The participant enters the memory-palace room and studies independently for 20 minutes.
-- In `LLM Story`, Ollama or the official Gemini API creates one continuous English story containing all selected Spanish target words.
-- In `Self-Chosen Pictures`, the participant assigns each fixed local word picture to a different furniture marker before Study; no generated story or narration is used.
+- In `LLM Story + Own Order`, Ollama or the official Gemini API creates one continuous English story. The participant then defines only the spatial word-to-furniture mapping; the story order is unchanged.
+- In `Write Story + Own Order`, the participant writes eight connected segments that form one complete story, then defines the same one-to-one furniture mapping. The existing TTS, subtitles, replay, and route progress are retained.
+- In `Empty Room`, the participant enters only the room shell: no furniture, target words, pictures, story, subtitles, or voice route.
 - Furniture anchors define the spatial route. Furniture names must not influence the story text.
 - Word pictures are fixed local files under `Assets/Resources/WordImages/` and are not generated during a session.
 - Optional speech guides the participant through the ordered story route one anchor at a time. Local Chatterbox is preferred when running; ElevenLabs and official Gemini TTS remain fallbacks.
@@ -23,11 +24,12 @@ The current runtime still contains mid/final snapshot-recognition screens from t
 5. Enter the participant ID.
 6. Use the default room, load the example room, or open Room Builder.
 7. Select a preset word set. Formal runs sample 8 distinct words from the 12-word formal pool.
-8. Select `LLM Story` or `Self-Chosen Pictures`.
-9. For `LLM Story`, select Ollama Local or Gemini Online, confirm its settings, generate the story, and review its per-word beats.
-10. For `Self-Chosen Pictures`, enter the assignment room, select furniture, browse word pictures, assign every word to a different furniture item, and finish the assignment.
-11. Leave `Use guided voice route` enabled for narrated LLM sessions unless the session is intentionally silent.
-12. Enter the study room and begin the 20-minute independent study period.
+8. Select one of the three conditions.
+9. For `LLM Story + Own Order`, generate and review the story; for `Write Story + Own Order`, write all eight connected story segments.
+10. In either story condition, enter the PC assignment room, click the actual furniture models, and choose one unused word from the selected furniture's 2-column x 4-row card.
+11. For `Empty Room`, enter the room directly; picture-dependent tests and the all-picture display are skipped.
+12. Leave `Use guided voice route` enabled for either narrated story condition unless the session is intentionally silent.
+13. Enter the study room and begin the 20-minute independent study period.
 
 Recommended Ollama settings:
 
@@ -68,7 +70,7 @@ Desktop controls:
 
 VR study mode can be enabled in Setup. A connected OpenXR headset is required for VR validation.
 
-After Study is complete, both conditions offer an optional `Show All Pictures In The Room` step before the final test. It reveals every assigned furniture word-picture UI simultaneously in the existing room. There is no countdown; the participant chooses when to enter and when to finish. Skipping is also allowed.
+After Study is complete, both story conditions offer an optional `Show All Pictures In The Room` step before the final test. The empty-room baseline does not offer this step.
 
 ## Word images
 

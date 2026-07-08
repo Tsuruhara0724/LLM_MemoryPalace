@@ -9,6 +9,7 @@ namespace MemPalaceLLM
         Setup,
         RoomBuilder,
         Generation,
+        StoryAuthoring,
         SelfAuthoring,
         Study,
         Recall,
@@ -18,9 +19,9 @@ namespace MemPalaceLLM
 
     public enum ExperimentCondition
     {
-        LlmGenerated,
-        SelfGenerated,
-        SelfChosenPictures
+        LlmGenerated = 0,
+        ParticipantWrittenStory = 1,
+        EmptyRoom = 2
     }
 
     public enum LlmProviderMode
@@ -325,6 +326,7 @@ namespace MemPalaceLLM
         public bool usedLocalFallback;
         public ExperimentCondition condition;
         public float studyDurationSeconds;
+        public float storyAuthoringDurationSeconds;
         public float selfChoiceDurationSeconds;
         public bool allPhotoShowcaseEntered;
         public float allPhotoShowcaseDurationSeconds;
