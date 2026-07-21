@@ -9,7 +9,8 @@
   <uses-feature android:name="android.hardware.touchscreen.multitouch.distinct" android:required="false" />
   <application android:appCategory="game"
                android:enableOnBackInvokedCallback="true"
-               android:extractNativeLibs="true">
+               android:extractNativeLibs="true"
+               android:usesCleartextTraffic="true">
     <meta-data android:name="unity.splash-mode" android:value="0" />
     <meta-data android:name="unity.splash-enable" android:value="True" />
     <meta-data android:name="unity.launch-fullscreen" android:value="True" />

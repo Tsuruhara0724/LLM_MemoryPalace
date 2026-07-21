@@ -43,3 +43,8 @@ Assets/_Recovery.meta
 *_BackUpThisFolder_ButDontShipItWithYourGame/
 *_BurstDebugInformation_DoNotShip/
 *.apk
+
+# Local compile output and participant-specific VR transfer packages
+ExperimentModels.dll
+VRSessionPackages/session_package_*.json
+!VRSessionPackages/session_package_latest.json

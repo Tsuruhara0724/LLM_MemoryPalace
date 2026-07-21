@@ -190,7 +190,9 @@ namespace MemPalaceLLM
         public string targetWord;
         public string targetAnchorId;
         public List<string> optionWords = new();
+        public List<string> optionLabels = new();
         public string chosenWord;
+        public string chosenLabel;
         public bool isCorrect;
     }
 
@@ -224,8 +226,11 @@ namespace MemPalaceLLM
     {
         public string word;
         public string meaning;
+        public int storyOrder;
         public string anchorId;
+        public string anchorLabel;
         public string anchorType;
+        public bool furnitureAssigned;
         public string mnemonicSource;
         public string cue;
         public string mainCueObject;
@@ -306,6 +311,33 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class VRSessionPackage
+    {
+        public string packageVersion;
+        public string exportedAtUtc;
+        public string sessionId;
+        public string participantId;
+        public string sourcePcHost;
+        public int condition;
+        public string wordSetId;
+        public string wordSetName;
+        public bool hasRuntimeSettings;
+        public bool enableVrStudyMode;
+        public bool enableVoiceGuidance;
+        public bool useLocalUnlimitedTts;
+        public string localTtsEndpoint;
+        public string localTtsModel;
+        public string localTtsVoice;
+        public float localTtsSpeed;
+        public float localTtsExaggeration;
+        public float localTtsCfgWeight;
+        public float localTtsTemperature;
+        public RoomSpecDefinition roomSpec;
+        public StorySessionData storySession;
+        public List<MnemonicItemData> mnemonicItems = new();
+    }
+
+    [Serializable]
     public class ExperimentSessionExport
     {
         public string participantId;
@@ -320,11 +352,29 @@ namespace MemPalaceLLM
         public string llmProvider;
         public string llmModel;
         public string llmStatus;
+        public bool usedLiveLlmForStory;
+        public bool storyGeneratedInBackground;
+        public bool llmStoryGenerationInProgressAtExport;
+        public bool llmStoryGenerationCancelled;
+        public int llmStoryGenerationAttemptCount;
+        public string llmGenerationError;
         public int preGeneratedMnemonicCount;
         public int liveGeneratedMnemonicCount;
         public int localFallbackMnemonicCount;
         public bool usedLocalFallback;
         public ExperimentCondition condition;
+        public string conditionLabel;
+        public string storyWorkflow;
+        public bool storyNarrationRequired;
+        public bool storyContentReady;
+        public string storyReadinessStatus;
+        public bool furnitureWordAssignmentRequired;
+        public string furnitureWordAssignmentStatus;
+        public int furnitureWordAssignmentCount;
+        public int furnitureWordAssignmentTotal;
+        public bool hmdEntryReady;
+        public string hmdEntryReadinessStatus;
+        public string hmdEntryReadinessMessage;
         public float studyDurationSeconds;
         public float storyAuthoringDurationSeconds;
         public float selfChoiceDurationSeconds;
@@ -337,6 +387,12 @@ namespace MemPalaceLLM
         public int correctWordCount;
         public int midTestCorrectCount;
         public int midTestTotal;
+        public int finalSpatialAnchorCorrectCount;
+        public int finalSpatialAnchorTotal;
+        public int finalWordImageCorrectCount;
+        public int finalWordImageTotal;
+        public int finalWordMeaningCorrectCount;
+        public int finalWordMeaningTotal;
         public int finalTestCorrectCount;
         public int finalTestTotal;
         public QuestionnaireResponse questionnaire;

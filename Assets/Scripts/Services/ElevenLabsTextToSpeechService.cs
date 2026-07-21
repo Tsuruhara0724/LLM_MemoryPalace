@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
@@ -23,6 +24,7 @@ namespace MemPalaceLLM
         public bool IsSupported { get; private set; } = true;
         public bool IsReady { get; private set; }
         public bool IsSpeaking => activeRequest != null || playbackStarted;
+        public bool IsPreloading => activeRequest != null && activeRequestIsPreload;
         public bool HasPlayableClip => activeClip != null && audioSource != null && activeClip.length > 0.01f;
         public float PlaybackTime => HasPlayableClip ? Mathf.Clamp(audioSource.time, 0f, activeClip.length) : 0f;
         public float PlaybackDuration => HasPlayableClip ? activeClip.length : 0f;
@@ -34,16 +36,24 @@ namespace MemPalaceLLM
 
         private readonly GameObject playerObject;
         private readonly AudioSource audioSource;
+        private readonly Dictionary<string, AudioClip> speechCache = new Dictionary<string, AudioClip>();
         private UnityWebRequest activeRequest;
         private UnityWebRequestAsyncOperation requestOperation;
         private AudioClip activeClip;
+        private bool activeClipIsCached;
         private string activeUtteranceId = string.Empty;
+        private string activeRequestCacheKey = string.Empty;
+        private bool activeRequestIsPreload;
         private string apiKey = string.Empty;
         private string voiceId = string.Empty;
         private string geminiApiKey = string.Empty;
         private string localTtsEndpoint = string.Empty;
         private string localTtsModel = "chatterbox-multilingual";
         private string localTtsVoice = "default";
+        private float localTtsSpeed = 0.90f;
+        private float localTtsExaggeration = 0.35f;
+        private float localTtsCfgWeight = 0.20f;
+        private float localTtsTemperature = 0.55f;
         private string pendingText = string.Empty;
         private string playbackProvider = "Speech";
         private bool activeRequestUsesGemini;
@@ -73,7 +83,11 @@ namespace MemPalaceLLM
             string configuredGeminiApiKey = null,
             string configuredLocalTtsEndpoint = null,
             string configuredLocalTtsModel = null,
-            string configuredLocalTtsVoice = null)
+            string configuredLocalTtsVoice = null,
+            float configuredLocalTtsSpeed = 0.90f,
+            float configuredLocalTtsExaggeration = 0.35f,
+            float configuredLocalTtsCfgWeight = 0.20f,
+            float configuredLocalTtsTemperature = 0.55f)
         {
             var nextApiKey = string.IsNullOrWhiteSpace(configuredApiKey) ? string.Empty : configuredApiKey.Trim();
             var nextVoiceId = string.IsNullOrWhiteSpace(configuredVoiceId) ? string.Empty : configuredVoiceId.Trim();
@@ -81,27 +95,50 @@ namespace MemPalaceLLM
             var nextLocalEndpoint = string.IsNullOrWhiteSpace(configuredLocalTtsEndpoint) ? string.Empty : configuredLocalTtsEndpoint.Trim().TrimEnd('/');
             var nextLocalModel = string.IsNullOrWhiteSpace(configuredLocalTtsModel) ? "chatterbox-multilingual" : configuredLocalTtsModel.Trim();
             var nextLocalVoice = string.IsNullOrWhiteSpace(configuredLocalTtsVoice) ? "default" : configuredLocalTtsVoice.Trim();
+            var nextLocalSpeed = Mathf.Clamp(configuredLocalTtsSpeed, 0.85f, 1.05f);
+            var nextLocalExaggeration = Mathf.Clamp(configuredLocalTtsExaggeration, 0.20f, 0.80f);
+            var nextLocalCfgWeight = Mathf.Clamp(configuredLocalTtsCfgWeight, 0.05f, 0.55f);
+            var nextLocalTemperature = Mathf.Clamp(configuredLocalTtsTemperature, 0.35f, 0.90f);
             if (string.Equals(apiKey, nextApiKey, StringComparison.Ordinal) &&
                 string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal) &&
                 string.Equals(geminiApiKey, nextGeminiApiKey, StringComparison.Ordinal) &&
                 string.Equals(localTtsEndpoint, nextLocalEndpoint, StringComparison.Ordinal) &&
                 string.Equals(localTtsModel, nextLocalModel, StringComparison.Ordinal) &&
-                string.Equals(localTtsVoice, nextLocalVoice, StringComparison.Ordinal))
+                string.Equals(localTtsVoice, nextLocalVoice, StringComparison.Ordinal) &&
+                Mathf.Approximately(localTtsSpeed, nextLocalSpeed) &&
+                Mathf.Approximately(localTtsExaggeration, nextLocalExaggeration) &&
+                Mathf.Approximately(localTtsCfgWeight, nextLocalCfgWeight) &&
+                Mathf.Approximately(localTtsTemperature, nextLocalTemperature))
             {
                 return;
             }
 
             var elevenLabsCredentialsChanged = !string.Equals(apiKey, nextApiKey, StringComparison.Ordinal) ||
                                                !string.Equals(voiceId, nextVoiceId, StringComparison.Ordinal);
+            var geminiCredentialsChanged = !string.Equals(geminiApiKey, nextGeminiApiKey, StringComparison.Ordinal);
             var localTtsConfigurationChanged = !string.Equals(localTtsEndpoint, nextLocalEndpoint, StringComparison.Ordinal) ||
                                                !string.Equals(localTtsModel, nextLocalModel, StringComparison.Ordinal) ||
-                                               !string.Equals(localTtsVoice, nextLocalVoice, StringComparison.Ordinal);
+                                               !string.Equals(localTtsVoice, nextLocalVoice, StringComparison.Ordinal) ||
+                                               !Mathf.Approximately(localTtsSpeed, nextLocalSpeed) ||
+                                               !Mathf.Approximately(localTtsExaggeration, nextLocalExaggeration) ||
+                                               !Mathf.Approximately(localTtsCfgWeight, nextLocalCfgWeight) ||
+                                               !Mathf.Approximately(localTtsTemperature, nextLocalTemperature);
+            if (elevenLabsCredentialsChanged || geminiCredentialsChanged || localTtsConfigurationChanged)
+            {
+                Stop();
+                ClearSpeechCache();
+            }
+
             apiKey = nextApiKey;
             voiceId = nextVoiceId;
             geminiApiKey = nextGeminiApiKey;
             localTtsEndpoint = nextLocalEndpoint;
             localTtsModel = nextLocalModel;
             localTtsVoice = nextLocalVoice;
+            localTtsSpeed = nextLocalSpeed;
+            localTtsExaggeration = nextLocalExaggeration;
+            localTtsCfgWeight = nextLocalCfgWeight;
+            localTtsTemperature = nextLocalTemperature;
             if (elevenLabsCredentialsChanged)
             {
                 elevenLabsUnavailableForSession = false;
@@ -158,9 +195,25 @@ namespace MemPalaceLLM
                 ? "speech_" + Guid.NewGuid().ToString("N")
                 : utteranceId.Trim();
             pendingText = text.Trim();
+            activeRequestIsPreload = false;
 
-            if (CanUseLocalTts())
+            var cacheKey = BuildSpeechCacheKey(pendingText);
+            if (TryPlayCachedClip(cacheKey))
             {
+                Status = "Speaking from prepared speech cache.";
+                return true;
+            }
+
+            if (IsLocalTtsConfigured())
+            {
+                if (!CanUseLocalTts())
+                {
+                    Status = "Local TTS is selected, but the local endpoint is not available. Cloud TTS fallback is disabled.";
+                    activeUtteranceId = string.Empty;
+                    pendingText = string.Empty;
+                    return false;
+                }
+
                 StartLocalTtsRequest(pendingText);
             }
             else if (CanUseElevenLabs())
@@ -175,6 +228,82 @@ namespace MemPalaceLLM
             return true;
         }
 
+        public bool IsSpeechCached(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            return speechCache.TryGetValue(BuildSpeechCacheKey(text.Trim()), out var clip) &&
+                   clip != null &&
+                   clip.length > 0.01f;
+        }
+
+        public bool Preload(string text, string preloadId = null)
+        {
+            if (!IsReady)
+            {
+                Status = "Configure Local TTS, ElevenLabs, or Gemini speech before preloading.";
+                return false;
+            }
+
+            if (activeRequest != null || playbackStarted)
+            {
+                Status = "Speech service is busy.";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Status = "Cannot preload empty speech text.";
+                return false;
+            }
+
+            pendingText = text.Trim();
+            activeRequestCacheKey = BuildSpeechCacheKey(pendingText);
+            if (speechCache.TryGetValue(activeRequestCacheKey, out var cachedClip) &&
+                cachedClip != null &&
+                cachedClip.length > 0.01f)
+            {
+                pendingText = string.Empty;
+                activeRequestCacheKey = string.Empty;
+                Status = "Speech is already prepared.";
+                return true;
+            }
+
+            activeRequestIsPreload = true;
+            activeUtteranceId = string.IsNullOrWhiteSpace(preloadId)
+                ? "speech_preload_" + Guid.NewGuid().ToString("N")
+                : preloadId.Trim();
+
+            if (IsLocalTtsConfigured())
+            {
+                if (!CanUseLocalTts())
+                {
+                    Status = "Local TTS is selected, but the local endpoint is not available. Cloud TTS fallback is disabled.";
+                    activeUtteranceId = string.Empty;
+                    pendingText = string.Empty;
+                    activeRequestCacheKey = string.Empty;
+                    activeRequestIsPreload = false;
+                    return false;
+                }
+
+                StartLocalTtsRequest(pendingText);
+            }
+            else if (CanUseElevenLabs())
+            {
+                StartElevenLabsRequest(pendingText);
+            }
+            else
+            {
+                StartGeminiRequest(pendingText);
+            }
+
+            Status = "Preparing speech audio before study.";
+            return true;
+        }
+
         private void StartLocalTtsRequest(string text)
         {
             activeRequestUsesLocal = true;
@@ -186,9 +315,13 @@ namespace MemPalaceLLM
                 voice = localTtsVoice,
                 response_format = "wav",
                 language = "en",
-                speed = 1f,
-                exaggeration = 0.58f,
-                cfg_weight = 0.35f
+                speed = localTtsSpeed,
+                exaggeration = localTtsExaggeration,
+                cfg_weight = localTtsCfgWeight,
+                temperature = localTtsTemperature,
+                repetition_penalty = 2.25f,
+                min_p = 0.05f,
+                top_p = 0.90f
             };
 
             var url = localTtsEndpoint.EndsWith("/audio/speech", StringComparison.OrdinalIgnoreCase)
@@ -317,6 +450,8 @@ namespace MemPalaceLLM
             playbackStarted = false;
             activeUtteranceId = string.Empty;
             pendingText = string.Empty;
+            activeRequestCacheKey = string.Empty;
+            activeRequestIsPreload = false;
             activeRequestUsesGemini = false;
             activeRequestUsesLocal = false;
             ReleaseActiveClip();
@@ -325,6 +460,7 @@ namespace MemPalaceLLM
         public void Dispose()
         {
             Stop();
+            ClearSpeechCache();
             if (playerObject != null)
             {
                 UnityEngine.Object.Destroy(playerObject);
@@ -346,20 +482,20 @@ namespace MemPalaceLLM
                 if (activeRequestUsesLocal && !string.IsNullOrWhiteSpace(pendingText))
                 {
                     var localFailure = BuildRequestFailureStatus("Local TTS", request);
-                    localTtsUnavailableForSession = true;
-                    Debug.LogWarning(localFailure + " Falling back to configured cloud speech.");
-                    if (CanUseElevenLabs())
+                    var localFailedId = activeUtteranceId;
+                    activeUtteranceId = string.Empty;
+                    Status = localFailure + " Local TTS is selected, so cloud speech fallback is disabled.";
+                    Debug.LogWarning(Status);
+                    request.Dispose();
+                    pendingText = string.Empty;
+                    activeRequestCacheKey = string.Empty;
+                    var localWasPreload = activeRequestIsPreload;
+                    activeRequestIsPreload = false;
+                    if (!localWasPreload)
                     {
-                        request.Dispose();
-                        StartElevenLabsRequest(pendingText);
-                        return;
+                        UtteranceFailed?.Invoke(localFailedId, Status);
                     }
-                    if (CanUseGemini())
-                    {
-                        request.Dispose();
-                        StartGeminiRequest(pendingText);
-                        return;
-                    }
+                    return;
                 }
                 else if (!activeRequestUsesGemini && CanUseGemini() && !string.IsNullOrWhiteSpace(pendingText))
                 {
@@ -368,25 +504,33 @@ namespace MemPalaceLLM
                     {
                         elevenLabsUnavailableForSession = true;
                     }
+                    activeRequestCacheKey = BuildSpeechCacheKey(pendingText);
                     Debug.LogWarning(elevenLabsFailure + " Falling back to Gemini Flash TTS.");
                     request.Dispose();
                     StartGeminiRequest(pendingText);
                     return;
                 }
 
-                var failedId = activeUtteranceId;
+                var requestFailedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
                 Status = BuildRequestFailureStatus(GetActiveProviderLabel(), request);
                 Debug.LogWarning(Status);
                 request.Dispose();
                 pendingText = string.Empty;
-                UtteranceFailed?.Invoke(failedId, Status);
+                activeRequestCacheKey = string.Empty;
+                var requestWasPreload = activeRequestIsPreload;
+                activeRequestIsPreload = false;
+                if (!requestWasPreload)
+                {
+                    UtteranceFailed?.Invoke(requestFailedId, Status);
+                }
                 return;
             }
 
+            AudioClip decodedClip;
             try
             {
-                activeClip = activeRequestUsesLocal
+                decodedClip = activeRequestUsesLocal
                     ? DecodePcmWavClip(request.downloadHandler.data)
                     : activeRequestUsesGemini
                         ? DecodeGeminiPcmClip(request.downloadHandler.text)
@@ -394,29 +538,62 @@ namespace MemPalaceLLM
             }
             catch (Exception ex)
             {
-                var failedId = activeUtteranceId;
+                var decodeFailedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
                 Status = GetActiveProviderLabel() + " audio decoding failed: " + ex.Message;
                 Debug.LogWarning(Status);
                 request.Dispose();
                 pendingText = string.Empty;
-                UtteranceFailed?.Invoke(failedId, Status);
+                activeRequestCacheKey = string.Empty;
+                var wasPreload = activeRequestIsPreload;
+                activeRequestIsPreload = false;
+                if (!wasPreload)
+                {
+                    UtteranceFailed?.Invoke(decodeFailedId, Status);
+                }
                 return;
             }
 
             request.Dispose();
-            if (activeClip == null || audioSource == null)
+            if (decodedClip == null || audioSource == null)
             {
-                var failedId = activeUtteranceId;
+                var playableFailedId = activeUtteranceId;
                 activeUtteranceId = string.Empty;
                 Status = GetActiveProviderLabel() + " returned no playable audio.";
                 Debug.LogWarning(Status);
-                ReleaseActiveClip();
+                if (decodedClip != null)
+                {
+                    UnityEngine.Object.Destroy(decodedClip);
+                }
                 pendingText = string.Empty;
-                UtteranceFailed?.Invoke(failedId, Status);
+                activeRequestCacheKey = string.Empty;
+                var wasPreload = activeRequestIsPreload;
+                activeRequestIsPreload = false;
+                if (!wasPreload)
+                {
+                    UtteranceFailed?.Invoke(playableFailedId, Status);
+                }
                 return;
             }
 
+            var cacheKey = string.IsNullOrWhiteSpace(activeRequestCacheKey)
+                ? BuildSpeechCacheKey(pendingText)
+                : activeRequestCacheKey;
+            CacheSpeechClip(cacheKey, decodedClip);
+            if (activeRequestIsPreload)
+            {
+                Status = "Prepared speech audio.";
+                activeUtteranceId = string.Empty;
+                pendingText = string.Empty;
+                activeRequestCacheKey = string.Empty;
+                activeRequestIsPreload = false;
+                activeRequestUsesGemini = false;
+                activeRequestUsesLocal = false;
+                return;
+            }
+
+            activeClip = decodedClip;
+            activeClipIsCached = true;
             audioSource.clip = activeClip;
             audioSource.Play();
             playbackStarted = true;
@@ -424,19 +601,26 @@ namespace MemPalaceLLM
                 ? "Local TTS (" + localTtsModel + ")"
                 : activeRequestUsesGemini ? "Gemini Flash TTS" : "ElevenLabs Multilingual v2";
             pendingText = string.Empty;
+            activeRequestCacheKey = string.Empty;
+            activeRequestIsPreload = false;
             Status = "Speaking with " + playbackProvider + ".";
         }
 
         private void UpdateReadyStatus()
         {
-            IsReady = CanUseLocalTts() || CanUseElevenLabs() || CanUseGemini();
-            if (CanUseLocalTts())
+            if (IsLocalTtsConfigured())
             {
-                Status = "Local unlimited TTS is ready; configured cloud speech remains available as fallback.";
+                IsReady = CanUseLocalTts();
+                Status = IsReady
+                    ? "Local-only unlimited TTS is ready. Cloud speech fallback is disabled."
+                    : "Local TTS is selected, but the local endpoint is empty or unavailable. Cloud speech fallback is disabled.";
+                return;
             }
-            else if (CanUseElevenLabs() && CanUseGemini())
+
+            IsReady = CanUseElevenLabs() || CanUseGemini();
+            if (CanUseElevenLabs() && CanUseGemini())
             {
-                Status = "ElevenLabs is ready, with Gemini Flash TTS as a free fallback.";
+                Status = "ElevenLabs is ready, with Gemini Flash TTS as fallback.";
             }
             else if (CanUseElevenLabs())
             {
@@ -452,9 +636,14 @@ namespace MemPalaceLLM
             }
         }
 
+        private bool IsLocalTtsConfigured()
+        {
+            return !string.IsNullOrWhiteSpace(localTtsEndpoint);
+        }
+
         private bool CanUseLocalTts()
         {
-            return !localTtsUnavailableForSession && !string.IsNullOrWhiteSpace(localTtsEndpoint);
+            return !localTtsUnavailableForSession && IsLocalTtsConfigured();
         }
 
         private bool CanUseElevenLabs()
@@ -618,6 +807,82 @@ namespace MemPalaceLLM
             throw new InvalidOperationException("Gemini response did not contain an audio block.");
         }
 
+        private string BuildSpeechCacheKey(string text)
+        {
+            var normalizedText = string.IsNullOrWhiteSpace(text)
+                ? string.Empty
+                : text.Trim();
+            if (IsLocalTtsConfigured())
+            {
+                return "local|" + localTtsEndpoint + "|" + localTtsModel + "|" + localTtsVoice + "|" +
+                       localTtsSpeed.ToString("0.000") + "|" +
+                       localTtsExaggeration.ToString("0.000") + "|" +
+                       localTtsCfgWeight.ToString("0.000") + "|" +
+                       localTtsTemperature.ToString("0.000") + "|" +
+                       normalizedText;
+            }
+
+            if (CanUseElevenLabs())
+            {
+                return "elevenlabs|" + voiceId + "|" + normalizedText;
+            }
+
+            return "gemini|" + GeminiTtsModel + "|Sulafat|" + normalizedText;
+        }
+
+        private bool TryPlayCachedClip(string cacheKey)
+        {
+            if (string.IsNullOrWhiteSpace(cacheKey) ||
+                !speechCache.TryGetValue(cacheKey, out var cachedClip) ||
+                cachedClip == null ||
+                cachedClip.length <= 0.01f ||
+                audioSource == null)
+            {
+                return false;
+            }
+
+            ReleaseActiveClip();
+            activeClip = cachedClip;
+            activeClipIsCached = true;
+            audioSource.clip = activeClip;
+            audioSource.time = 0f;
+            audioSource.Play();
+            playbackStarted = true;
+            playbackProvider = "Prepared speech";
+            pendingText = string.Empty;
+            activeRequestCacheKey = string.Empty;
+            activeRequestIsPreload = false;
+            return true;
+        }
+
+        private void CacheSpeechClip(string cacheKey, AudioClip clip)
+        {
+            if (string.IsNullOrWhiteSpace(cacheKey) || clip == null)
+            {
+                return;
+            }
+
+            if (speechCache.TryGetValue(cacheKey, out var existing) && existing != null && existing != clip)
+            {
+                UnityEngine.Object.Destroy(existing);
+            }
+
+            speechCache[cacheKey] = clip;
+        }
+
+        private void ClearSpeechCache()
+        {
+            foreach (var pair in speechCache)
+            {
+                if (pair.Value != null && pair.Value != activeClip)
+                {
+                    UnityEngine.Object.Destroy(pair.Value);
+                }
+            }
+
+            speechCache.Clear();
+        }
+
         private void ReleaseActiveClip()
         {
             if (audioSource != null)
@@ -627,9 +892,15 @@ namespace MemPalaceLLM
 
             if (activeClip != null)
             {
-                UnityEngine.Object.Destroy(activeClip);
+                if (!activeClipIsCached)
+                {
+                    UnityEngine.Object.Destroy(activeClip);
+                }
+
                 activeClip = null;
             }
+
+            activeClipIsCached = false;
         }
 
         [Serializable]
@@ -651,6 +922,10 @@ namespace MemPalaceLLM
             public float speed;
             public float exaggeration;
             public float cfg_weight;
+            public float temperature;
+            public float repetition_penalty;
+            public float min_p;
+            public float top_p;
         }
 
         [Serializable]

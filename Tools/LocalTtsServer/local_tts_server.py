@@ -31,10 +31,14 @@ class SpeechRequest(BaseModel):
     input: str
     voice: str = DEFAULT_VOICE
     response_format: str = "wav"
-    speed: float = 1.0
+    speed: float = 0.90
     language: str = DEFAULT_LANGUAGE
-    exaggeration: float = 0.55
-    cfg_weight: float = 0.35
+    exaggeration: float = 0.35
+    cfg_weight: float = 0.20
+    temperature: float = 0.55
+    repetition_penalty: float = 2.25
+    min_p: float = 0.05
+    top_p: float = 0.90
 
 
 app = FastAPI(title="Memory Palace Local TTS", version="1.0")
@@ -90,6 +94,11 @@ def cache_path(request: SpeechRequest) -> Path:
             "speed": request.speed,
             "exaggeration": request.exaggeration,
             "cfg_weight": request.cfg_weight,
+            "temperature": request.temperature,
+            "repetition_penalty": request.repetition_penalty,
+            "min_p": request.min_p,
+            "top_p": request.top_p,
+            "tempo_mode": "pause_pacing_no_pitch_shift_v1",
             "reference": REFERENCE_AUDIO,
         },
         sort_keys=True,
@@ -103,6 +112,10 @@ def generate_chatterbox(request: SpeechRequest) -> np.ndarray:
         "language_id": request.language or DEFAULT_LANGUAGE,
         "exaggeration": max(0.0, min(1.5, request.exaggeration)),
         "cfg_weight": max(0.0, min(1.0, request.cfg_weight)),
+        "temperature": max(0.1, min(1.2, request.temperature)),
+        "repetition_penalty": max(1.0, min(4.0, request.repetition_penalty)),
+        "min_p": max(0.0, min(0.25, request.min_p)),
+        "top_p": max(0.1, min(1.0, request.top_p)),
     }
     reference = request.voice if request.voice and Path(request.voice).is_file() else REFERENCE_AUDIO
     if reference and Path(reference).is_file():
@@ -122,6 +135,36 @@ def generate_kokoro(request: SpeechRequest) -> np.ndarray:
     if not chunks:
         raise RuntimeError("Kokoro returned no audio.")
     return np.concatenate(chunks)
+
+
+def apply_speed(audio: np.ndarray, speed: float) -> np.ndarray:
+    speed = max(0.85, min(1.05, float(speed or 1.0)))
+    if abs(speed - 1.0) < 0.015 or audio.size < 2:
+        return audio.astype(np.float32, copy=False)
+
+    audio = np.asarray(audio, dtype=np.float32).flatten()
+    if speed >= 1.0:
+        return audio
+
+    # Avoid algorithmic time-stretching because it adds metallic echo on speech.
+    # Instead, lightly slow the perceived pace by inserting brief silences.
+    extra_ratio = (1.0 / speed) - 1.0
+    interval = max(1, int(model_sample_rate * 1.45))
+    pause_length = int(model_sample_rate * min(0.12, 0.055 + extra_ratio * 0.22))
+    if pause_length <= 0 or audio.size <= interval:
+        return audio
+
+    silence = np.zeros(pause_length, dtype=np.float32)
+    chunks = []
+    cursor = 0
+    while cursor < audio.size:
+        next_cursor = min(audio.size, cursor + interval)
+        chunks.append(audio[cursor:next_cursor])
+        cursor = next_cursor
+        if cursor < audio.size:
+            chunks.append(silence)
+
+    return np.concatenate(chunks).astype(np.float32, copy=False)
 
 
 @app.on_event("startup")
@@ -158,6 +201,7 @@ def speech(request: SpeechRequest) -> Response:
             return Response(target.read_bytes(), media_type="audio/wav", headers={"X-Local-TTS-Cache": "hit"})
         try:
             audio = generate_chatterbox(request) if BACKEND == "chatterbox" else generate_kokoro(request)
+            audio = apply_speed(audio, request.speed)
             buffer = io.BytesIO()
             sf.write(buffer, audio, model_sample_rate, format="WAV", subtype="PCM_16")
             wav_bytes = buffer.getvalue()

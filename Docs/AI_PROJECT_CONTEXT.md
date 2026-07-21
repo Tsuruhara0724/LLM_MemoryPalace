@@ -1,13 +1,13 @@
 # AI Project Context - LLM Memory Palace
 
-Last verified: 2026-07-08
+Last verified: 2026-07-20
 
 ## 1. Current development state
 
 - Active branch: `codex/story-only-memory-palace`
 - Current commit before this feature batch: `c82c307` (`Add unlimited local TTS support`)
 - Unity version: `6000.3.12f1`
-- Current design label: `LLM Story + Own Order vs Participant Story + Own Order vs Empty Room`
+- Current design label: `LLM Story + User Furniture Assignment vs Participant Story + User Furniture Assignment vs Furnished Room Baseline`
 - The redesign is active through `IsStoryOnlyRedesignEnabled() => true` in both the controller and LLM service.
 - The active branch is synchronized with its remote but has not been merged into `main`.
 
@@ -20,14 +20,14 @@ This is a Unity Desktop/VR experiment for Spanish vocabulary learning in a memor
 Current intended participant protocol has three conditions:
 
 1. Select a room and a set of Spanish target words.
-2. `LLM Story + Own Order`: generate one continuous story, then let the participant click actual furniture models on PC and assign one of eight words from a 2 x 4 card. Spatial assignment never reorders the story.
-3. `Write Story + Own Order`: collect eight participant-written segments as one coherent whole story, then use the same PC furniture assignment. Study retains TTS, subtitles, replay, and segmented route progress.
-4. `Empty Room`: enter the empty VR room shell with no furniture, word pictures, labels, story, subtitle, or voice route; skip picture-dependent assessment and all-picture display.
+2. `LLM Story + User Furniture Assignment`: after room creation, start LLM generation of one continuous story in the background while the participant enters the PC room and assigns each word to furniture from the 2 x 4 card. HMD Study unlocks only after both the story and all assignments are ready.
+3. `Participant Story + User Furniture Assignment`: no LLM call. The participant writes one complete continuous story first, splits it into sentences, classifies each sentence to a target word, then uses the same PC furniture assignment. Study retains TTS, subtitles, replay, and segmented route progress.
+4. `Furnished Room Baseline`: after room creation, enter the same furnished HMD room directly with no story, target words, word pictures, narration, or furniture-word assignment during Study.
 5. Let the participant enter the room and study independently for 20 minutes.
 6. After Study in either story condition, optionally reveal every assigned furniture word-picture UI simultaneously in the same room. The participant controls entry and finish; there is no countdown.
 7. Run the finalized post-study assessment and export research data.
 
-The former `Self-Chosen Pictures` condition has been replaced by the participant-written-story condition plus an empty-room baseline. Both story conditions use participant-defined spatial mapping.
+The former `Self-Chosen Pictures` condition has been replaced by the participant-written-story condition plus a furnished-room baseline. Both story conditions use participant-defined spatial mapping.
 
 The 20-minute duration is a protocol requirement. The runtime currently displays elapsed study time but does not enforce a hard 20-minute minimum or automatic transition. Until that is implemented, the researcher must control timing externally.
 
@@ -38,19 +38,19 @@ The active UI flow is:
 ```text
 Setup
 -> optional Room Builder
--> LLM Story Preview OR Participant Story Authoring
--> PC Furniture Assignment
+-> LLM background Story + PC Furniture Assignment
+OR
+-> Participant Story Authoring -> PC Furniture Assignment
 -> Story Study Room
 OR
--> Empty Room Study
--> existing Mid Image Test
+-> Furnished Baseline Study
 -> optional All-Picture Display in the Study Room
--> existing Final Image Test
+-> Final Test A/B as applicable
 -> Questionnaire
 -> Result / JSON + CSV export
 ```
 
-The mid/final snapshot-recognition stages are inherited from the earlier prototype. Keep them available until the final dependent variables and post-20-minute assessment protocol are confirmed.
+The Mid Test has been removed. Story conditions run a spatial-anchor final block followed by a word meaning/image block. The furnished-room baseline skips the spatial-anchor block and runs the same Spanish-word-to-English-meaning final block before the questionnaire.
 
 ## 4. Core files
 
@@ -71,7 +71,7 @@ Assets/Resources/WordImages/
 Responsibilities:
 
 - `MemoryPalaceBootstrap`: creates the experiment controller after scene load.
-- `MemoryPalaceExperimentController`: Setup UI, room builder, story preview, study room, Desktop/VR interaction, snapshots, recognition tests, questionnaire, and export.
+- `MemoryPalaceExperimentController`: Setup UI, room builder, background/participant story flow, PC furniture-word assignment, study room, Desktop/VR interaction, snapshots, recognition tests, questionnaire, and export.
 - `OllamaLlmService.GenerateStory`: runs the causal-plan and final-story passes through local Ollama.
 - `OllamaLlmService.GenerateGeminiStory`: runs the same plan, repair, parsing, and validation pipeline through the Gemini API.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
@@ -121,7 +121,7 @@ Rules and guards:
 - Not a room tour, packing list, shopping list, scavenger hunt, or row of isolated object scenes.
 - Every selected word must appear as exact `English meaning (Spanish word)` text.
 - The LLM may choose the most natural narrative order.
-- Assigned furniture and anchor names must not leak into the story.
+- The active story generation path no longer receives automatic furniture anchors; assigned furniture and anchor names must not leak into the story.
 - Repeated mentions do not create extra route items.
 - Malformed JSON can be recovered from `fullStory`.
 - Missing target annotations are repaired when possible.
@@ -140,6 +140,7 @@ Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion 
 - Setup/start scripts live under `Tools/LocalTtsServer/`. Environments, model downloads, and generated WAV caches live under ignored `.local-tts/`.
 - The local server caches identical requests. Unity tries the local provider first and retains ElevenLabs/Gemini as automatic fallbacks.
 - A missing non-serialized speech service is recreated automatically after Unity domain reload, so Play Mode script recompilation no longer leaves the Study route with `No system text-to-speech service`.
+- For Quest package transfer, PC-written packages store `sourcePcHost` and rewrite loopback Local TTS endpoints to the PC LAN IP when possible. This lets an ADB-pushed package still call the PC local TTS server over Wi-Fi.
 
 ## 6. Word images
 
@@ -206,26 +207,26 @@ Study UI currently provides:
 - Desktop free movement and click inspection.
 - Optional OpenXR/VR study runtime.
 - Optional guided voice route: anchor instruction -> wait for the correct nearby image to be inspected -> play that story segment -> continue to the next anchor.
-- Word-image markers are proximity-gated: only the current route marker is revealed at roughly 8 m and its detail UI remains available to roughly 8.5 m, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
+- Word-image markers are proximity-gated: only the current route marker is revealed at roughly 2.2 m and its detail UI remains available to roughly 2.6 m, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
 - VR HMD users see the currently spoken guide or story segment as a subtitle in the world-space study panel; the existing replay control is unchanged.
+- Story-segment subtitles wait for participant confirmation through the `>` advance button. Walking instructions still advance automatically after the participant reaches and looks toward the next anchor.
 - The first spoken Study pass is sequential and cannot be skipped. After it completes, Desktop and VR expose one thin whole-route bar split into one segment per word/story section. Selecting a segment restarts its anchor guide from the beginning; arbitrary within-audio seeking is intentionally disabled. Replay Voice, Restart Route, and automatic advancement stay synchronized with the route bar.
 - PC furniture selection before Study in both story conditions: click an actual furniture model, then choose from a 2 x 4 word card; one word per furniture and one furniture per word, with doors and windows excluded.
 - An optional post-Study all-picture room display in both story conditions. It reveals every furniture marker at once, has no countdown, and can be entered/finished or skipped by the participant.
-- The empty-room baseline builds only architectural floor/wall/ceiling/window primitives and omits all furniture anchors and study stimuli.
+- The furnished-room baseline keeps furniture anchors visible but omits all word assignment, word pictures, story segments, subtitles, and voice route during Study.
 - Elapsed study time.
-- Snapshot capture for the legacy recognition tests.
+- Snapshot capture for the final spatial-anchor recognition block in story conditions.
 
 Intended study duration: 20 minutes of independent room exploration.
 
-Existing assessment code:
+Current assessment code:
 
-- Mid test unlocks after at least 3 snapshots.
-- Final test unlocks after all current words have snapshots.
-- Each question asks the participant to choose the correct stored snapshot from three images.
-- Final-test feedback can return the camera to the correct anchor.
+- There is no Mid Test.
+- Story conditions unlock the final test after all current words have stored 3D scene snapshots.
+- `Final Test A - Spatial Anchor` asks the participant to choose the correct stored 3D room-view snapshot from three images.
+- `Final Test B - Word Meaning + Image` asks the participant to choose the fixed local word image and English meaning that match the target Spanish word.
+- The furnished-room baseline skips the spatial-anchor block and runs the same Spanish-word-to-English-meaning final block before the questionnaire.
 - Questionnaire contains NASA-TLX-style 0-20 scales and vividness/helpfulness/trust 1-7 scales.
-
-Decision still required: confirm whether the inherited mid/final image-recognition tasks are the final assessment after the 20-minute study period.
 
 ## 10. Export
 
@@ -240,33 +241,39 @@ Formats:
 - JSON session record
 - CSV recall/recognition summary
 
-The export includes participant/session identifiers, room metadata, provider/model metadata, participant story-authoring duration, furniture-assignment duration, Study duration, whether the optional all-picture display was entered, its duration, viewed/memorized counts, the complete `StorySessionData`, word entries, snapshot-test responses, questionnaire values, and interaction logs.
+The export includes participant/session identifiers, room metadata, provider/model metadata, condition labels, story workflow, story readiness, furniture-word assignment readiness, HMD-entry readiness, LLM story attempt/cancel/error status, participant story-authoring duration, furniture-assignment duration, Study duration, whether the optional all-picture display was entered, its duration, viewed/memorized counts, the complete `StorySessionData`, per-word story order and assigned furniture metadata, snapshot-test responses, questionnaire values, and interaction logs. The CSV recognition summary repeats the session-level condition/workflow/readiness fields on every row for easier analysis.
 
 The current redesign still needs a fresh end-to-end exported test session before formal use.
 
 ## 11. Verification status
 
-Verified on 2026-07-08:
+Verified on 2026-07-20:
 
-- Active source compiles in the open Unity project after an earlier fixed `TryParseStoryEnvelope` error.
-- The ElevenLabs voice-route implementation compiles in Unity and preserves the existing route, subtitle, replay, and completion-callback behavior.
-- Unity successfully rebuilt and reloaded `Assembly-CSharp.dll` after the new condition, display, progress, Gemini, and export changes with no C# errors in the latest compile log.
-- The three-condition redesign compiles through Unity's Bee/Tundra script pipeline with no C# errors; only five pre-existing unused-field warnings remain.
+- Static flow checks confirm condition 1 enters PC furniture assignment immediately after starting background LLM story generation.
+- Static flow checks confirm condition 2 uses a participant-written whole story, sentence-to-word classification, then the same furniture assignment and HMD Study gate as condition 1.
+- Static flow checks confirm condition 3 enters the furnished HMD room directly without story, words, word pictures, voice route, or furniture-word assignment.
+- Static flow checks confirm the Mid Test is removed from the active UI flow.
+- Static flow checks confirm Quest can load an ADB-pushed `session_package_latest.json` from app persistent files before optional HTTP fetching.
+- Static flow checks confirm PC-written Quest packages include a source PC host and rewrite loopback Local TTS endpoints for HMD use.
+- Static checks confirm the active story-generation calls no longer pass automatic anchor assignments into `GenerateStory` / `GenerateGeminiStory`.
+- Static checks confirm PC and VR Study-entry controls use the same `CanEnterStudyAfterAssignment()` gate.
+- The open Unity editor successfully rebuilt `Assembly-CSharp.dll` through Bee/Tundra after the redesign changes. The latest direct csc check shows build success with six pre-existing unused-field warnings and no C# errors.
+- Unity batchmode still cannot run while this project is open in the editor, but the open editor's compile log confirms C# compilation for the current source state.
 - A direct `gemini-2.5-flash` API request using the configured user-level key returned valid JSON. `gemini-3.5-flash` returned HTTP 503 in three consecutive attempts, so 2.5 Flash remains the verified default.
 - All 26 word-image files are valid readable PNGs.
 - All preset/formal word keys have matching image filenames.
 - OpenXR Play Mode without a connected headset reports `XR_ERROR_FORM_FACTOR_UNAVAILABLE`; the new VR progress-bar and all-picture interactions compile but still require headset validation.
-- Android/Quest ElevenLabs audio decoding and completion still require an on-device network/audio test with a valid API key.
+- Android/Quest package loading, Local TTS reachability, ElevenLabs audio decoding, and completion callbacks still require an on-device network/audio test with the intended Quest Pro.
 - There are no automated Unity tests.
 - No post-redesign `ExperimentExports` artifact was present at verification time.
 
 ## 12. Immediate priorities
 
 1. Run complete Desktop sessions for all three conditions through export and inspect JSON/CSV.
-2. Run all three protocols on the intended OpenXR headset, including segmented route jumping after the first pass, subtitles, PC furniture assignment, the empty-room shell, and all-picture display where applicable.
+2. Run all three protocols on the intended Quest Pro, including ADB package transfer, segmented route jumping after the first pass, subtitles, PC furniture assignment, the furnished-room baseline, and all-picture display where applicable.
 3. Pilot-review the 26 downloaded word images and replace ambiguous ones while preserving filenames and attribution.
 4. Decide whether the application should enforce the 20-minute study window or only display a timer.
-5. Confirm the final assessment after the 20-minute room period.
+5. Confirm the final assessment timing after the 20-minute room period.
 6. Add lightweight tests for story JSON repair/order recovery and export shape.
 7. Remove or isolate the disabled mnemonic/Stable Diffusion pipeline after the new design stabilizes.
 
