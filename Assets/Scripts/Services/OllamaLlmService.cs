@@ -293,8 +293,11 @@ namespace MemPalaceLLM
 
             if (!TryPrepareCausalStoryPlan(causalPlanJson, words, out var preparedCausalPlanJson, out var causalPlanError))
             {
-                onError?.Invoke("Ollama produced an invalid causal plan: " + causalPlanError + "\nRaw plan preview:\n" + BuildPreview(causalPlanJson));
-                yield break;
+                // Smaller local models sometimes return only the first array item despite a valid JSON response.
+                // The story writer and its repair pass still validate the actual participant-facing output, so
+                // use a complete structural plan here rather than abandoning the participant's session.
+                Debug.LogWarning("Ollama causal plan was incomplete; using a structural fallback. " + causalPlanError);
+                preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words);
             }
 
             causalPlanJson = preparedCausalPlanJson;
@@ -416,8 +419,8 @@ namespace MemPalaceLLM
 
             if (!TryPrepareCausalStoryPlan(causalPlanJson, words, out var preparedCausalPlanJson, out var causalPlanError))
             {
-                onError?.Invoke("Gemini produced an invalid causal plan: " + causalPlanError + "\nRaw plan preview:\n" + BuildPreview(causalPlanJson));
-                yield break;
+                Debug.LogWarning("Gemini causal plan was incomplete; using a structural fallback. " + causalPlanError);
+                preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words);
             }
 
             causalPlanJson = preparedCausalPlanJson;
@@ -641,6 +644,41 @@ namespace MemPalaceLLM
 
             preparedJson = JsonUtility.ToJson(plan);
             return true;
+        }
+
+        private static string BuildStructuralFallbackCausalPlan(List<WordEntry> words)
+        {
+            var plan = new CausalStoryPlanEnvelope
+            {
+                goal = "Reach a safe place before dark.",
+                items = new CausalStoryPlanItem[words.Count]
+            };
+
+            var priorResult = "The group needs to reach a safe place before dark.";
+            for (var i = 0; i < words.Count; i++)
+            {
+                var entry = words[i];
+                var word = string.IsNullOrWhiteSpace(entry?.word) ? "target" : entry.word.Trim();
+                var meaning = string.IsNullOrWhiteSpace(entry?.meaning) ? "object" : entry.meaning.Trim();
+                var isLast = i == words.Count - 1;
+                var result = isLast
+                    ? "The group reaches the safe place before dark."
+                    : "The group can take the next step toward the safe place.";
+
+                plan.items[i] = new CausalStoryPlanItem
+                {
+                    word = word,
+                    need = priorResult,
+                    action = "Use the " + meaning + " (" + word + ") in a practical way to move forward.",
+                    result = result,
+                    goal_link = isLast
+                        ? "This completes the journey to safety."
+                        : "This creates the next step toward safety."
+                };
+                priorResult = result;
+            }
+
+            return JsonUtility.ToJson(plan);
         }
 
         private static string NormalizePlanLink(string value)

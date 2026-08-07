@@ -1,114 +1,117 @@
 # Memory Palace Experiment Runbook
 
-Last verified: 2026-07-20
+Last verified: 2026-07-31
 
-## Experiment design
+The active protocol is the four-condition 2 × 2 design described in
+`EXPERIMENT_FLOW_2X2.md`.
 
-- Setup exposes three conditions: `LLM Story + User Furniture Assignment`, `Participant Story + User Furniture Assignment`, and `Furnished Room Baseline`.
-- The participant enters the memory-palace room and studies independently for 20 minutes.
-- In `LLM Story + User Furniture Assignment`, Ollama or the official Gemini API creates one continuous English story in the background. The participant then defines the spatial word-to-furniture mapping on the PC; the story order is unchanged.
-- In `Participant Story + User Furniture Assignment`, the participant writes one complete story first, splits it into sentences, classifies each sentence to a target word, then defines the same one-to-one furniture mapping. The existing TTS, subtitles, replay, and route progress are retained.
-- In `Furnished Room Baseline`, the participant enters the same furnished HMD room directly: no target words, pictures, story, subtitles, voice route, or furniture-word assignment are shown during Study.
-- Furniture anchors define the spatial route. Furniture names must not influence the story text.
-- Word pictures are fixed local files under `Assets/Resources/WordImages/` and are not generated during a session.
-- Optional speech guides the participant through the ordered story route one anchor at a time. Local Chatterbox is preferred when running; ElevenLabs and official Gemini TTS remain fallbacks.
+## Conditions
 
-The current runtime uses a 6-step flow and no Mid Test. The 20-minute study duration is the protocol target; the application does not yet enforce a hard 20-minute lock.
+1. Self-room × Self-story
+2. Self-room × LLM-story
+3. Default-room × Self-story
+4. Default-room × LLM-story
+
+All four conditions use the same vocabulary, furniture-word mapping, HMD study,
+immediate post-test, questionnaire, and export implementation. They vary only the
+room source and story source.
 
 ## Quick start
 
-1. Open the project with Unity `6000.3.12f1`.
-2. Wait for scripts and word images to import.
-3. Open `Assets/Scenes/SampleScene.unity`.
-4. Press Play. `MemoryPalaceBootstrap` creates the experiment UI automatically.
-5. Enter the participant ID.
-6. Use the default room, load the example room, or open Room Builder.
-7. Select a preset word set. Formal runs sample 8 distinct words from the 12-word formal pool.
-8. Select one of the three conditions.
-9. For `LLM Story + User Furniture Assignment`, generate and review the story; for `Participant Story + User Furniture Assignment`, write the complete story, split it into sentences, and classify each sentence to a target word.
-10. In either story condition, enter the PC assignment room, click the actual furniture models, and choose one unused word from the selected furniture's 2-column x 4-row card.
-11. For `Furnished Room Baseline`, enter the furnished room directly; Study has no words, pictures, story, subtitles, voice route, or furniture-word assignment.
-12. Leave `Use guided voice route` enabled for either narrated story condition unless the session is intentionally silent.
-13. Enter the study room and begin the 20-minute independent study period.
+1. Open the project in Unity `6000.3.12f1`.
+2. Open `Assets/Scenes/SampleScene.unity` and enter Play mode.
+3. Enter the participant ID and select one of the four conditions.
+4. Confirm the formal word pool. Formal sessions sample eight distinct words from
+   the 12-word pool.
+5. Start the session.
+6. For a self-room condition, create the participant's familiar room. For a
+   default-room condition, let the participant explore the fixed room using WASD
+   and right-mouse look.
+7. Complete the Spanish-to-English pre-test. It gives no feedback and ends after
+   five minutes.
+8. For a self-story condition, write one continuous story and classify its
+   sentences to the target words. For an LLM-story condition, wait for three full
+   stories and select one.
+9. Map every word to one unique furniture item on PC.
+10. Wait for all TTS clips to finish preparing.
+11. Put on the HMD and complete the ten-minute memory-palace study.
+12. Complete the immediate Spanish-to-English post-test and questionnaire.
+13. Export the JSON and CSV files.
+
+## Meta Quest Pro VR check
+
+For Quest Link testing, connect the headset and enter the Meta Quest Link environment
+before pressing Play. If Play starts first, the Oculus OpenXR runtime can return
+`XR_ERROR_FORM_FACTOR_UNAVAILABLE`; stop Play, connect Link, and start Play again.
+
+At the VR ready gate, verify all of the following before handing the headset to a
+participant:
+
+- A fixed object remains stable when the head turns or tilts; head translation is 1:1.
+- The blue left-controller proxy and orange right-controller proxy follow the two
+  Touch Pro controllers in position and rotation.
+- The left stick moves, the right stick snap-turns, and either trigger operates the ray.
+- Pressing A or X starts learning even when the controller ray is not over the button.
+
+Stop immediately if the world follows the head, head motion appears reversed, or either
+controller remains at the origin. Do not continue a study session with incorrect tracking.
+
+## Timing
+
+| Phase | Protocol target | Runtime behavior |
+|---|---:|---|
+| Room creation/exploration | 10 min | timer shown; researcher may end early |
+| Spanish pre-test | 5 min | hard timeout |
+| Story writing/generation and choice | 10 min | timer shown |
+| Furniture-word mapping | 3 min | timer shown; all mappings required |
+| Audio generation | 5–8 min expected | waits for actual TTS completion |
+| HMD study | 10 min | post-test locked until 10 min |
+| Immediate post-test | 5 min | hard timeout |
+| Questionnaire | 5 min | timer shown |
+
+Actual phase durations are written to the JSON export.
+
+## LLM and speech setup
 
 Recommended Ollama settings:
 
 - Endpoint: `http://localhost:11434/api/generate`
 - Model: `gemma3:12b`
 
-Recommended Gemini setting:
+Recommended Gemini story model:
 
-- Model: `gemini-2.5-flash` (verified with the Gemini API free tier on 2026-07-08)
-- Key source on Windows desktop: user-level `GEMINI_API_KEY`, with Setup input as a fallback
+- `gemini-2.5-flash`
 
-Minor causal-plan wording differences are normalized automatically. If the first story omits a target or fails quality checks, the selected LLM receives one repair request; the app starts Study only after the repaired story passes validation. A remaining failure returns to Setup instead of opening an empty Preview.
+The LLM is used only in conditions 2 and 4. Each LLM condition generates three
+complete story candidates using the existing causal-plan and story-writing prompts.
+The participant's selected candidate is preserved unchanged for the later route.
 
-## Participant study period
+Local Chatterbox/Kokoro speech is preferred when enabled. ElevenLabs and Gemini TTS
+remain fallbacks. Test the configured voice before the session.
 
-- Duration: 20 minutes.
-- The participant navigates the room independently.
-- The voice first says which anchor to approach and which word image will be there.
-- All word-image markers stay hidden until the participant comes within roughly 2.2 metres of the current route anchor and looks toward it; only that anchor's image appears, and its detail UI remains available to roughly 2.6 metres.
-- Looking toward the revealed image counts as inspection and starts that word's story segment.
-- Story-segment subtitles wait for the participant to click the `>` arrow, like a JRPG text box. The walking instruction still advances when the participant reaches and looks toward the next anchor.
-- The revealed image floats in front of the participant as foreground study UI rather than being bound to the furniture model.
-- In an active VR HMD, the world-space study panel displays the text currently being spoken as a subtitle. Use the existing Replay Voice button when repetition is needed.
-- The first Study pass is locked to the original spoken order and has no route-jump control. After every story segment has completed once, a thin segmented `ROUTE` bar appears below the Desktop top banner and at the top of the VR panel. Each segment represents one word/story section; selecting a segment restarts that section from its anchor guide, never from the middle. Replay Voice, Restart Route, and automatic advancement update the same whole-route position.
-- Selecting an image shows its Spanish word, English meaning, and story beat.
-- The complete continuous story remains available in the study UI.
-- The researcher should record the true start/end time until an enforced timer is implemented.
+## Assessment and export
 
-Desktop controls:
-
-- Right mouse drag: look around
-- WASD: move
-- Q / E: move down / up
-- Left click: inspect a word image
-- Shift: move faster
-- `Replay Voice`: repeat the current anchor guide or story segment
-- `Restart Route`: return to the first spoken anchor guide
-
-VR study mode can be enabled in Setup. A connected OpenXR headset is required for VR validation.
-
-After Study is complete, both story conditions offer an optional `Show All Pictures In The Room` step before the final test. The furnished-room baseline does not offer this step.
-
-## Word images
-
-The project currently contains images for all 26 distinct preset words, including all 12 words in `formal_12_pool`.
-
-- Naming: `Assets/Resources/WordImages/{spanish_word}.png`
-- Missing-image fallback: `_placeholder.png`
-- Source and license record: `Assets/Resources/WordImages/ATTRIBUTION.md`
-
-Replacing a picture requires only replacing the same-named PNG. Keep its license record up to date.
-
-## Assessment and export flow
-
-There is no Mid Test. Story conditions run `Final Test A - Spatial Anchor` with stored 3D scene snapshots, then `Final Test B - Word Meaning + Image` with the fixed local word images and English meanings. The furnished-room baseline skips the spatial-anchor block and runs the same Spanish-word-to-English-meaning final block before the questionnaire.
-
-For story conditions, the stored snapshot is a 3D room-view image of the furniture anchor, not the isolated word picture.
+The pre-test and immediate post-test both measure Spanish-to-English meaning recall.
+The post-test begins only after the ten-minute HMD phase. CSV rows use phase IDs
+`pre_test` and `final_word_meaning`.
 
 Exports are written to `ExperimentExports/`:
 
 - `session_<participant>_<timestamp>.json`
 - `session_<participant>_<timestamp>.csv`
 
+The JSON contains condition factors, actual phase durations, pre-test responses,
+all three LLM candidates when applicable, the chosen candidate index, final story,
+furniture mapping, post-test responses, questionnaire, and event log.
+
 ## Pre-run checklist
 
 - Unity Console has no C# compile errors.
-- All selected words display their real image rather than `_placeholder.png`.
-- Ollama connection and model are available.
-- For Gemini runs, `gemini-2.5-flash` passes `Test Gemini` and the key is available from Setup or user-level `GEMINI_API_KEY`.
-- Speech uses local Chatterbox first when its endpoint is enabled. If local speech is unavailable, the runtime tries ElevenLabs and then the configured official Gemini key with `gemini-2.5-flash-preview-tts`, preserving subtitles, completion callbacks, route order, segmented progress, and replay.
-- For unlimited local speech, run `Tools/LocalTtsServer/Setup-Chatterbox.cmd` once and `Start-Chatterbox.cmd` before Unity. The default endpoint is `http://127.0.0.1:8880/v1`; generated WAV files are cached under the ignored `.local-tts/` directory.
-- Press `Test Configured Voice` in Setup and confirm audible speech before entering the room. The route prefers local Chatterbox, then falls back to ElevenLabs and official Gemini TTS.
-- For Quest/ADB runs, click `Write Quest Session Package`, then run `Tools/Push-VRSessionPackageToQuest.cmd`, then launch or restart the Quest app. The Quest app auto-loads `session_package_latest.json` from its app files.
-- If Quest should use the PC local TTS server, keep PC and Quest on the same Wi-Fi; the package writes the PC LAN IP into the Local TTS endpoint when possible.
-- A valid ElevenLabs Voice ID is entered; the default is the voice used by the current ElevenLabs API example.
-- The device has internet access to `api.elevenlabs.io` and audio output is audible.
-- The generated story contains each selected `meaning (Spanish word)` exactly once as a route item.
-- The room has enough distinct anchors for the selected words.
-- Desktop or VR navigation works on the study machine.
-- A 20-minute timing method is ready.
-- A complete test session can be exported before recruiting participants.
-- The optional all-picture room display can be entered, finished, and skipped, and its choice/duration appears in the JSON export.
+- The room has at least eight eligible furniture anchors.
+- Every selected word has a usable image under `Assets/Resources/WordImages/`.
+- Ollama or Gemini works before an LLM-story session.
+- The configured TTS voice is audible and its service is available.
+- Desktop room navigation and HMD navigation both work.
+- A complete dry run reaches the questionnaire and produces both export files.
+- The exported condition, `roomSource`, `storySource`, pre-test rows, post-test rows,
+  and selected LLM candidate index are correct.

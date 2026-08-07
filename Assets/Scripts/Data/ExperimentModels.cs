@@ -8,6 +8,8 @@ namespace MemPalaceLLM
     {
         Setup,
         RoomBuilder,
+        RoomFamiliarization,
+        PreTest,
         Generation,
         StoryAuthoring,
         SelfAuthoring,
@@ -19,9 +21,10 @@ namespace MemPalaceLLM
 
     public enum ExperimentCondition
     {
-        LlmGenerated = 0,
-        ParticipantWrittenStory = 1,
-        EmptyRoom = 2
+        SelfRoomSelfStory = 0,
+        SelfRoomLlmStory = 1,
+        DefaultRoomSelfStory = 2,
+        DefaultRoomLlmStory = 3
     }
 
     public enum LlmProviderMode
@@ -193,6 +196,7 @@ namespace MemPalaceLLM
         public List<string> optionLabels = new();
         public string chosenWord;
         public string chosenLabel;
+        public float responseTimeSeconds;
         public bool isCorrect;
     }
 
@@ -249,6 +253,7 @@ namespace MemPalaceLLM
         public int selectedImageCandidateIndex = -1;
         public string imageSelectionReason;
         public string imageCuePath;
+        public string sceneSnapshotPath;
         public List<ImageCueResultExport> imageCueResults = new();
         public List<VisualObjectSpec> visualObjects = new();
     }
@@ -311,6 +316,17 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class PreTestResponse
+    {
+        public string targetWord;
+        public string expectedMeaning;
+        public string answerMeaning;
+        public bool isCorrect;
+        public float responseTimeSeconds;
+        public string answeredAtUtc;
+    }
+
+    [Serializable]
     public class VRSessionPackage
     {
         public string packageVersion;
@@ -321,6 +337,11 @@ namespace MemPalaceLLM
         public int condition;
         public string wordSetId;
         public string wordSetName;
+        public float roomPhaseDurationSeconds;
+        public float preTestDurationSeconds;
+        public float storyAuthoringDurationSeconds;
+        public float furnitureAssignmentDurationSeconds;
+        public List<PreTestResponse> preTestResponses = new();
         public bool hasRuntimeSettings;
         public bool enableVrStudyMode;
         public bool enableVoiceGuidance;
@@ -364,6 +385,8 @@ namespace MemPalaceLLM
         public bool usedLocalFallback;
         public ExperimentCondition condition;
         public string conditionLabel;
+        public string roomSource;
+        public string storySource;
         public string storyWorkflow;
         public bool storyNarrationRequired;
         public bool storyContentReady;
@@ -376,8 +399,14 @@ namespace MemPalaceLLM
         public string hmdEntryReadinessStatus;
         public string hmdEntryReadinessMessage;
         public float studyDurationSeconds;
+        public float roomPhaseDurationSeconds;
+        public float preTestDurationSeconds;
+        public float immediatePostTestDurationSeconds;
+        public float questionnaireDurationSeconds;
         public float storyAuthoringDurationSeconds;
         public float selfChoiceDurationSeconds;
+        public int preTestCorrectCount;
+        public int preTestTotal;
         public bool allPhotoShowcaseEntered;
         public float allPhotoShowcaseDurationSeconds;
         public int viewedCount;
@@ -395,8 +424,13 @@ namespace MemPalaceLLM
         public int finalWordMeaningTotal;
         public int finalTestCorrectCount;
         public int finalTestTotal;
+        public string questionnaireMode;
+        public string questionnaireJoinId;
         public QuestionnaireResponse questionnaire;
         public StorySessionData storySession;
+        public List<StorySessionData> llmStoryCandidates = new();
+        public int selectedLlmStoryCandidateIndex = -1;
+        public List<PreTestResponse> preTestResponses = new();
         public List<ExportWordEntry> items = new();
         public List<RecallResponse> recallResponses = new();
         public List<SnapshotTestResponse> snapshotTestResponses = new();
