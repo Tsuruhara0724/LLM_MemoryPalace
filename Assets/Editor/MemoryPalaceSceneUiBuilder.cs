@@ -2,6 +2,7 @@ using System;
 using MemPalaceLLM;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEditor.Build;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -138,6 +139,127 @@ namespace MemPalaceLLM.Editor
             Debug.Log(
                 "Memory Palace: rebuilt editable UGUI hierarchy and saved the open Scene. " +
                 "Adjust panels under EditableSceneUI/StageRoot in the Inspector.");
+        }
+
+        [MenuItem("Tools/Memory Palace/Validate Editable Scene UI")]
+        public static void ValidateEditableSceneUi()
+        {
+            if (Application.isBatchMode)
+            {
+                const string sampleScenePath = "Assets/Scenes/SampleScene.unity";
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(sampleScenePath) != null &&
+                    EditorSceneManager.GetActiveScene().path != sampleScenePath)
+                {
+                    EditorSceneManager.OpenScene(sampleScenePath, OpenSceneMode.Single);
+                }
+            }
+
+            var controller = Object.FindFirstObjectByType<MemoryPalaceExperimentController>();
+            var view = Object.FindFirstObjectByType<MemoryPalaceSceneUiView>(FindObjectsInactive.Include);
+            var errors = new System.Collections.Generic.List<string>();
+            if (controller == null)
+            {
+                errors.Add("MemoryPalaceExperimentController is missing.");
+            }
+            if (view == null || !view.RebuildLookup())
+            {
+                errors.Add("MemoryPalaceSceneUiView is missing or incomplete.");
+            }
+
+            if (view != null)
+            {
+                var requiredObjects = new[]
+                {
+                    "Stage_Setup", "Stage_RoomBuilder", "Stage_RoomFamiliarization", "Stage_PreTest",
+                    "Stage_Generation", "Stage_StoryAuthoring", "Stage_SelfAuthoring", "Stage_Study",
+                    "Stage_Recall", "Stage_Questionnaire", "Stage_Result", "Common_Header",
+                    "Setup_Start", "Room_Done", "Familiarization_Done", "PreTest_Submit",
+                    "Generation_Confirm", "Story_Continue", "Assignment_RightPanel_Scrollbar",
+                    "Assignment_EnterStudy", "Study_Finish", "Recall_QuestionGroup",
+                    "Questionnaire_Finish", "Result_Return", "Overlay_Context", "Overlay_Subtitle"
+                };
+                for (var i = 0; i < requiredObjects.Length; i++)
+                {
+                    if (!view.TryGetObject(requiredObjects[i], out _))
+                    {
+                        errors.Add("Missing UI object: " + requiredObjects[i]);
+                    }
+                }
+
+                if (view.StageRoot == null || view.StageRoot.transform.childCount != 11)
+                {
+                    errors.Add("StageRoot must contain exactly 11 stage panels.");
+                }
+                if (view.Get<InputField>("Setup_ParticipantInput") == null ||
+                    view.Get<InputField>("PreTest_Answer") == null ||
+                    view.Get<InputField>("Story_FullText") == null)
+                {
+                    errors.Add("One or more required InputField controls are missing.");
+                }
+                if (view.Get<Slider>("Questionnaire_Mental") == null ||
+                    view.Get<Slider>("Questionnaire_Trust") == null)
+                {
+                    errors.Add("Questionnaire sliders are missing.");
+                }
+                if (view.Get<Scrollbar>("Assignment_RightPanel_Scrollbar") == null)
+                {
+                    errors.Add("Furniture assignment right scrollbar is missing.");
+                }
+                if (view.VrStudyPanelTemplate == null ||
+                    view.VrStudyStartGateTemplate == null ||
+                    view.VrStudyHudTemplate == null ||
+                    view.VrStudyWordImageHudTemplate == null ||
+                    view.VrRecallPanelTemplate == null)
+                {
+                    errors.Add("One or more HMD UI templates are missing.");
+                }
+
+                var names = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+                var transforms = view.GetComponentsInChildren<Transform>(true);
+                for (var i = 0; i < transforms.Length; i++)
+                {
+                    if (!names.Add(transforms[i].name))
+                    {
+                        errors.Add("Duplicate desktop UI object name: " + transforms[i].name);
+                    }
+                }
+            }
+
+            if (controller != null && view != null)
+            {
+                var serialized = new SerializedObject(controller);
+                if (serialized.FindProperty("editableSceneUi").objectReferenceValue != view)
+                {
+                    errors.Add("Controller editableSceneUi reference is not assigned to the Scene view.");
+                }
+                if (!serialized.FindProperty("useEditableSceneUi").boolValue)
+                {
+                    errors.Add("Controller Use Editable Scene UI is disabled.");
+                }
+            }
+
+            if (Object.FindFirstObjectByType<EventSystem>() == null)
+            {
+                errors.Add("EventSystem is missing.");
+            }
+
+            if (errors.Count > 0)
+            {
+                var message = "Memory Palace editable Scene UI validation failed:\n- " + string.Join("\n- ", errors);
+                Debug.LogError(message);
+                if (Application.isBatchMode)
+                {
+                    throw new BuildFailedException(message);
+                }
+                EditorUtility.DisplayDialog("Scene UI Validation", message, "OK");
+                return;
+            }
+
+            Debug.Log("Memory Palace editable Scene UI validation passed: 11 desktop stages, scrollbar, overlays, controller binding, EventSystem, and 5 HMD templates are ready.");
+            if (!Application.isBatchMode)
+            {
+                EditorUtility.DisplayDialog("Scene UI Validation", "All editable Scene UI checks passed.", "OK");
+            }
         }
 
         private static void CreateHeader(Transform parent)
