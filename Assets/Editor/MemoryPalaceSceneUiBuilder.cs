@@ -52,8 +52,22 @@ namespace MemPalaceLLM.Editor
         public static void RebuildEditableSceneUi()
         {
             var controller = Object.FindFirstObjectByType<MemoryPalaceExperimentController>();
+            if (controller == null && Application.isBatchMode)
+            {
+                const string sampleScenePath = "Assets/Scenes/SampleScene.unity";
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(sampleScenePath) != null)
+                {
+                    EditorSceneManager.OpenScene(sampleScenePath, OpenSceneMode.Single);
+                    controller = Object.FindFirstObjectByType<MemoryPalaceExperimentController>();
+                }
+            }
             if (controller == null)
             {
+                if (Application.isBatchMode)
+                {
+                    Debug.LogError("Memory Palace Scene UI: no MemoryPalaceExperimentController exists in SampleScene.");
+                    return;
+                }
                 EditorUtility.DisplayDialog(
                     "Memory Palace Scene UI",
                     "No MemoryPalaceExperimentController exists in the open Scene.",
