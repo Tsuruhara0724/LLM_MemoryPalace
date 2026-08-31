@@ -452,6 +452,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83a7fbf9680f46b4ea6a8d5041f61ea5, type: 3}
   m_Name:
   m_EditorClassIdentifier:
+  selfRoomPhysicalLengthMeters: 2
+  selfRoomPhysicalWidthMeters: 1.5
+  selfRoomVirtualMetersPerPhysicalMeter: 7.5
+  showSelfRoomBuildAreaBoundary: 1
+  vrPhysicalWalkingGain: 1
 --- !u!4 &932477112
 Transform:
   m_ObjectHideFlags: 0

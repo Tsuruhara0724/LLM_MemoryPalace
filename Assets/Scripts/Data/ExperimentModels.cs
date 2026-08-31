@@ -29,8 +29,8 @@ namespace MemPalaceLLM
 
     public enum LlmProviderMode
     {
-        OllamaLocal,
-        GeminiOnline
+        ClaudeHaiku,
+        GptLuna
     }
 
     [Serializable]
@@ -316,17 +316,6 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
-    public class PreTestResponse
-    {
-        public string targetWord;
-        public string expectedMeaning;
-        public string answerMeaning;
-        public bool isCorrect;
-        public float responseTimeSeconds;
-        public string answeredAtUtc;
-    }
-
-    [Serializable]
     public class VRSessionPackage
     {
         public string packageVersion;
@@ -341,7 +330,8 @@ namespace MemPalaceLLM
         public float preTestDurationSeconds;
         public float storyAuthoringDurationSeconds;
         public float furnitureAssignmentDurationSeconds;
-        public List<PreTestResponse> preTestResponses = new();
+        public int preTestScreenedWordCount;
+        public int preTestRandomSeed;
         public bool hasRuntimeSettings;
         public bool enableVrStudyMode;
         public bool enableVoiceGuidance;
@@ -405,8 +395,8 @@ namespace MemPalaceLLM
         public float questionnaireDurationSeconds;
         public float storyAuthoringDurationSeconds;
         public float selfChoiceDurationSeconds;
-        public int preTestCorrectCount;
-        public int preTestTotal;
+        public int preTestScreenedWordCount;
+        public int preTestRandomSeed;
         public bool allPhotoShowcaseEntered;
         public float allPhotoShowcaseDurationSeconds;
         public int viewedCount;
@@ -430,7 +420,6 @@ namespace MemPalaceLLM
         public StorySessionData storySession;
         public List<StorySessionData> llmStoryCandidates = new();
         public int selectedLlmStoryCandidateIndex = -1;
-        public List<PreTestResponse> preTestResponses = new();
         public List<ExportWordEntry> items = new();
         public List<RecallResponse> recallResponses = new();
         public List<SnapshotTestResponse> snapshotTestResponses = new();

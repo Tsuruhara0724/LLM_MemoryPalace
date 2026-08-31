@@ -74,7 +74,7 @@ Assets/Resources/WordImages/
 }
 ```
 
-正式材料从 `formal_12_pool` 中无重复抽取 8 个词。
+正式材料使用唯一的 `formal_32_pool` 候选池，最终得到 8 个不重复的学习词。
 
 ## 6. 本地词图
 
@@ -191,13 +191,13 @@ VR HMD 模式会在 world-space 学习面板显示当前正在播放的引导语
 9. 若使用 VR，在目标头显上重复全流程。
 10. 验证语音引导、到达判定、小节播放、自动下一站、重播和路线重启。
 
-## 12. 本地不限量语音
+## 12. 语音资源
 
-- 首选稳定版 Chatterbox Multilingual；RTX 显卡运行 `Tools/LocalTtsServer/Setup-Chatterbox.cmd` 安装，之后用 `Start-Chatterbox.cmd` 启动。
-- 低配置机器可运行 `Setup-Kokoro.cmd` 和 `Start-Kokoro.cmd`，Unity 接口不需要修改。
-- 默认地址为 `http://127.0.0.1:8880/v1/audio/speech`，输出 16-bit PCM WAV，并缓存相同文本。
-- Unity 优先使用本地语音，失败时依次回退 ElevenLabs 和官方 Gemini TTS。
-- Quest 独立运行时，把 Base URL 改为同一局域网电脑的 IP；`127.0.0.1` 只表示 Quest 自身。
+- 32 个正式西班牙语单词使用 Azure `es-ES-ElviraNeural` 提前生成，不在实验运行时合成。
+- 设置当前 PowerShell 会话的 `AZURE_SPEECH_KEY` 和 `AZURE_SPEECH_REGION`，或运行脚本后在安全提示中输入；密钥不得写入项目。运行 `Tools/LocalTtsServer/Generate-FormalWordAudio.cmd` 会覆盖并验证全部正式读音。
+- 固定读音保存为 `Assets/Resources/WordAudio/{Spanish word}.wav`，格式为 24 kHz、16-bit、mono PCM。Unity 缺少对应文件时直接报错，不会临时调用其他 TTS。
+- 单词图片页面出现后先自动播放固定单词读音两次，再播放故事句；桌面和 VR 的单词旁均提供按钮来重播同一资源。
+- 英文引导句和故事句通过电脑端 Azure Speech 代理合成：先运行 `Tools/LocalTtsServer/Start-Azure.cmd`，再让 Unity 连接 `http://127.0.0.1:8880/v1`。代理会把故事中的正式西班牙语词标记为 `es-ES` 发音，而 Azure 密钥只保留在电脑端终端。Quest 独立运行时需要电脑局域网地址以访问该代理。
 
 ## 13. 当前技术债
 

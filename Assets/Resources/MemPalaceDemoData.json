@@ -79,10 +79,18 @@
                                    ]
                      },
                      {
-                         "setId":  "formal_12_pool",
-                         "displayName":  "Formal 12-Word Pool",
-                         "description":  "Fixed 12-word pool for formal runs; story-friendly concrete nouns chosen for vivid, imaginative memory stories.",
+                         "setId":  "formal_32_pool",
+                         "displayName":  "Formal 32-Word Pool",
+                         "description":  "Fixed 32-word candidate pool for formal pre-test screening, spanning varied everyday objects, body parts, natural phenomena, materials, actions, states, and abstract concepts that can be represented in a single image.",
                          "words":  [
+                                       {
+                                           "word":  "pájaro",
+                                           "meaning":  "bird"
+                                       },
+                                       {
+                                           "word":  "techo",
+                                           "meaning":  "roof"
+                                       },
                                        {
                                            "word":  "estrella",
                                            "meaning":  "star"
@@ -92,99 +100,116 @@
                                            "meaning":  "mirror"
                                        },
                                        {
-                                           "word":  "castillo",
-                                           "meaning":  "castle"
-                                       },
-                                       {
-                                           "word":  "máscara",
-                                           "meaning":  "mask"
-                                       },
-                                       {
                                            "word":  "vela",
                                            "meaning":  "candle"
-                                       },
-                                       {
-                                           "word":  "tambor",
-                                           "meaning":  "drum"
                                        },
                                        {
                                            "word":  "nube",
                                            "meaning":  "cloud"
                                        },
                                        {
-                                           "word":  "campana",
-                                           "meaning":  "bell"
+                                           "word":  "columpio",
+                                           "meaning":  "swing"
                                        },
                                        {
-                                           "word":  "linterna",
-                                           "meaning":  "flashlight"
+                                           "word":  "valla",
+                                           "meaning":  "fence"
                                        },
                                        {
-                                           "word":  "flor",
-                                           "meaning":  "flower"
+                                           "word":  "cerrojo",
+                                           "meaning":  "lock"
                                        },
                                        {
-                                           "word":  "corona",
-                                           "meaning":  "crown"
+                                           "word":  "paraguas",
+                                           "meaning":  "umbrella"
                                        },
                                        {
-                                           "word":  "barco",
-                                           "meaning":  "boat"
-                                       }
-                                   ]
-                     },
-                     {
-                         "setId":  "advanced_pool",
-                         "displayName":  "Spanish Noun Pool",
-                         "description":  "Hidden source pool mirroring the formal story-friendly 12-word pool.",
-                         "words":  [
-                                       {
-                                           "word":  "estrella",
-                                           "meaning":  "star"
+                                           "word":  "enchufe",
+                                           "meaning":  "plug"
                                        },
                                        {
-                                           "word":  "espejo",
-                                           "meaning":  "mirror"
+                                           "word":  "huevo",
+                                           "meaning":  "egg"
                                        },
                                        {
-                                           "word":  "castillo",
-                                           "meaning":  "castle"
+                                           "word":  "cremallera",
+                                           "meaning":  "zipper"
                                        },
                                        {
-                                           "word":  "máscara",
-                                           "meaning":  "mask"
+                                           "word":  "rodilla",
+                                           "meaning":  "knee"
                                        },
                                        {
-                                           "word":  "vela",
-                                           "meaning":  "candle"
+                                           "word":  "relámpago",
+                                           "meaning":  "lightning"
                                        },
                                        {
-                                           "word":  "tambor",
-                                           "meaning":  "drum"
+                                           "word":  "rueda",
+                                           "meaning":  "wheel"
                                        },
                                        {
-                                           "word":  "nube",
-                                           "meaning":  "cloud"
+                                           "word":  "pegamento",
+                                           "meaning":  "glue"
                                        },
                                        {
-                                           "word":  "campana",
-                                           "meaning":  "bell"
+                                           "word":  "risa",
+                                           "meaning":  "laughter"
                                        },
                                        {
-                                           "word":  "linterna",
-                                           "meaning":  "flashlight"
+                                           "word":  "hambre",
+                                           "meaning":  "hunger"
                                        },
                                        {
-                                           "word":  "flor",
-                                           "meaning":  "flower"
+                                           "word":  "logro",
+                                           "meaning":  "achievement"
                                        },
                                        {
-                                           "word":  "corona",
-                                           "meaning":  "crown"
+                                           "word":  "abrazo",
+                                           "meaning":  "hug"
                                        },
                                        {
-                                           "word":  "barco",
-                                           "meaning":  "boat"
+                                           "word":  "ayuda",
+                                           "meaning":  "help"
+                                       },
+                                       {
+                                           "word":  "ruido",
+                                           "meaning":  "noise"
+                                       },
+                                       {
+                                           "word":  "lodo",
+                                           "meaning":  "mud"
+                                       },
+                                       {
+                                           "word":  "espera",
+                                           "meaning":  "wait"
+                                       },
+                                       {
+                                           "word":  "búsqueda",
+                                           "meaning":  "search"
+                                       },
+                                       {
+                                           "word":  "sombra",
+                                           "meaning":  "shadow"
+                                       },
+                                       {
+                                           "word":  "huella",
+                                           "meaning":  "footprint"
+                                       },
+                                       {
+                                           "word":  "grieta",
+                                           "meaning":  "crack"
+                                       },
+                                       {
+                                           "word":  "burbuja",
+                                           "meaning":  "bubble"
+                                       },
+                                       {
+                                           "word":  "juego",
+                                           "meaning":  "game"
+                                       },
+                                       {
+                                           "word":  "olvidar",
+                                           "meaning":  "forget"
                                        }
                                    ]
                      }

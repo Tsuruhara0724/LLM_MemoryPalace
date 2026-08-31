@@ -21,14 +21,14 @@ room source and story source.
 1. Open the project in Unity `6000.3.12f1`.
 2. Open `Assets/Scenes/SampleScene.unity` and enter Play mode.
 3. Enter the participant ID and select one of the four conditions.
-4. Confirm the formal word pool. Formal sessions sample eight distinct words from
-   the 12-word pool.
+4. Confirm the formal word pool. Formal sessions shuffle the 32-word candidate
+   pool with a recorded seed and screen until eight unknown learning words are found.
 5. Start the session.
 6. For a self-room condition, create the participant's familiar room. For a
    default-room condition, let the participant explore the fixed room using WASD
    and right-mouse look.
-7. Complete the Spanish-to-English pre-test. It gives no feedback and ends after
-   five minutes.
+7. Complete the adaptive Spanish-to-English pre-test. It gives no feedback and
+   continues until eight unknown words are found or all 32 candidates are exhausted.
 8. For a self-story condition, write one continuous story and classify its
    sentences to the target words. For an LLM-story condition, wait for three full
    stories and select one.
@@ -61,7 +61,7 @@ controller remains at the origin. Do not continue a study session with incorrect
 | Phase | Protocol target | Runtime behavior |
 |---|---:|---|
 | Room creation/exploration | 10 min | timer shown; researcher may end early |
-| Spanish pre-test | 5 min | hard timeout |
+| Spanish pre-test | 5 min | target shown; continues until 8 unknown words are found |
 | Story writing/generation and choice | 10 min | timer shown |
 | Furniture-word mapping | 3 min | timer shown; all mappings required |
 | Audio generation | 5–8 min expected | waits for actual TTS completion |
@@ -86,23 +86,29 @@ The LLM is used only in conditions 2 and 4. Each LLM condition generates three
 complete story candidates using the existing causal-plan and story-writing prompts.
 The participant's selected candidate is preserved unchanged for the later route.
 
-Local Chatterbox/Kokoro speech is preferred when enabled. ElevenLabs and Gemini TTS
-remain fallbacks. Test the configured voice before the session.
+All 32 Spanish word-pronunciation clips are generated in advance with Azure's
+`es-ES-ElviraNeural` voice and bundled under `Resources/WordAudio`. Study playback
+never synthesizes Spanish words at runtime. Start
+`Tools/LocalTtsServer/Start-Azure.cmd` before a session so the PC-local Azure proxy
+can synthesize English guides and stories; it retains the Azure key only in the
+terminal process and marks formal Spanish words in an English sentence as `es-ES`.
+Test the prepared word files and configured sentence voice before the session.
 
 ## Assessment and export
 
-The pre-test and immediate post-test both measure Spanish-to-English meaning recall.
-The post-test begins only after the ten-minute HMD phase. CSV rows use phase IDs
-`pre_test` and `final_word_meaning`.
+The adaptive pre-test screens the candidate pool to select eight unknown words. The
+post-test begins only after the ten-minute HMD phase. CSV assessment rows use the
+post-test phase IDs; pre-test exports retain only the screened count and random seed.
 
 Exports are written to `ExperimentExports/`:
 
 - `session_<participant>_<timestamp>.json`
 - `session_<participant>_<timestamp>.csv`
 
-The JSON contains condition factors, actual phase durations, pre-test responses,
-all three LLM candidates when applicable, the chosen candidate index, final story,
-furniture mapping, post-test responses, questionnaire, and event log.
+The JSON contains condition factors, actual phase durations, pre-test screened count
+and random seed, the final eight learning items, all three LLM candidates when
+applicable, the chosen candidate index, final story, furniture mapping, post-test
+responses, questionnaire, and event log. Individual candidate answers are not exported.
 
 ## Pre-run checklist
 
@@ -110,8 +116,9 @@ furniture mapping, post-test responses, questionnaire, and event log.
 - The room has at least eight eligible furniture anchors.
 - Every selected word has a usable image under `Assets/Resources/WordImages/`.
 - Ollama or Gemini works before an LLM-story session.
-- The configured TTS voice is audible and its service is available.
+- `Assets/Resources/WordAudio/` contains one playable WAV for every formal-pool word.
+- `Tools/LocalTtsServer/Start-Azure.cmd` is running and `http://127.0.0.1:8880/health` reports `backend: azure` and `status: ok`.
 - Desktop room navigation and HMD navigation both work.
 - A complete dry run reaches the questionnaire and produces both export files.
-- The exported condition, `roomSource`, `storySource`, pre-test rows, post-test rows,
-  and selected LLM candidate index are correct.
+- The exported condition, `roomSource`, `storySource`, pre-test screened count and
+  seed, final eight items, post-test rows, and selected LLM candidate index are correct.

@@ -72,10 +72,9 @@ Responsibilities:
 
 - `MemoryPalaceBootstrap`: creates the experiment controller after scene load.
 - `MemoryPalaceExperimentController`: Setup UI, room builder, background/participant story flow, PC furniture-word assignment, study room, Desktop/VR interaction, snapshots, recognition tests, questionnaire, and export.
-- `OllamaLlmService.GenerateStory`: runs the causal-plan and final-story passes through local Ollama.
-- `OllamaLlmService.GenerateGeminiStory`: runs the same plan, repair, parsing, and validation pipeline through the Gemini API.
+- `OllamaLlmService.GenerateStory`: retains the established prompt/parsing pipeline and routes runtime requests to the front-end-selected Claude Haiku or GPT_Luna backend.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
-- `ElevenLabsTextToSpeechService`: prefers the local OpenAI-compatible Chatterbox/Kokoro WAV endpoint, then falls back to ElevenLabs `eleven_multilingual_v2` and official Gemini Flash Preview TTS. It decodes local PCM WAV, ElevenLabs MP3, or Gemini 24 kHz mono PCM into a Unity `AudioClip` while preserving route callbacks and replay controls.
+- `ElevenLabsTextToSpeechService`: loads prepared Spanish word clips from `Resources/WordAudio/{word}`. For dynamic English guides and stories it uses the PC-local Azure Speech proxy's OpenAI-compatible WAV endpoint. The Azure key is never sent to Unity or Quest. It preserves route callbacks and replay controls across prepared and generated audio.
 - `ExperimentModels`: story, word-image, response, questionnaire, and export models.
 - `RoomSpecModels`: room shell, furniture anchors, resource loading, and fallback room.
 
@@ -89,20 +88,14 @@ Entry point:
 OllamaLlmService.GenerateStory
 ```
 
-Local default connection:
+Selectable online backends:
 
-- Endpoint: `http://localhost:11434/api/generate`
-- Story model: `gemma3:12b`
-- Request format: Ollama JSON mode, non-streaming
-- Temperature: `0.7`
-- Token budget: `1800`
-
-Online option:
-
-- Provider: Gemini API
-- Default model: `gemini-2.5-flash`
-- Key lookup on Windows desktop: user-level `GEMINI_API_KEY`, then `GOOGLE_API_KEY`, then locally saved Setup value
-- The same two-pass causal plan and final-story validation are used for both providers.
+- Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) through the Anthropic Messages API
+- GPT_Luna (`gpt-5.6-luna`) through the OpenAI Responses API with low reasoning effort and response storage disabled
+- The Setup UI exposes only the friendly provider names; endpoint, model, reasoning, and credentials remain hidden
+- Local configuration uses ignored `Assets/Resources/AnthropicLocalConfig.json` and `Assets/Resources/OpenAiLocalConfig.json`, so Editor and local Quest builds use the same settings
+- Optional desktop overrides use the standard `ANTHROPIC_*` or `OPENAI_*` environment variables
+- The same causal-plan, constrained repair, parsing, and validation pipeline is retained.
 
 The model returns:
 
@@ -130,17 +123,19 @@ Rules and guards:
 
 Minor plan-link paraphrases are canonicalized rather than rejected. If the first final story fails parsing/quality checks or omits a target annotation, the same provider receives one constrained rewrite request. A remaining failure returns to Setup with an explicit error; the runtime does not open an empty Preview or append isolated dream-like repair sentences.
 
-Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking remain disabled. Gemini is active only as an online provider for the continuous-story pipeline.
+Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking remain disabled. The current text-generation backend is selected from the participant-facing Claude Haiku / GPT_Luna control.
 
-### Local unlimited TTS
+### Speech generation and prepared Spanish words
 
-- Primary backend: the stable PyPI Chatterbox Multilingual release on CUDA, exposed locally as `POST /v1/audio/speech`.
-- Low-resource alternative: Kokoro-82M through the same endpoint contract.
-- Default Unity base URL: `http://127.0.0.1:8880/v1`; override with `LOCAL_TTS_ENDPOINT`, `LOCAL_TTS_MODEL`, and `LOCAL_TTS_VOICE`.
-- Setup/start scripts live under `Tools/LocalTtsServer/`. Environments, model downloads, and generated WAV caches live under ignored `.local-tts/`.
-- The local server caches identical requests. Unity tries the local provider first and retains ElevenLabs/Gemini as automatic fallbacks.
+- Primary backend: Azure Speech Standard Neural, reached only through the PC-local OpenAI-compatible proxy at `POST /v1/audio/speech`.
+- Default Unity base URL: `http://127.0.0.1:8880/v1`; the default request model is `azure-speech` and the default voice is `en-US-AvaMultilingualNeural`.
+- Run `Tools/LocalTtsServer/Setup-Azure.cmd` once, then `Start-Azure.cmd` before each session. The start script asks for the Azure key securely when it is not already in the terminal environment; it never writes the key into the Unity project, PlayerPrefs, Resources, session packages, or APK.
+- The proxy caches identical WAV responses under ignored `.local-tts/azure-audio-cache/`. When the English story contains any of the formal 32 Spanish words, it wraps only those tokens in SSML `es-ES` language markup before sending the request to Azure.
+- Unity does not directly fall back to a cloud endpoint if the PC proxy is unavailable, preserving the rule that Azure credentials remain on the PC.
+- The 32 formal Spanish word pronunciations are generated ahead of time with Azure `es-ES-ElviraNeural` by `Tools/LocalTtsServer/Generate-FormalWordAudio.cmd` and stored as 24 kHz mono PCM WAV files in `Assets/Resources/WordAudio/`. The Azure key and region come from environment variables or a secure interactive prompt and are never stored in the project.
+- Study requires the matching prepared resource for each selected word and never synthesizes or falls back for Spanish word audio at runtime. English guides and story segments remain whole `en` utterances using the existing TTS path. When the word-image page appears, the prepared word clip plays twice before the story segment. Desktop and VR also show an interactive pronunciation button beside the word that replays the same asset.
 - A missing non-serialized speech service is recreated automatically after Unity domain reload, so Play Mode script recompilation no longer leaves the Study route with `No system text-to-speech service`.
-- For Quest package transfer, PC-written packages store `sourcePcHost` and rewrite loopback Local TTS endpoints to the PC LAN IP when possible. This lets an ADB-pushed package still call the PC local TTS server over Wi-Fi.
+- For Quest package transfer, PC-written packages store `sourcePcHost` and rewrite loopback Azure-proxy endpoints to the PC LAN IP when possible. This lets an ADB-pushed package still call the PC proxy over Wi-Fi.
 
 ## 6. Word images
 
@@ -150,10 +145,9 @@ Runtime lookup:
 Resources.Load<Texture2D>("WordImages/{lower-case Spanish word}")
 ```
 
-Current coverage as of 2026-07-02:
+Current coverage as of 2026-08-30:
 
-- 26/26 distinct words across the preset sets
-- 12/12 words in `formal_12_pool`
+- 10/32 words in `formal_32_pool`; the 22 newly added candidate images are pending manual addition
 - `_placeholder.png` remains the missing-file fallback
 
 Most images are color PNGs from OpenMoji, licensed CC BY-SA 4.0. Six files (`alfombra`, `barco`, `biblioteca`, `camino`, `campana`, and `castillo`) were later replaced locally and currently need their source/license metadata restored. Exact status is tracked in `Assets/Resources/WordImages/ATTRIBUTION.md`.
@@ -177,16 +171,17 @@ Preset sets:
 
 - `alpha`: 8 words
 - `beta`: 8 words
-- `formal_12_pool`: 12 words
-- `advanced_pool`: currently duplicates the formal 12-word pool
+- `formal_32_pool`: 32 words; this is the only formal candidate pool
 
-Formal runs sample 8 distinct words from `formal_12_pool`.
+Formal runs shuffle `formal_32_pool` with an exported seed, discard correctly answered pre-test candidates, and continue until 8 participant-unknown learning words are retained. The five-minute mark is a target rather than a hard cutoff; Study is blocked if the full pool yields fewer than 8 unknown words. Exports retain only `preTestScreenedWordCount`, `preTestRandomSeed`, and the normal final eight `items`, not per-candidate answers.
 
 Current formal pool:
 
 ```text
-estrella, espejo, castillo, máscara, vela, tambor,
-nube, campana, linterna, flor, corona, barco
+pájaro, techo, estrella, espejo, vela, nube, columpio, valla,
+cerrojo, paraguas, enchufe, huevo, cremallera, rodilla, relámpago, rueda,
+pegamento, risa, hambre, logro, abrazo, ayuda, ruido, lodo,
+espera, búsqueda, sombra, huella, grieta, burbuja, juego, olvidar
 ```
 
 ## 8. Room system
@@ -206,7 +201,7 @@ Study UI currently provides:
 - Per-word Spanish word, English meaning, local image, story beat, and anchor label.
 - Desktop free movement and click inspection.
 - Optional OpenXR/VR study runtime.
-- Optional guided voice route: anchor instruction -> wait for the correct nearby image to be inspected -> play that story segment -> continue to the next anchor.
+- Optional guided voice route: anchor instruction -> wait for the correct nearby image to be inspected -> play the Spanish word twice -> play that story segment -> continue to the next anchor.
 - Word-image markers are proximity-gated: only the current route marker is revealed at roughly 2.2 m and its detail UI remains available to roughly 2.6 m, with automatic look-to-inspect and foreground rendering to prevent room-geometry clipping.
 - VR HMD users see the currently spoken guide or story segment as a subtitle in the world-space study panel; the existing replay control is unchanged.
 - Story-segment subtitles wait for participant confirmation through the `>` advance button. Walking instructions still advance automatically after the participant reaches and looks toward the next anchor.

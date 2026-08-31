@@ -1,6 +1,6 @@
 ﻿{
     "roomId": "grid_l_shape_20260622_180949",
-    "roomName": "L-Shape Default Room",
+    "roomName": "L-Shape Example Room",
     "generatedBy": "Deterministic grid room editor",
     "sourcePrompt": "User-authored grid layout. LLM is intentionally not used for room or furniture creation.",
     "summary": "Grid room: 69 floor cell(s), 14 fixed furniture anchor(s).",

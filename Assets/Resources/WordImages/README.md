@@ -7,10 +7,10 @@ The runtime loads one local image per Spanish target word with:
 Use the lower-case Spanish word as the filename, for example `estrella.png`.
 If a file is missing, `_placeholder.png` is used.
 
-Current coverage:
+Current formal-pool coverage:
 
-- 26/26 distinct words used by the preset sets
-- 12/12 words in `formal_12_pool`
+- 10/32 words in `formal_32_pool`
+- The 22 newly added candidate images are pending manual addition
 
 Most current images are OpenMoji icons downloaded from the internet. Several files
 have since been replaced locally; their source/license status is tracked separately.

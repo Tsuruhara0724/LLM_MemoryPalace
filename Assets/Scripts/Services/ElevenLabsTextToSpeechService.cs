@@ -8,8 +8,8 @@ using UnityEngine.Networking;
 namespace MemPalaceLLM
 {
     /// <summary>
-    /// Runtime ElevenLabs speech bridge. Each Speak call sends the supplied text to
-    /// eleven_multilingual_v2 and plays the returned audio through a non-spatial AudioSource.
+    /// Runtime speech bridge. Dynamic text is sent to the PC-local Azure Speech proxy;
+    /// prepared Spanish word clips are loaded from Resources and all audio is played through a non-spatial AudioSource.
     /// </summary>
     public sealed class ElevenLabsTextToSpeechService : IDisposable
     {
@@ -17,6 +17,7 @@ namespace MemPalaceLLM
         private const string ModelId = "eleven_multilingual_v2";
         private const string GeminiTtsUrl = "https://generativelanguage.googleapis.com/v1beta/interactions";
         private const string GeminiTtsModel = "gemini-2.5-flash-preview-tts";
+        private const string PreparedSpanishWordAudioFolder = "WordAudio/";
 
         public event Action<string> UtteranceCompleted;
         public event Action<string, string> UtteranceFailed;
@@ -48,13 +49,14 @@ namespace MemPalaceLLM
         private string voiceId = string.Empty;
         private string geminiApiKey = string.Empty;
         private string localTtsEndpoint = string.Empty;
-        private string localTtsModel = "chatterbox-multilingual";
-        private string localTtsVoice = "default";
+        private string localTtsModel = "azure-speech";
+        private string localTtsVoice = "en-US-AvaMultilingualNeural";
         private float localTtsSpeed = 0.90f;
         private float localTtsExaggeration = 0.35f;
         private float localTtsCfgWeight = 0.20f;
         private float localTtsTemperature = 0.55f;
         private string pendingText = string.Empty;
+        private string pendingLanguageCode = "en";
         private string playbackProvider = "Speech";
         private bool activeRequestUsesGemini;
         private bool activeRequestUsesLocal;
@@ -93,8 +95,8 @@ namespace MemPalaceLLM
             var nextVoiceId = string.IsNullOrWhiteSpace(configuredVoiceId) ? string.Empty : configuredVoiceId.Trim();
             var nextGeminiApiKey = string.IsNullOrWhiteSpace(configuredGeminiApiKey) ? string.Empty : configuredGeminiApiKey.Trim();
             var nextLocalEndpoint = string.IsNullOrWhiteSpace(configuredLocalTtsEndpoint) ? string.Empty : configuredLocalTtsEndpoint.Trim().TrimEnd('/');
-            var nextLocalModel = string.IsNullOrWhiteSpace(configuredLocalTtsModel) ? "chatterbox-multilingual" : configuredLocalTtsModel.Trim();
-            var nextLocalVoice = string.IsNullOrWhiteSpace(configuredLocalTtsVoice) ? "default" : configuredLocalTtsVoice.Trim();
+            var nextLocalModel = string.IsNullOrWhiteSpace(configuredLocalTtsModel) ? "azure-speech" : configuredLocalTtsModel.Trim();
+            var nextLocalVoice = string.IsNullOrWhiteSpace(configuredLocalTtsVoice) ? "en-US-AvaMultilingualNeural" : configuredLocalTtsVoice.Trim();
             var nextLocalSpeed = Mathf.Clamp(configuredLocalTtsSpeed, 0.85f, 1.05f);
             var nextLocalExaggeration = Mathf.Clamp(configuredLocalTtsExaggeration, 0.20f, 0.80f);
             var nextLocalCfgWeight = Mathf.Clamp(configuredLocalTtsCfgWeight, 0.05f, 0.55f);
@@ -176,14 +178,8 @@ namespace MemPalaceLLM
             UtteranceCompleted?.Invoke(completedId);
         }
 
-        public bool Speak(string text, string utteranceId)
+        public bool Speak(string text, string utteranceId, string languageCode = null, bool localOnly = false)
         {
-            if (!IsReady)
-            {
-                Status = "Configure Local TTS, ElevenLabs, or Gemini speech in Setup.";
-                return false;
-            }
-
             if (string.IsNullOrWhiteSpace(text))
             {
                 Status = "ElevenLabs cannot speak empty text.";
@@ -195,22 +191,50 @@ namespace MemPalaceLLM
                 ? "speech_" + Guid.NewGuid().ToString("N")
                 : utteranceId.Trim();
             pendingText = text.Trim();
+            pendingLanguageCode = NormalizeLanguageCode(languageCode);
             activeRequestIsPreload = false;
 
-            var cacheKey = BuildSpeechCacheKey(pendingText);
+            if (localOnly)
+            {
+                if (TryPlayPreparedSpanishWordClip(pendingText, pendingLanguageCode))
+                {
+                    Status = "Speaking from prepared Spanish word audio.";
+                    return true;
+                }
+
+                Status = $"Missing prepared Spanish word audio at Resources/{PreparedSpanishWordAudioFolder}{pendingText}.wav.";
+                activeUtteranceId = string.Empty;
+                pendingText = string.Empty;
+                pendingLanguageCode = "en";
+                return false;
+            }
+
+            if (!IsReady)
+            {
+                Status = "Configure Local TTS, ElevenLabs, or Gemini speech in Setup.";
+                activeUtteranceId = string.Empty;
+                pendingText = string.Empty;
+                pendingLanguageCode = "en";
+                return false;
+            }
+
+            var cacheKey = BuildSpeechCacheKey(pendingText, pendingLanguageCode, localOnly);
             if (TryPlayCachedClip(cacheKey))
             {
                 Status = "Speaking from prepared speech cache.";
                 return true;
             }
 
+            activeRequestCacheKey = cacheKey;
             if (IsLocalTtsConfigured())
             {
                 if (!CanUseLocalTts())
                 {
-                    Status = "Local TTS is selected, but the local endpoint is not available. Cloud TTS fallback is disabled.";
+                    Status = "Azure Speech proxy is selected, but its local endpoint is not available. Direct cloud fallback is disabled.";
                     activeUtteranceId = string.Empty;
                     pendingText = string.Empty;
+                    pendingLanguageCode = "en";
+                    activeRequestCacheKey = string.Empty;
                     return false;
                 }
 
@@ -228,26 +252,25 @@ namespace MemPalaceLLM
             return true;
         }
 
-        public bool IsSpeechCached(string text)
+        public bool IsSpeechCached(string text, string languageCode = null, bool localOnly = false)
         {
             if (string.IsNullOrWhiteSpace(text))
             {
                 return false;
             }
 
-            return speechCache.TryGetValue(BuildSpeechCacheKey(text.Trim()), out var clip) &&
+            if (localOnly)
+            {
+                return TryLoadPreparedSpanishWordClip(text.Trim(), languageCode, out _);
+            }
+
+            return speechCache.TryGetValue(BuildSpeechCacheKey(text.Trim(), languageCode), out var clip) &&
                    clip != null &&
                    clip.length > 0.01f;
         }
 
-        public bool Preload(string text, string preloadId = null)
+        public bool Preload(string text, string preloadId = null, string languageCode = null, bool localOnly = false)
         {
-            if (!IsReady)
-            {
-                Status = "Configure Local TTS, ElevenLabs, or Gemini speech before preloading.";
-                return false;
-            }
-
             if (activeRequest != null || playbackStarted)
             {
                 Status = "Speech service is busy.";
@@ -261,12 +284,39 @@ namespace MemPalaceLLM
             }
 
             pendingText = text.Trim();
-            activeRequestCacheKey = BuildSpeechCacheKey(pendingText);
+            pendingLanguageCode = NormalizeLanguageCode(languageCode);
+
+            if (localOnly)
+            {
+                if (TryLoadPreparedSpanishWordClip(pendingText, pendingLanguageCode, out _))
+                {
+                    pendingText = string.Empty;
+                    pendingLanguageCode = "en";
+                    Status = "Prepared Spanish word audio is bundled with the application.";
+                    return true;
+                }
+
+                Status = $"Missing prepared Spanish word audio at Resources/{PreparedSpanishWordAudioFolder}{pendingText}.wav.";
+                pendingText = string.Empty;
+                pendingLanguageCode = "en";
+                return false;
+            }
+
+            if (!IsReady)
+            {
+                Status = "Configure Local TTS, ElevenLabs, or Gemini speech before preloading.";
+                pendingText = string.Empty;
+                pendingLanguageCode = "en";
+                return false;
+            }
+
+            activeRequestCacheKey = BuildSpeechCacheKey(pendingText, pendingLanguageCode, localOnly);
             if (speechCache.TryGetValue(activeRequestCacheKey, out var cachedClip) &&
                 cachedClip != null &&
                 cachedClip.length > 0.01f)
             {
                 pendingText = string.Empty;
+                pendingLanguageCode = "en";
                 activeRequestCacheKey = string.Empty;
                 Status = "Speech is already prepared.";
                 return true;
@@ -281,9 +331,10 @@ namespace MemPalaceLLM
             {
                 if (!CanUseLocalTts())
                 {
-                    Status = "Local TTS is selected, but the local endpoint is not available. Cloud TTS fallback is disabled.";
+                    Status = "Azure Speech proxy is selected, but its local endpoint is not available. Direct cloud fallback is disabled.";
                     activeUtteranceId = string.Empty;
                     pendingText = string.Empty;
+                    pendingLanguageCode = "en";
                     activeRequestCacheKey = string.Empty;
                     activeRequestIsPreload = false;
                     return false;
@@ -314,7 +365,7 @@ namespace MemPalaceLLM
                 input = text,
                 voice = localTtsVoice,
                 response_format = "wav",
-                language = "en",
+                language = pendingLanguageCode,
                 speed = localTtsSpeed,
                 exaggeration = localTtsExaggeration,
                 cfg_weight = localTtsCfgWeight,
@@ -336,7 +387,7 @@ namespace MemPalaceLLM
             activeRequest.SetRequestHeader("Content-Type", "application/json");
             activeRequest.SetRequestHeader("Accept", "audio/wav");
             requestOperation = activeRequest.SendWebRequest();
-            Status = "Generating unlimited local speech with " + localTtsModel + ".";
+            Status = "Generating Azure Speech through the PC proxy with " + localTtsVoice + ".";
         }
 
         private void StartElevenLabsRequest(string text)
@@ -376,10 +427,13 @@ namespace MemPalaceLLM
         {
             activeRequestUsesLocal = false;
             activeRequestUsesGemini = true;
+            var pronunciationInstruction = string.Equals(pendingLanguageCode, "es", StringComparison.OrdinalIgnoreCase)
+                ? "Pronounce this Spanish vocabulary word naturally and clearly in Spanish."
+                : "Read warmly, naturally, and conversationally at a steady pace.";
             var payload = new GeminiTtsRequest
             {
                 model = GeminiTtsModel,
-                input = "Read warmly, naturally, and conversationally at a steady pace. Speak exactly this text:\n" + text,
+                input = pronunciationInstruction + " Speak exactly this text:\n" + text,
                 response_format = new GeminiResponseFormat { type = "audio" },
                 generation_config = new GeminiGenerationConfig
                 {
@@ -450,6 +504,7 @@ namespace MemPalaceLLM
             playbackStarted = false;
             activeUtteranceId = string.Empty;
             pendingText = string.Empty;
+            pendingLanguageCode = "en";
             activeRequestCacheKey = string.Empty;
             activeRequestIsPreload = false;
             activeRequestUsesGemini = false;
@@ -484,10 +539,11 @@ namespace MemPalaceLLM
                     var localFailure = BuildRequestFailureStatus("Local TTS", request);
                     var localFailedId = activeUtteranceId;
                     activeUtteranceId = string.Empty;
-                    Status = localFailure + " Local TTS is selected, so cloud speech fallback is disabled.";
+                    Status = localFailure + " Azure Speech proxy is selected, so direct cloud fallback is disabled.";
                     Debug.LogWarning(Status);
                     request.Dispose();
                     pendingText = string.Empty;
+                    pendingLanguageCode = "en";
                     activeRequestCacheKey = string.Empty;
                     var localWasPreload = activeRequestIsPreload;
                     activeRequestIsPreload = false;
@@ -504,7 +560,7 @@ namespace MemPalaceLLM
                     {
                         elevenLabsUnavailableForSession = true;
                     }
-                    activeRequestCacheKey = BuildSpeechCacheKey(pendingText);
+                    activeRequestCacheKey = BuildSpeechCacheKey(pendingText, pendingLanguageCode);
                     Debug.LogWarning(elevenLabsFailure + " Falling back to Gemini Flash TTS.");
                     request.Dispose();
                     StartGeminiRequest(pendingText);
@@ -517,6 +573,7 @@ namespace MemPalaceLLM
                 Debug.LogWarning(Status);
                 request.Dispose();
                 pendingText = string.Empty;
+                pendingLanguageCode = "en";
                 activeRequestCacheKey = string.Empty;
                 var requestWasPreload = activeRequestIsPreload;
                 activeRequestIsPreload = false;
@@ -544,6 +601,7 @@ namespace MemPalaceLLM
                 Debug.LogWarning(Status);
                 request.Dispose();
                 pendingText = string.Empty;
+                pendingLanguageCode = "en";
                 activeRequestCacheKey = string.Empty;
                 var wasPreload = activeRequestIsPreload;
                 activeRequestIsPreload = false;
@@ -566,6 +624,7 @@ namespace MemPalaceLLM
                     UnityEngine.Object.Destroy(decodedClip);
                 }
                 pendingText = string.Empty;
+                pendingLanguageCode = "en";
                 activeRequestCacheKey = string.Empty;
                 var wasPreload = activeRequestIsPreload;
                 activeRequestIsPreload = false;
@@ -577,7 +636,7 @@ namespace MemPalaceLLM
             }
 
             var cacheKey = string.IsNullOrWhiteSpace(activeRequestCacheKey)
-                ? BuildSpeechCacheKey(pendingText)
+                ? BuildSpeechCacheKey(pendingText, pendingLanguageCode)
                 : activeRequestCacheKey;
             CacheSpeechClip(cacheKey, decodedClip);
             if (activeRequestIsPreload)
@@ -585,6 +644,7 @@ namespace MemPalaceLLM
                 Status = "Prepared speech audio.";
                 activeUtteranceId = string.Empty;
                 pendingText = string.Empty;
+                pendingLanguageCode = "en";
                 activeRequestCacheKey = string.Empty;
                 activeRequestIsPreload = false;
                 activeRequestUsesGemini = false;
@@ -598,9 +658,10 @@ namespace MemPalaceLLM
             audioSource.Play();
             playbackStarted = true;
             playbackProvider = activeRequestUsesLocal
-                ? "Local TTS (" + localTtsModel + ")"
+                ? "Azure Speech (PC proxy)"
                 : activeRequestUsesGemini ? "Gemini Flash TTS" : "ElevenLabs Multilingual v2";
             pendingText = string.Empty;
+            pendingLanguageCode = "en";
             activeRequestCacheKey = string.Empty;
             activeRequestIsPreload = false;
             Status = "Speaking with " + playbackProvider + ".";
@@ -612,8 +673,8 @@ namespace MemPalaceLLM
             {
                 IsReady = CanUseLocalTts();
                 Status = IsReady
-                    ? "Local-only unlimited TTS is ready. Cloud speech fallback is disabled."
-                    : "Local TTS is selected, but the local endpoint is empty or unavailable. Cloud speech fallback is disabled.";
+                    ? "Azure Speech proxy is ready. The Azure key remains on this PC; direct cloud fallback is disabled."
+                    : "Azure Speech proxy is selected, but the local endpoint is empty or unavailable. Direct cloud fallback is disabled.";
                 return;
             }
 
@@ -660,7 +721,7 @@ namespace MemPalaceLLM
 
         private string GetActiveProviderLabel()
         {
-            return activeRequestUsesLocal ? "Local TTS" : activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs";
+            return activeRequestUsesLocal ? "Azure Speech proxy" : activeRequestUsesGemini ? "Gemini TTS" : "ElevenLabs";
         }
 
         private static AudioClip DecodePcmWavClip(byte[] wavBytes)
@@ -807,27 +868,34 @@ namespace MemPalaceLLM
             throw new InvalidOperationException("Gemini response did not contain an audio block.");
         }
 
-        private string BuildSpeechCacheKey(string text)
+        private static string NormalizeLanguageCode(string languageCode)
+        {
+            return string.Equals(languageCode?.Trim(), "es", StringComparison.OrdinalIgnoreCase) ? "es" : "en";
+        }
+
+        private string BuildSpeechCacheKey(string text, string languageCode = null, bool forceLocal = false)
         {
             var normalizedText = string.IsNullOrWhiteSpace(text)
                 ? string.Empty
                 : text.Trim();
-            if (IsLocalTtsConfigured())
+            var normalizedLanguage = NormalizeLanguageCode(languageCode);
+            if (forceLocal || IsLocalTtsConfigured())
             {
                 return "local|" + localTtsEndpoint + "|" + localTtsModel + "|" + localTtsVoice + "|" +
                        localTtsSpeed.ToString("0.000") + "|" +
                        localTtsExaggeration.ToString("0.000") + "|" +
                        localTtsCfgWeight.ToString("0.000") + "|" +
                        localTtsTemperature.ToString("0.000") + "|" +
+                       normalizedLanguage + "|" +
                        normalizedText;
             }
 
             if (CanUseElevenLabs())
             {
-                return "elevenlabs|" + voiceId + "|" + normalizedText;
+                return "elevenlabs|" + voiceId + "|" + normalizedLanguage + "|" + normalizedText;
             }
 
-            return "gemini|" + GeminiTtsModel + "|Sulafat|" + normalizedText;
+            return "gemini|" + GeminiTtsModel + "|Sulafat|" + normalizedLanguage + "|" + normalizedText;
         }
 
         private bool TryPlayCachedClip(string cacheKey)
@@ -850,9 +918,55 @@ namespace MemPalaceLLM
             playbackStarted = true;
             playbackProvider = "Prepared speech";
             pendingText = string.Empty;
+            pendingLanguageCode = "en";
             activeRequestCacheKey = string.Empty;
             activeRequestIsPreload = false;
             return true;
+        }
+
+        private bool TryPlayPreparedSpanishWordClip(string text, string languageCode)
+        {
+            if (audioSource == null ||
+                !TryLoadPreparedSpanishWordClip(text, languageCode, out var preparedClip))
+            {
+                return false;
+            }
+
+            ReleaseActiveClip();
+            activeClip = preparedClip;
+            activeClipIsCached = true;
+            audioSource.clip = activeClip;
+            audioSource.time = 0f;
+            audioSource.Play();
+            playbackStarted = true;
+            playbackProvider = "Prepared Spanish word audio";
+            pendingText = string.Empty;
+            pendingLanguageCode = "en";
+            activeRequestCacheKey = string.Empty;
+            activeRequestIsPreload = false;
+            return true;
+        }
+
+        private static bool TryLoadPreparedSpanishWordClip(
+            string text,
+            string languageCode,
+            out AudioClip clip)
+        {
+            clip = null;
+            if (!string.Equals(NormalizeLanguageCode(languageCode), "es", StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            var word = text.Trim();
+            if (word.IndexOf('/') >= 0 || word.IndexOf('\\') >= 0)
+            {
+                return false;
+            }
+
+            clip = Resources.Load<AudioClip>(PreparedSpanishWordAudioFolder + word);
+            return clip != null && clip.length > 0.01f;
         }
 
         private void CacheSpeechClip(string cacheKey, AudioClip clip)

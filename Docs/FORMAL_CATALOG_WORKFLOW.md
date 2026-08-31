@@ -1,14 +1,14 @@
 # Formal Material Workflow
 
-Last verified: 2026-07-08
+Last verified: 2026-08-30
 
 The old 12 x 10 mnemonic catalog and 480-image anchor-pair catalog are not used by the active continuous-story design.
 
 ## Formal word material
 
-- Source set: `formal_12_pool` in `Assets/Resources/MemPalaceDemoData.json`
-- Pool size: 12 distinct Spanish nouns
-- Session sample: 8 distinct words
+- Source set: `formal_32_pool` in `Assets/Resources/MemPalaceDemoData.json`
+- Pool size: 32 distinct Spanish words
+- Session selection: candidates are shuffled with a recorded seed and tested until 8 participant-unknown words are retained
 - Story source in the LLM condition: one live Ollama or Gemini continuous story
 - Visual source: one fixed local image per Spanish word
 - Study protocol: independent room study for 20 minutes
@@ -20,8 +20,10 @@ The old 12 x 10 mnemonic catalog and 480-image anchor-pair catalog are not used 
 Formal pool:
 
 ```text
-estrella, espejo, castillo, máscara, vela, tambor,
-nube, campana, linterna, flor, corona, barco
+pájaro, techo, estrella, espejo, vela, nube, columpio, valla,
+cerrojo, paraguas, enchufe, huevo, cremallera, rodilla, relámpago, rueda,
+pegamento, risa, hambre, logro, abrazo, ayuda, ruido, lodo,
+espera, búsqueda, sombra, huella, grieta, burbuja, juego, olvidar
 ```
 
 ## Image preparation

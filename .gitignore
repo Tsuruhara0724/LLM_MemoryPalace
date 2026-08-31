@@ -48,3 +48,18 @@ Assets/_Recovery.meta
 ExperimentModels.dll
 VRSessionPackages/session_package_*.json
 !VRSessionPackages/session_package_latest.json
+
+# Local Claude credentials (included in local Quest builds; never commit)
+Assets/Resources/AnthropicLocalConfig.json
+Assets/Resources/AnthropicLocalConfig.json.meta
+Assets/Resources/OpenAiLocalConfig.json
+Assets/Resources/OpenAiLocalConfig.json.meta
+
+# Local recovery/cache directories created while repairing or replacing assets
+.replaced-word-backup-*/
+Library.*/
+Temp.*/
+
+# Third-party Unity Asset Store content (large and not redistributable in source form)
+Assets/Furniture Mega Pack/
+Assets/Furniture Mega Pack.meta

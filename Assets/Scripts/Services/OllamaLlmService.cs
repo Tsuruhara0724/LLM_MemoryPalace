@@ -17,8 +17,34 @@ namespace MemPalaceLLM
         private const int GeminiServerAttemptCount = 2;
         private const int ImagePromptCandidateCount = 4;
         private readonly List<string> geminiModelsUsed = new List<string>();
+        private readonly string claudeApiKey;
+        private readonly string claudeEndpoint;
+        private readonly string claudeAuthMode;
+        private readonly string openAiApiKey;
+        private readonly string openAiEndpoint;
+        private readonly string openAiReasoningEffort;
 
         public string GeminiModelsUsedSummary => string.Join(", ", geminiModelsUsed);
+
+        public OllamaLlmService(
+            string claudeApiKey = "",
+            string claudeEndpoint = "",
+            string claudeAuthMode = "bearer",
+            string openAiApiKey = "",
+            string openAiEndpoint = "",
+            string openAiReasoningEffort = "low")
+        {
+            this.claudeApiKey = claudeApiKey?.Trim() ?? string.Empty;
+            this.claudeEndpoint = claudeEndpoint?.Trim() ?? string.Empty;
+            this.claudeAuthMode = string.IsNullOrWhiteSpace(claudeAuthMode)
+                ? "bearer"
+                : claudeAuthMode.Trim().ToLowerInvariant();
+            this.openAiApiKey = openAiApiKey?.Trim() ?? string.Empty;
+            this.openAiEndpoint = openAiEndpoint?.Trim() ?? string.Empty;
+            this.openAiReasoningEffort = string.IsNullOrWhiteSpace(openAiReasoningEffort)
+                ? "low"
+                : openAiReasoningEffort.Trim().ToLowerInvariant();
+        }
 
         private static bool IsStoryOnlyRedesignEnabled()
         {
@@ -51,6 +77,93 @@ namespace MemPalaceLLM
             public bool done;
             public string done_reason;
             public string error;
+        }
+
+        [Serializable]
+        private class ClaudeMessageRequest
+        {
+            public string model;
+            public int max_tokens;
+            public float temperature;
+            public string system;
+            public ClaudeMessage[] messages;
+        }
+
+        [Serializable]
+        private class ClaudeMessage
+        {
+            public string role;
+            public string content;
+        }
+
+        [Serializable]
+        private class ClaudeMessageResponse
+        {
+            public string type;
+            public string model;
+            public ClaudeContentBlock[] content;
+            public ClaudeError error;
+        }
+
+        [Serializable]
+        private class ClaudeContentBlock
+        {
+            public string type;
+            public string text;
+        }
+
+        [Serializable]
+        private class ClaudeError
+        {
+            public string type;
+            public string message;
+        }
+
+        [Serializable]
+        private class OpenAiResponseRequest
+        {
+            public string model;
+            public string instructions;
+            public string input;
+            public int max_output_tokens;
+            public bool store;
+            public OpenAiReasoning reasoning;
+        }
+
+        [Serializable]
+        private class OpenAiReasoning
+        {
+            public string effort;
+        }
+
+        [Serializable]
+        private class OpenAiResponseEnvelope
+        {
+            public string @object;
+            public string model;
+            public OpenAiOutputItem[] output;
+            public OpenAiError error;
+        }
+
+        [Serializable]
+        private class OpenAiOutputItem
+        {
+            public string type;
+            public OpenAiOutputContent[] content;
+        }
+
+        [Serializable]
+        private class OpenAiOutputContent
+        {
+            public string type;
+            public string text;
+        }
+
+        [Serializable]
+        private class OpenAiError
+        {
+            public string type;
+            public string message;
         }
 
         [Serializable]
@@ -247,13 +360,13 @@ namespace MemPalaceLLM
         {
             if (string.IsNullOrWhiteSpace(endpoint))
             {
-                onError?.Invoke("Ollama endpoint is empty.");
+                onError?.Invoke("Online generation endpoint is empty.");
                 yield break;
             }
 
             if (string.IsNullOrWhiteSpace(model))
             {
-                onError?.Invoke("Ollama model is empty.");
+                onError?.Invoke("Online generation model is empty.");
                 yield break;
             }
 
@@ -287,7 +400,7 @@ namespace MemPalaceLLM
 
             if (!string.IsNullOrWhiteSpace(causalPlanRequestError))
             {
-                onError?.Invoke("Ollama causal-plan request failed: " + causalPlanRequestError);
+                onError?.Invoke("Online causal-plan request failed: " + causalPlanRequestError);
                 yield break;
             }
 
@@ -296,7 +409,7 @@ namespace MemPalaceLLM
                 // Smaller local models sometimes return only the first array item despite a valid JSON response.
                 // The story writer and its repair pass still validate the actual participant-facing output, so
                 // use a complete structural plan here rather than abandoning the participant's session.
-                Debug.LogWarning("Ollama causal plan was incomplete; using a structural fallback. " + causalPlanError);
+                Debug.LogWarning("Online causal plan was incomplete; using a structural fallback. " + causalPlanError);
                 preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words);
             }
 
@@ -326,7 +439,7 @@ namespace MemPalaceLLM
 
             if (!string.IsNullOrWhiteSpace(storyRequestError))
             {
-                onError?.Invoke("Ollama story-writing request failed: " + storyRequestError);
+                onError?.Invoke("Online story-writing request failed: " + storyRequestError);
                 yield break;
             }
 
@@ -357,13 +470,13 @@ namespace MemPalaceLLM
 
                 if (!string.IsNullOrWhiteSpace(repairRequestError))
                 {
-                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the Ollama repair request failed: " + repairRequestError);
+                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the online repair request failed: " + repairRequestError);
                     yield break;
                 }
 
                 if (!TryParseAndBuildStoryResponse(repairedResponse, words, model.Trim(), out story, out validationError))
                 {
-                    onError?.Invoke("Ollama story repair still failed validation: " + validationError + "\nRaw response preview:\n" + BuildPreview(repairedResponse));
+                    onError?.Invoke("Online story repair still failed validation: " + validationError + "\nRaw response preview:\n" + BuildPreview(repairedResponse));
                     yield break;
                 }
 
@@ -483,13 +596,33 @@ namespace MemPalaceLLM
             onSuccess?.Invoke(story);
         }
 
-        private static IEnumerator SendOllamaJsonRequest(
+        private IEnumerator SendOllamaJsonRequest(
             string endpoint,
             OllamaGenerateRequest requestBody,
             Action<string> onSuccess,
             Action<string> onError)
         {
-            var json = JsonUtility.ToJson(requestBody);
+            if (!string.IsNullOrWhiteSpace(openAiApiKey))
+            {
+                yield return SendOpenAiResponseRequest(
+                    string.IsNullOrWhiteSpace(openAiEndpoint) ? endpoint : openAiEndpoint,
+                    requestBody,
+                    onSuccess,
+                    onError);
+                yield break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(claudeApiKey))
+            {
+                yield return SendClaudeMessageRequest(
+                    string.IsNullOrWhiteSpace(claudeEndpoint) ? endpoint : claudeEndpoint,
+                    requestBody,
+                    onSuccess,
+                    onError);
+                yield break;
+            }
+
+            var json = BuildProviderRequestJson(requestBody);
             using var request = new UnityWebRequest(endpoint, UnityWebRequest.kHttpVerbPOST);
             request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
             request.downloadHandler = new DownloadHandlerBuffer();
@@ -534,6 +667,360 @@ namespace MemPalaceLLM
             }
 
             onSuccess?.Invoke(response.response.Trim());
+        }
+
+        private IEnumerator SendClaudeMessageRequest(
+            string endpoint,
+            OllamaGenerateRequest source,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                onError?.Invoke("Claude endpoint is empty.");
+                yield break;
+            }
+
+            if (source == null || string.IsNullOrWhiteSpace(source.model))
+            {
+                onError?.Invoke("Claude model is empty.");
+                yield break;
+            }
+
+            var maxTokens = source.options != null && source.options.num_predict > 0
+                ? source.options.num_predict
+                : 4096;
+            var requestBody = new ClaudeMessageRequest
+            {
+                model = source.model.Trim(),
+                max_tokens = Mathf.Clamp(maxTokens, 64, 16000),
+                temperature = source.options == null ? 0.2f : Mathf.Clamp01(source.options.temperature),
+                system = source.system ?? string.Empty,
+                messages = new[]
+                {
+                    new ClaudeMessage
+                    {
+                        role = "user",
+                        content = source.prompt ?? string.Empty
+                    }
+                }
+            };
+
+            var json = JsonUtility.ToJson(requestBody);
+            using var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST);
+            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = RequestTimeoutSeconds;
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("anthropic-version", "2023-06-01");
+            if (string.Equals(claudeAuthMode, "x-api-key", StringComparison.OrdinalIgnoreCase))
+            {
+                request.SetRequestHeader("x-api-key", claudeApiKey);
+            }
+            else
+            {
+                request.SetRequestHeader("Authorization", "Bearer " + claudeApiKey);
+            }
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                onError?.Invoke(
+                    $"Claude request failed (HTTP {request.responseCode}): {request.error}\n" +
+                    BuildPreview(request.downloadHandler?.text));
+                yield break;
+            }
+
+            ClaudeMessageResponse response;
+            try
+            {
+                response = JsonUtility.FromJson<ClaudeMessageResponse>(request.downloadHandler.text);
+            }
+            catch (Exception ex)
+            {
+                onError?.Invoke("Failed to parse the Claude response envelope: " + ex.Message);
+                yield break;
+            }
+
+            if (response?.error != null && !string.IsNullOrWhiteSpace(response.error.message))
+            {
+                onError?.Invoke(response.error.message.Trim());
+                yield break;
+            }
+
+            if (response?.content == null || response.content.Length == 0)
+            {
+                onError?.Invoke("Claude returned an empty response.");
+                yield break;
+            }
+
+            var text = new StringBuilder();
+            foreach (var block in response.content)
+            {
+                if (block != null && string.Equals(block.type, "text", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(block.text))
+                {
+                    if (text.Length > 0)
+                    {
+                        text.AppendLine();
+                    }
+                    text.Append(block.text.Trim());
+                }
+            }
+
+            if (text.Length == 0)
+            {
+                onError?.Invoke("Claude returned no text content.");
+                yield break;
+            }
+
+            onSuccess?.Invoke(text.ToString());
+        }
+
+        private IEnumerator SendOpenAiResponseRequest(
+            string endpoint,
+            OllamaGenerateRequest source,
+            Action<string> onSuccess,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                onError?.Invoke("GPT_Luna endpoint is empty.");
+                yield break;
+            }
+
+            if (source == null || string.IsNullOrWhiteSpace(source.model))
+            {
+                onError?.Invoke("GPT_Luna model is empty.");
+                yield break;
+            }
+
+            var maxTokens = source.options != null && source.options.num_predict > 0
+                ? source.options.num_predict
+                : 4096;
+            var requestBody = new OpenAiResponseRequest
+            {
+                model = source.model.Trim(),
+                instructions = source.system ?? string.Empty,
+                input = source.prompt ?? string.Empty,
+                max_output_tokens = Mathf.Clamp(maxTokens, 64, 16000),
+                store = false,
+                reasoning = new OpenAiReasoning { effort = openAiReasoningEffort }
+            };
+
+            var json = JsonUtility.ToJson(requestBody);
+            using var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST);
+            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = RequestTimeoutSeconds;
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("Authorization", "Bearer " + openAiApiKey);
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                onError?.Invoke(
+                    $"GPT_Luna request failed (HTTP {request.responseCode}): {request.error}\n" +
+                    BuildPreview(request.downloadHandler?.text));
+                yield break;
+            }
+
+            if (!TryExtractOpenAiText(request.downloadHandler.text, out var generatedText, out var parseError))
+            {
+                onError?.Invoke(parseError);
+                yield break;
+            }
+
+            onSuccess?.Invoke(generatedText);
+        }
+
+        private static bool TryExtractOpenAiText(string responseJson, out string generatedText, out string error)
+        {
+            generatedText = string.Empty;
+            error = string.Empty;
+            OpenAiResponseEnvelope response;
+            try
+            {
+                response = JsonUtility.FromJson<OpenAiResponseEnvelope>(responseJson);
+            }
+            catch (Exception ex)
+            {
+                error = "Failed to parse the GPT_Luna response envelope: " + ex.Message;
+                return false;
+            }
+
+            if (response?.error != null && !string.IsNullOrWhiteSpace(response.error.message))
+            {
+                error = response.error.message.Trim();
+                return false;
+            }
+
+            var builder = new StringBuilder();
+            if (response?.output != null)
+            {
+                foreach (var item in response.output)
+                {
+                    if (item?.content == null)
+                    {
+                        continue;
+                    }
+                    foreach (var content in item.content)
+                    {
+                        if (content != null && !string.IsNullOrWhiteSpace(content.text))
+                        {
+                            if (builder.Length > 0)
+                            {
+                                builder.AppendLine();
+                            }
+                            builder.Append(content.text.Trim());
+                        }
+                    }
+                }
+            }
+
+            generatedText = builder.ToString();
+            if (string.IsNullOrWhiteSpace(generatedText))
+            {
+                error = "GPT_Luna returned no text content.";
+                return false;
+            }
+            return true;
+        }
+
+        private string BuildProviderRequestJson(OllamaGenerateRequest source)
+        {
+            if (!string.IsNullOrWhiteSpace(openAiApiKey))
+            {
+                var openAiMaxTokens = source.options != null && source.options.num_predict > 0
+                    ? source.options.num_predict
+                    : 4096;
+                return JsonUtility.ToJson(new OpenAiResponseRequest
+                {
+                    model = source.model?.Trim() ?? string.Empty,
+                    instructions = source.system ?? string.Empty,
+                    input = source.prompt ?? string.Empty,
+                    max_output_tokens = Mathf.Clamp(openAiMaxTokens, 64, 16000),
+                    store = false,
+                    reasoning = new OpenAiReasoning { effort = openAiReasoningEffort }
+                });
+            }
+
+            if (string.IsNullOrWhiteSpace(claudeApiKey))
+            {
+                return JsonUtility.ToJson(source);
+            }
+
+            var maxTokens = source.options != null && source.options.num_predict > 0
+                ? source.options.num_predict
+                : 4096;
+            return JsonUtility.ToJson(new ClaudeMessageRequest
+            {
+                model = source.model?.Trim() ?? string.Empty,
+                max_tokens = Mathf.Clamp(maxTokens, 64, 16000),
+                temperature = source.options == null ? 0.2f : Mathf.Clamp01(source.options.temperature),
+                system = source.system ?? string.Empty,
+                messages = new[]
+                {
+                    new ClaudeMessage { role = "user", content = source.prompt ?? string.Empty }
+                }
+            });
+        }
+
+        private void ConfigureProviderRequestHeaders(UnityWebRequest request)
+        {
+            if (request == null)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(openAiApiKey))
+            {
+                request.SetRequestHeader("Authorization", "Bearer " + openAiApiKey);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(claudeApiKey))
+            {
+                return;
+            }
+
+            request.SetRequestHeader("anthropic-version", "2023-06-01");
+            if (string.Equals(claudeAuthMode, "x-api-key", StringComparison.OrdinalIgnoreCase))
+            {
+                request.SetRequestHeader("x-api-key", claudeApiKey);
+            }
+            else
+            {
+                request.SetRequestHeader("Authorization", "Bearer " + claudeApiKey);
+            }
+        }
+
+        private bool TryExtractProviderText(string responseJson, out string generatedText, out string error)
+        {
+            generatedText = string.Empty;
+            error = string.Empty;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(openAiApiKey))
+                {
+                    return TryExtractOpenAiText(responseJson, out generatedText, out error);
+                }
+                if (string.IsNullOrWhiteSpace(claudeApiKey))
+                {
+                    var ollama = JsonUtility.FromJson<OllamaGenerateResponse>(responseJson);
+                    if (ollama == null)
+                    {
+                        error = "The generation service returned an empty response envelope.";
+                        return false;
+                    }
+                    if (!string.IsNullOrWhiteSpace(ollama.error))
+                    {
+                        error = ollama.error.Trim();
+                        return false;
+                    }
+                    generatedText = ollama.response?.Trim() ?? string.Empty;
+                }
+                else
+                {
+                    var claude = JsonUtility.FromJson<ClaudeMessageResponse>(responseJson);
+                    if (claude?.error != null && !string.IsNullOrWhiteSpace(claude.error.message))
+                    {
+                        error = claude.error.message.Trim();
+                        return false;
+                    }
+                    if (claude?.content != null)
+                    {
+                        var builder = new StringBuilder();
+                        foreach (var block in claude.content)
+                        {
+                            if (block != null && string.Equals(block.type, "text", StringComparison.OrdinalIgnoreCase)
+                                && !string.IsNullOrWhiteSpace(block.text))
+                            {
+                                if (builder.Length > 0)
+                                {
+                                    builder.AppendLine();
+                                }
+                                builder.Append(block.text.Trim());
+                            }
+                        }
+                        generatedText = builder.ToString();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                error = "Failed to parse the generation response envelope: " + ex.Message;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(generatedText))
+            {
+                error = "The generation service returned no text content.";
+                return false;
+            }
+            return true;
         }
 
         private static string BuildCausalStoryPlanPrompt(List<WordEntry> words)
@@ -2324,7 +2811,7 @@ namespace MemPalaceLLM
                 }
             };
 
-            var json = JsonUtility.ToJson(requestBody);
+            var json = BuildProviderRequestJson(requestBody);
 
             using (var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
             {
@@ -2333,39 +2820,23 @@ namespace MemPalaceLLM
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.timeout = 60;
                 request.SetRequestHeader("Content-Type", "application/json");
+                ConfigureProviderRequestHeaders(request);
 
                 yield return request.SendWebRequest();
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
-                    onError?.Invoke($"Ollama guided layout request failed: {request.error}\n{request.downloadHandler.text}");
+                    onError?.Invoke($"Online guided layout request failed: {request.error}\n{request.downloadHandler.text}");
                     yield break;
                 }
 
-                OllamaGenerateResponse response;
-                try
+                if (!TryExtractProviderText(request.downloadHandler.text, out var generatedText, out var providerError))
                 {
-                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
-                }
-                catch (Exception ex)
-                {
-                    onError?.Invoke($"Failed to parse Ollama guided layout response envelope: {ex.Message}");
+                    onError?.Invoke("Online guided layout response failed: " + providerError);
                     yield break;
                 }
 
-                if (response == null || string.IsNullOrWhiteSpace(response.response))
-                {
-                    onError?.Invoke("Ollama guided layout response was empty.");
-                    yield break;
-                }
-
-                if (!string.IsNullOrWhiteSpace(response.error))
-                {
-                    onError?.Invoke($"Ollama returned a guided layout error: {response.error}");
-                    yield break;
-                }
-
-                if (!TryParseGuidedFurnitureLayout(response.response, out var envelope, out var parseError))
+                if (!TryParseGuidedFurnitureLayout(generatedText, out var envelope, out var parseError))
                 {
                     string repairedPayload = null;
                     string repairFailure = null;
@@ -2373,7 +2844,7 @@ namespace MemPalaceLLM
                     yield return RepairMnemonicJson(
                         endpoint.Trim(),
                         model.Trim(),
-                        response.response,
+                        generatedText,
                         repairedJson => repairedPayload = repairedJson,
                         repairError => repairFailure = repairError);
 
@@ -2390,7 +2861,7 @@ namespace MemPalaceLLM
 
                 if (envelope == null || envelope.items == null || envelope.items.Length == 0)
                 {
-                    onError?.Invoke("Failed to parse Ollama guided furniture layout JSON.\n" + parseError + "\n\nRaw response preview:\n" + BuildPreview(response.response));
+                    onError?.Invoke("Failed to parse online guided furniture layout JSON.\n" + parseError + "\n\nRaw response preview:\n" + BuildPreview(generatedText));
                     yield break;
                 }
 
@@ -2458,7 +2929,7 @@ namespace MemPalaceLLM
                 }
             };
 
-            var json = JsonUtility.ToJson(requestBody);
+            var json = BuildProviderRequestJson(requestBody);
 
             using (var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
             {
@@ -2467,6 +2938,7 @@ namespace MemPalaceLLM
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.timeout = 45;
                 request.SetRequestHeader("Content-Type", "application/json");
+                ConfigureProviderRequestHeaders(request);
 
                 yield return request.SendWebRequest();
 
@@ -2476,26 +2948,15 @@ namespace MemPalaceLLM
                     yield break;
                 }
 
-                OllamaGenerateResponse response;
-                try
+                if (!TryExtractProviderText(request.downloadHandler.text, out var generatedText, out var providerError))
                 {
-                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
-                }
-                catch (Exception ex)
-                {
-                    onError?.Invoke($"Failed to parse Ollama furniture envelope: {ex.Message}");
+                    onError?.Invoke("Online furniture response failed: " + providerError);
                     yield break;
                 }
 
-                if (response == null || string.IsNullOrWhiteSpace(response.response))
+                if (!TryParseFurnitureTemplateSuggestion(generatedText, out var suggestion, out var parseError))
                 {
-                    onError?.Invoke("Ollama furniture response was empty.");
-                    yield break;
-                }
-
-                if (!TryParseFurnitureTemplateSuggestion(response.response, out var suggestion, out var parseError))
-                {
-                    onError?.Invoke($"Failed to parse Ollama furniture JSON: {parseError}");
+                    onError?.Invoke($"Failed to parse online furniture JSON: {parseError}");
                     yield break;
                 }
 
@@ -2534,7 +2995,7 @@ namespace MemPalaceLLM
                 options = new OllamaRequestOptions()
             };
 
-            var json = JsonUtility.ToJson(requestBody);
+            var json = BuildProviderRequestJson(requestBody);
 
             using (var request = new UnityWebRequest(endpoint.Trim(), UnityWebRequest.kHttpVerbPOST))
             {
@@ -2543,39 +3004,23 @@ namespace MemPalaceLLM
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.timeout = RequestTimeoutSeconds;
                 request.SetRequestHeader("Content-Type", "application/json");
+                ConfigureProviderRequestHeaders(request);
 
                 yield return request.SendWebRequest();
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
-                    onError?.Invoke($"Ollama room request failed: {request.error}\n{request.downloadHandler.text}");
+                    onError?.Invoke($"Online room request failed: {request.error}\n{request.downloadHandler.text}");
                     yield break;
                 }
 
-                OllamaGenerateResponse response;
-                try
+                if (!TryExtractProviderText(request.downloadHandler.text, out var generatedText, out var providerError))
                 {
-                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
-                }
-                catch (Exception ex)
-                {
-                    onError?.Invoke($"Failed to parse Ollama room response envelope: {ex.Message}");
+                    onError?.Invoke("Online room response failed: " + providerError);
                     yield break;
                 }
 
-                if (response == null || string.IsNullOrWhiteSpace(response.response))
-                {
-                    onError?.Invoke("Ollama room response was empty.");
-                    yield break;
-                }
-
-                if (!string.IsNullOrWhiteSpace(response.error))
-                {
-                    onError?.Invoke($"Ollama returned a room generation error: {response.error}");
-                    yield break;
-                }
-
-                if (!TryParseGeneratedRoomPlan(response.response, out var roomPlan, out var parseError))
+                if (!TryParseGeneratedRoomPlan(generatedText, out var roomPlan, out var parseError))
                 {
                     string repairedPayload = null;
                     string repairFailure = null;
@@ -2583,7 +3028,7 @@ namespace MemPalaceLLM
                     yield return RepairMnemonicJson(
                         endpoint.Trim(),
                         model.Trim(),
-                        response.response,
+                        generatedText,
                         repairedJson => repairedPayload = repairedJson,
                         repairError => repairFailure = repairError);
 
@@ -2600,9 +3045,9 @@ namespace MemPalaceLLM
                     if (roomPlan == null || roomPlan.anchors == null || roomPlan.anchors.Length == 0)
                     {
                         onError?.Invoke(
-                            "Failed to parse Ollama room JSON.\n" +
+                            "Failed to parse online room JSON.\n" +
                             parseError + "\n\n" +
-                            "Raw response preview:\n" + BuildPreview(response.response));
+                            "Raw response preview:\n" + BuildPreview(generatedText));
                         yield break;
                     }
                 }
@@ -3606,55 +4051,7 @@ namespace MemPalaceLLM
             Action<string> onSuccess,
             Action<string> onError)
         {
-            var json = JsonUtility.ToJson(requestBody);
-
-            using (var request = new UnityWebRequest(endpoint, UnityWebRequest.kHttpVerbPOST))
-            {
-                var bodyRaw = Encoding.UTF8.GetBytes(json);
-                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = new DownloadHandlerBuffer();
-                request.timeout = RequestTimeoutSeconds;
-                request.SetRequestHeader("Content-Type", "application/json");
-
-                yield return request.SendWebRequest();
-
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    onError?.Invoke($"Ollama request failed: {request.error}\n{request.downloadHandler.text}");
-                    yield break;
-                }
-
-                OllamaGenerateResponse response;
-                try
-                {
-                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
-                }
-                catch (Exception ex)
-                {
-                    onError?.Invoke($"Failed to parse Ollama response envelope: {ex.Message}");
-                    yield break;
-                }
-
-                if (response == null)
-                {
-                    onError?.Invoke("Ollama response was empty.");
-                    yield break;
-                }
-
-                if (!string.IsNullOrWhiteSpace(response.error))
-                {
-                    onError?.Invoke($"Ollama returned an error: {response.error}");
-                    yield break;
-                }
-
-                if (string.IsNullOrWhiteSpace(response.response))
-                {
-                    onError?.Invoke("Ollama response did not contain JSON.");
-                    yield break;
-                }
-
-                onSuccess?.Invoke(response.response);
-            }
+            yield return SendOllamaJsonRequest(endpoint, requestBody, onSuccess, onError);
         }
 
         private IEnumerator SendGeminiGenerateRequest(
@@ -4768,43 +5165,7 @@ namespace MemPalaceLLM
                 }
             };
 
-            var json = JsonUtility.ToJson(requestBody);
-
-            using (var request = new UnityWebRequest(endpoint, UnityWebRequest.kHttpVerbPOST))
-            {
-                var bodyRaw = Encoding.UTF8.GetBytes(json);
-                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = new DownloadHandlerBuffer();
-                request.timeout = RequestTimeoutSeconds;
-                request.SetRequestHeader("Content-Type", "application/json");
-
-                yield return request.SendWebRequest();
-
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    onError?.Invoke(request.error);
-                    yield break;
-                }
-
-                OllamaGenerateResponse response;
-                try
-                {
-                    response = JsonUtility.FromJson<OllamaGenerateResponse>(request.downloadHandler.text);
-                }
-                catch (Exception ex)
-                {
-                    onError?.Invoke($"Could not parse repair envelope: {ex.Message}");
-                    yield break;
-                }
-
-                if (response == null || string.IsNullOrWhiteSpace(response.response))
-                {
-                    onError?.Invoke("Repair response was empty.");
-                    yield break;
-                }
-
-                onSuccess?.Invoke(response.response);
-            }
+            yield return SendOllamaJsonRequest(endpoint, requestBody, onSuccess, onError);
         }
 
         private IEnumerator RepairGeminiMnemonicJson(
@@ -4882,7 +5243,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(candidate))
             {
-                error = "No JSON object could be extracted from the Ollama response.";
+                error = "No JSON object could be extracted from the generation response.";
                 return false;
             }
 
@@ -5023,7 +5384,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(rawText))
             {
-                error = "Ollama room response text was empty.";
+                error = "Room-generation response text was empty.";
                 return false;
             }
 
@@ -5055,7 +5416,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(rawText))
             {
-                error = "Ollama furniture response text was empty.";
+                error = "Furniture-generation response text was empty.";
                 return false;
             }
 
@@ -5087,7 +5448,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(rawText))
             {
-                error = "Ollama guided layout response text was empty.";
+                error = "Guided-layout response text was empty.";
                 return false;
             }
 
@@ -5119,7 +5480,7 @@ namespace MemPalaceLLM
             {
                 roomId = string.IsNullOrWhiteSpace(plan.roomId) ? "generated_room_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") : plan.roomId,
                 roomName = string.IsNullOrWhiteSpace(plan.roomName) ? $"Generated {normalizedLayout} Memory Room" : plan.roomName,
-                generatedBy = "Ollama room planner + Unity layout builder",
+                generatedBy = "Online AI + Unity layout builder",
                 sourcePrompt = roomDescription ?? string.Empty,
                 summary = string.IsNullOrWhiteSpace(plan.summary) ? $"Generated {normalizedLayout} memory-palace room." : plan.summary,
                 overviewCamera = new CameraPoseDefinition
