@@ -27,7 +27,7 @@ namespace MemPalaceLLM
         [SerializeField] private GameObject vrStudyWordImageHudTemplate;
         [SerializeField] private GameObject vrRecallPanelTemplate;
 
-        [Header("Theme (used by the rebuild tool)")]
+        [Header("Original UI Theme (used only when baking again)")]
         [SerializeField] private Color pageColor = new(0.10f, 0.12f, 0.17f, 0.94f);
         [SerializeField] private Color cardColor = new(0.14f, 0.17f, 0.23f, 0.95f);
         [SerializeField] private Color primaryColor = new(0.10f, 0.38f, 0.42f, 1f);

@@ -27,7 +27,7 @@ namespace MemPalaceLLM
             {
                 Debug.LogWarning(
                     "Memory Palace editable Scene UI is incomplete. The legacy IMGUI interface remains active. " +
-                    "Run Tools > Memory Palace > Rebuild Editable Scene UI.");
+                    "Run Tools > Memory Palace > Bake Legacy UI Into SampleScene.");
                 return;
             }
 

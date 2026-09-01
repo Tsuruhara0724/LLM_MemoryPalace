@@ -136,7 +136,7 @@ namespace MemPalaceLLM
         [SerializeField]
         private bool useEditableSceneUi = true;
 
-        [Tooltip("Scene-owned UGUI view. Rebuild it with Tools > Memory Palace > Rebuild Editable Scene UI.")]
+        [Tooltip("Scene-owned Canvas baked once from the original OnGUI layout. Re-bake it with Tools > Memory Palace > Bake Legacy UI Into SampleScene.")]
         [SerializeField]
         private MemoryPalaceSceneUiView editableSceneUi;
 
