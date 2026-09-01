@@ -11,7 +11,6 @@ using UnityEngine.InputSystem.Controls;
 using UnityEngine.Networking;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
-using UnityEngine.EventSystems;
 using UnityEngine.XR;
 using XRCommonUsages = UnityEngine.XR.CommonUsages;
 using XRInputDevice = UnityEngine.XR.InputDevice;
@@ -19,7 +18,7 @@ using InputTrackedPoseDriver = UnityEngine.InputSystem.XR.TrackedPoseDriver;
 
 namespace MemPalaceLLM
 {
-    public sealed partial class MemoryPalaceExperimentController : MonoBehaviour
+    public sealed class MemoryPalaceExperimentController : MonoBehaviour
     {
         private const float StudyMoveSpeed = 4.5f;
         private const float StudyLookSpeed = 0.15f;
@@ -130,15 +129,6 @@ namespace MemPalaceLLM
         [Tooltip("Horizontal virtual displacement produced by one meter of real tracked walking. This is independent of the yellow construction boundary.")]
         [SerializeField, Range(1.0f, 12.0f)]
         private float vrPhysicalWalkingGain = 1.0f;
-
-        [Header("Editable Scene UI")]
-        [Tooltip("Use the UGUI hierarchy stored in the Scene. Disable this to restore the legacy code-drawn operator UI immediately.")]
-        [SerializeField]
-        private bool useEditableSceneUi = true;
-
-        [Tooltip("Scene-owned UGUI view. Rebuild it with Tools > Memory Palace > Rebuild Editable Scene UI.")]
-        [SerializeField]
-        private MemoryPalaceSceneUiView editableSceneUi;
 
         private float observedSelfRoomPhysicalLengthMeters = -1f;
         private float observedSelfRoomPhysicalWidthMeters = -1f;
@@ -833,7 +823,6 @@ namespace MemPalaceLLM
                 customCsvText = BuildCsvText(activeWordSet);
             }
             MoveCameraToOverview();
-            InitializeEditableSceneUiRuntime();
 
 #if UNITY_ANDROID && !UNITY_EDITOR
             Debug.Log("MemPalaceRemote: Android player started; scheduling local package load / remote session auto-fetch.");
@@ -882,7 +871,6 @@ namespace MemPalaceLLM
             EnsureTextToSpeechService();
             textToSpeech?.Tick();
             UpdateContextInstruction();
-            UpdateEditableSceneUiRuntime();
 
             if (stage == ExperimentStage.Study)
             {
@@ -997,11 +985,6 @@ namespace MemPalaceLLM
             // Legacy IMGUI is the desktop-only operator/debug interface. Rendering it while
             // XR is active places the same large panels in the participant's headset view.
             if (IsVrParticipantViewActive())
-            {
-                return;
-            }
-
-            if (IsEditableSceneUiActive())
             {
                 return;
             }
@@ -25146,11 +25129,6 @@ namespace MemPalaceLLM
 
         private void BuildVrStudyPanel()
         {
-            if (TryBuildVrStudyPanelFromSceneTemplate())
-            {
-                return;
-            }
-
             vrWorldUiRoot = new GameObject("VRStudyWorldUI").transform;
             var panel = new GameObject("VRMnemonicPanel");
             panel.transform.SetParent(vrWorldUiRoot);
@@ -25196,11 +25174,6 @@ namespace MemPalaceLLM
         private void BuildVrPersistentStudyHud()
         {
             if (runtimeCamera == null || stage != ExperimentStage.Study || vrStudyHudRoot != null)
-            {
-                return;
-            }
-
-            if (TryBuildVrPersistentHudFromSceneTemplate())
             {
                 return;
             }
@@ -25425,11 +25398,6 @@ namespace MemPalaceLLM
         private void BuildVrStudyWordImageHud()
         {
             if (runtimeCamera == null || stage != ExperimentStage.Study || vrStudyWordImageHudRoot != null)
-            {
-                return;
-            }
-
-            if (TryBuildVrWordImageHudFromSceneTemplate())
             {
                 return;
             }
@@ -25808,11 +25776,6 @@ namespace MemPalaceLLM
 
         private void BuildVrStudyStartGate()
         {
-            if (TryBuildVrStudyStartGateFromSceneTemplate())
-            {
-                return;
-            }
-
             var gate = new GameObject("VRStudyStartGate");
             gate.transform.SetParent(vrWorldUiRoot, false);
             vrStudyStartPanelRoot = gate.transform;
@@ -25867,11 +25830,6 @@ namespace MemPalaceLLM
 
         private void BuildVrRecallPanel()
         {
-            if (TryBuildVrRecallPanelFromSceneTemplate())
-            {
-                return;
-            }
-
             vrWorldUiRoot = new GameObject("VRRecallWorldUI").transform;
             var panel = new GameObject("VRImmediatePostTestPanel");
             panel.transform.SetParent(vrWorldUiRoot);
@@ -29314,21 +29272,6 @@ namespace MemPalaceLLM
 
         private bool IsPointerOverGui()
         {
-            if (IsEditableSceneUiActive() &&
-                EventSystem.current != null)
-            {
-                if (EventSystem.current.IsPointerOverGameObject())
-                {
-                    return true;
-                }
-
-                var selectedUiObject = EventSystem.current.currentSelectedGameObject;
-                if (selectedUiObject != null && selectedUiObject.GetComponent<InputField>() != null)
-                {
-                    return true;
-                }
-            }
-
             var mouse = Mouse.current;
             if (mouse == null)
             {
