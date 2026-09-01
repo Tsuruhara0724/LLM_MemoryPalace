@@ -31,33 +31,7 @@ namespace MemPalaceLLM.Editor
         private static Sprite defaultUiSprite;
         private static int generatedNameIndex;
 
-        [InitializeOnLoadMethod]
-        private static void BuildMissingSceneUiAfterScriptReload()
-        {
-            EditorApplication.delayCall += TryBuildMissingSceneUi;
-        }
-
-        private static void TryBuildMissingSceneUi()
-        {
-            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
-            {
-                EditorApplication.delayCall += TryBuildMissingSceneUi;
-                return;
-            }
-
-            if (EditorApplication.isPlayingOrWillChangePlaymode || GameObject.Find("EditableSceneUI") != null)
-            {
-                return;
-            }
-
-            var controller = Object.FindFirstObjectByType<MemoryPalaceExperimentController>();
-            if (controller != null && controller.gameObject.scene.IsValid())
-            {
-                RebuildEditableSceneUi();
-            }
-        }
-
-        [MenuItem("Tools/Memory Palace/Rebuild Editable Scene UI")]
+        [MenuItem("Tools/Memory Palace/Bake Legacy UI Into SampleScene")]
         public static void RebuildEditableSceneUi()
         {
             var controller = Object.FindFirstObjectByType<MemoryPalaceExperimentController>();
@@ -148,8 +122,8 @@ namespace MemPalaceLLM.Editor
             EditorSceneManager.SaveScene(scene);
             Selection.activeGameObject = canvasObject;
             Debug.Log(
-                "Memory Palace: rebuilt editable UGUI hierarchy and saved the open Scene. " +
-                "Adjust panels under EditableSceneUI/StageRoot in the Inspector.");
+                "Memory Palace: baked the legacy IMGUI layout into an editable Canvas and saved the Scene. " +
+                "Adjust panels under EditableSceneUI/StageRoot in the Inspector; rebake only when you want to reset those edits.");
         }
 
         [MenuItem("Tools/Memory Palace/Validate Editable Scene UI")]

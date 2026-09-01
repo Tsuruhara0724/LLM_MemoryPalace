@@ -70,12 +70,12 @@ namespace MemPalaceLLM.Editor
             {
                 ValidateUniqueNames(view);
             }
-            if (GUILayout.Button("Rebuild Entire Editable Scene UI", GUILayout.Height(32f)))
+            if (GUILayout.Button("Bake Original UI Into Canvas Again", GUILayout.Height(32f)))
             {
                 if (EditorUtility.DisplayDialog(
-                        "Rebuild Editable Scene UI",
-                        "This replaces the existing EditableSceneUI hierarchy and discards manual layout changes. Continue?",
-                        "Rebuild",
+                        "Bake Original UI Into Canvas",
+                        "This runs the one-time legacy UI baker again. It replaces EditableSceneUI and discards manual Canvas layout changes. Continue?",
+                        "Bake Again",
                         "Cancel"))
                 {
                     MemoryPalaceSceneUiBuilder.RebuildEditableSceneUi();

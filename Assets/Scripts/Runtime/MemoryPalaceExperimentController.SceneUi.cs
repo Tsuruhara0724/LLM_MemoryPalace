@@ -51,6 +51,7 @@ namespace MemPalaceLLM
             BindButton("Setup_Start", BeginSimpleSetupFlow);
             BindButton("Setup_StartSaved", BeginSimpleSetupFlowWithSavedRoom);
             BindButton("Setup_ReloadExample", ReloadDefaultRoomForSetup);
+            BindButton("Setup_Researcher", SwitchToLegacyUi);
             BindButton("Common_LegacyUi", SwitchToLegacyUi);
 
             BindButton("Room_ModeFloor", () => SetGridEditorMode(GridEditorMode.Floor));
@@ -60,6 +61,7 @@ namespace MemPalaceLLM
             BindButton("Room_Center", MoveCameraToPlanView);
             BindButton("Room_Undo", UndoGridRoomEdit);
             BindButton("Room_Redo", RedoGridRoomEdit);
+            BindButton("Room_ToggleOptions", ToggleSceneUiRoomOptions);
             BindButton("Room_FillArea", ResetSceneUiRoomShapeToBuildArea);
             BindButton("Room_LShape", ResetSceneUiRoomShapeToLShape);
             BindInput("Room_ArchiveName", value => roomArchiveName = value);
@@ -199,8 +201,10 @@ namespace MemPalaceLLM
             }
 
             editableSceneUi.ShowOnlyStage("Stage_" + stage);
-            editableSceneUi.SetText("Common_Stage", GetSceneUiStageTitle());
-            editableSceneUi.SetText("Common_Status", statusMessage ?? string.Empty);
+            editableSceneUi.ApplyLegacyStageTheme(stage);
+            editableSceneUi.SetText("Common_Title", GetSceneUiHeaderTitle());
+            editableSceneUi.SetText("Common_Status", GetSceneUiHeaderSubtitle());
+            editableSceneUi.SetText("Common_Stage", GetSceneUiHeaderBadge());
 
             switch (stage)
             {
@@ -242,22 +246,33 @@ namespace MemPalaceLLM
             RefreshSceneUiOverlays();
         }
 
-        private string GetSceneUiStageTitle()
+        private string GetSceneUiHeaderTitle()
         {
             return stage switch
             {
-                ExperimentStage.Setup => "SESSION SETUP",
-                ExperimentStage.RoomBuilder => "ROOM BUILDER",
-                ExperimentStage.RoomFamiliarization => "ROOM FAMILIARIZATION",
-                ExperimentStage.PreTest => "SPANISH PRE-TEST",
-                ExperimentStage.Generation => "STORY SELECTION",
-                ExperimentStage.StoryAuthoring => "STORY AUTHORING",
-                ExperimentStage.SelfAuthoring => "FURNITURE MAPPING",
-                ExperimentStage.Study => "VR MEMORY PALACE STUDY",
-                ExperimentStage.Recall => "IMMEDIATE POST-TEST",
-                ExperimentStage.Questionnaire => "QUESTIONNAIRE",
-                ExperimentStage.Result => "SESSION SUMMARY",
-                _ => stage.ToString().ToUpperInvariant()
+                ExperimentStage.Setup => "Memory Palace",
+                ExperimentStage.RoomBuilder => "Create your memory room",
+                _ => "LLM Memory Palace Experiment Demo"
+            };
+        }
+
+        private string GetSceneUiHeaderSubtitle()
+        {
+            return stage switch
+            {
+                ExperimentStage.Setup => "Set up a vocabulary study session",
+                ExperimentStage.RoomBuilder => "Build a place that feels familiar and easy to remember.",
+                _ => "Flow: PC room phase -> Spanish pre-test -> Story -> Furniture mapping -> HMD study -> Immediate post-test -> Google Form later"
+            };
+        }
+
+        private string GetSceneUiHeaderBadge()
+        {
+            return stage switch
+            {
+                ExperimentStage.Setup => "Step 1 / 7",
+                ExperimentStage.RoomBuilder => "Room builder",
+                _ => $"Step {GetStageStepNumber()} / 7 - {GetStageDisplayName()}"
             };
         }
 
@@ -305,6 +320,10 @@ namespace MemPalaceLLM
                 : "Last saved: " + lastSavedRoomArchiveFileName);
             editableSceneUi.SetInteractable("Room_Undo", gridUndoStack.Count > 0);
             editableSceneUi.SetInteractable("Room_Redo", gridRedoStack.Count > 0);
+            editableSceneUi.SetText("Room_ToggleOptionsLabel", showRoomBuilderOptions ? "Hide room options" : "Room options");
+            editableSceneUi.SetVisible("Room_OptionsGroup", showRoomBuilderOptions);
+            editableSceneUi.SetVisible("Room_FurnitureSection", gridEditorMode == GridEditorMode.Furniture);
+            editableSceneUi.SetText("Room_HudTitle", GetGridBuilderStepTitle());
 
             for (var i = 0; i < 4; i++)
             {
@@ -323,8 +342,9 @@ namespace MemPalaceLLM
             }
 
             var hasSelected = TryGetSelectedGridFurniture(out _, out var selectedDefinition);
-            editableSceneUi.SetVisible("Room_SelectedGroup", hasSelected);
-            if (hasSelected)
+            var showSelected = hasSelected && gridEditorMode != GridEditorMode.Furniture;
+            editableSceneUi.SetVisible("Room_SelectedGroup", showSelected);
+            if (showSelected)
             {
                 editableSceneUi.SetText("Room_SelectedName", selectedDefinition.displayName);
                 editableSceneUi.SetText(
@@ -740,6 +760,11 @@ namespace MemPalaceLLM
             showLegacySetupUi = true;
             editableSceneUi?.SetInterfaceVisible(false);
             statusMessage = "Legacy code-drawn UI enabled. Re-enable 'Use Editable Scene UI' in the controller Inspector to return.";
+        }
+
+        private void ToggleSceneUiRoomOptions()
+        {
+            showRoomBuilderOptions = !showRoomBuilderOptions;
         }
 
         private void ResetSceneUiRoomShapeToBuildArea()
