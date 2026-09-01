@@ -13,14 +13,22 @@ namespace MemPalaceLLM.Editor
 {
     public static class MemoryPalaceSceneUiBuilder
     {
-        private static readonly Color Page = new(0.075f, 0.095f, 0.14f, 0.96f);
-        private static readonly Color Card = new(0.12f, 0.145f, 0.20f, 0.97f);
-        private static readonly Color Field = new(0.07f, 0.08f, 0.11f, 1f);
-        private static readonly Color Primary = new(0.32f, 0.62f, 0.65f, 1f);
-        private static readonly Color TextColor = new(0.96f, 0.97f, 0.99f, 1f);
-        private static readonly Color Muted = new(0.68f, 0.74f, 0.82f, 1f);
+        // Mirror the two established IMGUI palettes instead of introducing a new design.
+        private static readonly Color Page = new(0.10f, 0.12f, 0.17f, 0.94f);
+        private static readonly Color Card = new(0.14f, 0.17f, 0.23f, 0.95f);
+        private static readonly Color Field = new(0.11f, 0.12f, 0.15f, 1f);
+        private static readonly Color Primary = new(0.10f, 0.38f, 0.42f, 1f);
+        private static readonly Color TextColor = new(0.95f, 0.96f, 0.99f, 1f);
+        private static readonly Color Muted = new(0.70f, 0.76f, 0.84f, 1f);
         private static readonly Color Disabled = new(0.28f, 0.31f, 0.36f, 0.70f);
+        private static readonly Color LightPage = new(0.94f, 0.94f, 0.91f, 0.98f);
+        private static readonly Color LightCard = new(1f, 1f, 0.98f, 0.98f);
+        private static readonly Color LightInk = new(0.13f, 0.18f, 0.20f, 1f);
+        private static readonly Color LightMuted = new(0.34f, 0.39f, 0.39f, 1f);
+        private static readonly Color LightSecondary = new(0.88f, 0.89f, 0.85f, 1f);
+        private static readonly Color DarkButton = new(0.16f, 0.17f, 0.20f, 1f);
         private static Font defaultFont;
+        private static Sprite defaultUiSprite;
         private static int generatedNameIndex;
 
         [InitializeOnLoadMethod]
@@ -88,6 +96,7 @@ namespace MemPalaceLLM.Editor
             }
 
             defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            defaultUiSprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
             generatedNameIndex = 0;
             var canvasObject = CreateObject("EditableSceneUI", controller.transform.parent);
             Undo.RegisterCreatedObjectUndo(canvasObject, "Build Memory Palace Scene UI");
@@ -95,17 +104,16 @@ namespace MemPalaceLLM.Editor
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 20;
             var scaler = canvasObject.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = 0.5f;
+            // IMGUI used screen-pixel rectangles; this preserves its original panel widths.
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+            scaler.scaleFactor = 1f;
             canvasObject.AddComponent<GraphicRaycaster>();
             Stretch(canvasObject.GetComponent<RectTransform>());
 
             var view = canvasObject.AddComponent<MemoryPalaceSceneUiView>();
             CreateHeader(canvasObject.transform);
             var stageRoot = CreateObject("StageRoot", canvasObject.transform);
-            Stretch(stageRoot.GetComponent<RectTransform>(), 0f, 0f, 0f, 72f);
+            Stretch(stageRoot.GetComponent<RectTransform>(), 0f, 0f, 0f, 86f);
 
             BuildSetup(stageRoot.transform);
             BuildRoomBuilder(stageRoot.transform);
@@ -118,6 +126,9 @@ namespace MemPalaceLLM.Editor
             BuildRecall(stageRoot.transform);
             BuildQuestionnaire(stageRoot.transform);
             BuildResult(stageRoot.transform);
+            ApplyLegacyDarkButtonTheme(stageRoot.transform);
+            ApplyLegacyLightTheme(stageRoot.transform.Find("Stage_Setup"));
+            ApplyLegacyLightTheme(stageRoot.transform.Find("Stage_RoomBuilder"));
             BuildOverlays(canvasObject.transform);
             var worldSpaceTemplates = BuildWorldSpaceTemplates(controller.transform.parent);
 
@@ -265,101 +276,132 @@ namespace MemPalaceLLM.Editor
         private static void CreateHeader(Transform parent)
         {
             var header = CreatePanel(parent, "Common_Header", new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(0f, -72f), Vector2.zero, Page, true);
-            AddTextAbsolute(header, "Common_Title", "MEMORY PALACE EXPERIMENT", 26, FontStyle.Bold,
-                new Vector2(24f, 12f), new Vector2(500f, 34f), TextAnchor.MiddleLeft, TextColor);
-            AddTextAbsolute(header, "Common_Stage", "SESSION SETUP", 16, FontStyle.Bold,
-                new Vector2(530f, 10f), new Vector2(330f, 28f), TextAnchor.MiddleLeft, Primary);
-            AddTextAbsolute(header, "Common_Status", string.Empty, 13, FontStyle.Normal,
-                new Vector2(530f, 36f), new Vector2(900f, 27f), TextAnchor.MiddleLeft, Muted);
-            AddButtonAbsolute(header, "Common_LegacyUi", "Legacy UI (safety)",
-                new Vector2(-220f, 14f), new Vector2(190f, 42f), true);
+                new Vector2(16f, -72f), new Vector2(-16f, -14f), LightPage, true);
+            AddTextAbsolute(header, "Common_Title", "Memory Palace", 24, FontStyle.Bold,
+                new Vector2(18f, 4f), new Vector2(520f, 29f), TextAnchor.MiddleLeft, LightInk);
+            AddTextAbsolute(header, "Common_Status", "Set up a vocabulary study session", 14, FontStyle.Normal,
+                new Vector2(20f, 33f), new Vector2(1120f, 19f), TextAnchor.MiddleLeft, LightMuted);
+
+            var badge = CreatePanel(header, "Common_StageBadge", Vector2.one, Vector2.one,
+                new Vector2(-164f, -43f), new Vector2(-24f, -13f), LightSecondary, false);
+            AddTextAbsolute(badge, "Common_Stage", "Step 1 / 7", 14, FontStyle.Normal,
+                Vector2.zero, new Vector2(140f, 30f), TextAnchor.MiddleCenter, LightInk);
         }
 
         private static void BuildSetup(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_Setup", 1160f);
+            var content = CreateCenteredScrollStage(stageRoot, "Stage_Setup", 1080f);
             AddHeading(content, "Setup_Title", "Set up this session");
             AddBody(content, "Setup_Intro", "Choose one condition in the 2 x 2 room-source x story-source design.");
-            AddSectionLabel(content, "Session");
-            AddBody(content, "Setup_ParticipantLabel", "Participant ID");
-            AddInput(content, "Setup_ParticipantInput", "P001", false, 50f);
-            AddSectionLabel(content, "Choose your study");
-            var conditionGrid = AddGrid(content, "Setup_ConditionGrid", 2, 520f, 86f, 184f);
-            AddButton(conditionGrid, "Setup_Condition1", "Self room\nSelf story", 82f);
-            AddButton(conditionGrid, "Setup_Condition2", "Self room\nLLM story", 82f);
-            AddButton(conditionGrid, "Setup_Condition3", "Example room\nSelf story", 82f);
-            AddButton(conditionGrid, "Setup_Condition4", "Example room\nLLM story", 82f);
-            AddBody(content, "Setup_ConditionDescription", string.Empty, 68f);
-            AddSectionLabel(content, "Room");
-            AddBody(content, "Setup_RoomDescription", string.Empty, 58f);
-            var saved = AddVerticalGroup(content, "Setup_SavedRoomGroup", 154f);
+            var top = AddGrid(content, "Setup_TopRow", 2, 492f, 296f, 302f);
+            var session = AddVerticalGroup(top, "Setup_SessionCard", 296f, LightCard);
+            AddSectionLabel(session, "Session");
+            AddBody(session, "Setup_ParticipantLabel", "Participant ID");
+            AddInput(session, "Setup_ParticipantInput", "P001", false, 50f);
+
+            var condition = AddVerticalGroup(top, "Setup_ConditionCard", 296f, LightCard);
+            AddSectionLabel(condition, "Choose your study");
+            var conditionGrid = AddGrid(condition, "Setup_ConditionGrid", 2, 226f, 72f, 152f);
+            AddButton(conditionGrid, "Setup_Condition1", "1 - Self room\nSelf story", 70f);
+            AddButton(conditionGrid, "Setup_Condition2", "2 - Self room\nLLM story", 70f);
+            AddButton(conditionGrid, "Setup_Condition3", "3 - Example room\nSelf story", 70f);
+            AddButton(conditionGrid, "Setup_Condition4", "4 - Example room\nLLM story", 70f);
+            AddBody(condition, "Setup_ConditionDescription", string.Empty, 58f);
+
+            var middle = AddGrid(content, "Setup_MiddleRow", 2, 492f, 272f, 278f);
+            var vocabulary = AddVerticalGroup(middle, "Setup_VocabularyCard", 272f, LightCard);
+            AddSectionLabel(vocabulary, "Vocabulary");
+            AddText(vocabulary, "Setup_VocabularyName", "Formal 32-Word Pool", 18, FontStyle.Bold, LightInk, 40f);
+            AddBody(vocabulary, "Setup_VocabularyDescription",
+                "The fixed formal vocabulary pool is used for every participant session.", 84f);
+
+            var room = AddVerticalGroup(middle, "Setup_RoomCard", 272f, LightCard);
+            AddSectionLabel(room, "Room");
+            AddBody(room, "Setup_RoomDescription", string.Empty, 58f);
+            var saved = AddVerticalGroup(room, "Setup_SavedRoomGroup", 140f);
             AddBody(saved, "Setup_SavedRoomLabel", "Reuse saved room JSON (optional)", 30f);
             AddInput(saved, "Setup_RoomLoadInput", "P001_room.json", false, 48f);
             AddButton(saved, "Setup_StartSaved", "Start with saved room JSON", 50f);
-            AddButton(content, "Setup_ReloadExample", "Reload example_room.json", 50f);
-            AddSectionLabel(content, "Next");
-            AddBody(content, "Setup_NextHint", string.Empty, 76f);
-            AddButton(content, "Setup_Start", "Start", 62f, true, "Setup_StartLabel");
+            AddButton(room, "Setup_ReloadExample", "Reload example_room.json", 50f).gameObject.SetActive(false);
+
+            var next = AddVerticalGroup(content, "Setup_NextCard", 202f, LightCard);
+            AddSectionLabel(next, "Next");
+            AddBody(next, "Setup_NextHint", string.Empty, 64f);
+            AddButton(next, "Setup_Start", "Start", 52f, true, "Setup_StartLabel");
+            AddButton(next, "Setup_Researcher", "Researcher settings", 44f);
         }
 
         private static void BuildRoomBuilder(Transform stageRoot)
         {
             var root = CreateStageRoot(stageRoot, "Stage_RoomBuilder");
             var left = CreateScrollPanel(root.transform, "Room_LeftPanel", new Vector2(0f, 0f), new Vector2(0f, 1f),
-                new Vector2(18f, 18f), new Vector2(530f, -18f), Page);
+                new Vector2(18f, 0f), new Vector2(518f, 0f), LightPage);
             AddHeading(left, "Room_LeftHeading", "Make this room yours");
-            AddBody(left, "Room_LeftIntro", "Draw a familiar room, add optional inside walls, then place at least eight different furniture items.", 74f);
-            var modes = AddGrid(left, "Room_ModeGrid", 2, 235f, 54f, 128f);
+            AddBody(left, "Room_LeftIntro", "Shape a familiar room and fill it with furniture you can remember. Items snap into place for you.", 64f);
+
+            var main = AddVerticalGroup(left, "Room_MainCard", 440f, LightCard);
+            var modes = AddGrid(main, "Room_ModeGrid", 4, 102f, 54f, 58f);
             AddButton(modes, "Room_ModeFloor", "1 Shape", 50f);
             AddButton(modes, "Room_ModeWall", "2 Walls", 50f);
             AddButton(modes, "Room_ModeFurniture", "3 Furnish", 50f);
             AddButton(modes, "Room_ModeSelect", "4 Finish", 50f);
-            AddSectionLabel(left, "Current step");
-            AddText(left, "Room_Title", string.Empty, 20, FontStyle.Bold, TextColor, 38f);
-            AddBody(left, "Room_Instructions", string.Empty, 80f);
-            AddText(left, "Room_BuildArea", string.Empty, 14, FontStyle.Italic, Primary, 56f);
-            var nav = AddGrid(left, "Room_NavigationGrid", 3, 148f, 48f, 54f);
+            AddText(main, "Room_Title", string.Empty, 20, FontStyle.Bold, LightInk, 38f);
+            AddBody(main, "Room_Instructions", string.Empty, 72f);
+            AddText(main, "Room_BuildArea", string.Empty, 14, FontStyle.Italic, Primary, 58f);
+            var nav = AddGrid(main, "Room_NavigationGrid", 3, 138f, 44f, 50f);
             AddButton(nav, "Room_Center", "Center view", 46f);
             AddButton(nav, "Room_Undo", "Undo", 46f);
             AddButton(nav, "Room_Redo", "Redo", 46f);
-            AddSectionLabel(left, "Starting shape");
-            var shapes = AddGrid(left, "Room_ShapeGrid", 2, 225f, 48f, 54f);
+            AddButton(main, "Room_ToggleOptions", "Room options", 44f, false, "Room_ToggleOptionsLabel");
+            AddText(main, "Room_Count", string.Empty, 13, FontStyle.Italic, Primary, 48f);
+
+            var options = AddVerticalGroup(left, "Room_OptionsGroup", 570f, LightCard);
+            AddSectionLabel(options, "Change the starting shape");
+            var shapes = AddGrid(options, "Room_ShapeGrid", 2, 202f, 44f, 50f);
             AddButton(shapes, "Room_FillArea", "Fill build area", 46f);
             AddButton(shapes, "Room_LShape", "L-shaped room", 46f);
-            AddSectionLabel(left, "Furniture catalog (one of each)");
-            var furniture = AddGrid(left, "Room_FurnitureGrid", 2, 225f, 52f, 384f);
+            AddSectionLabel(options, "Save and reuse room JSON");
+            AddBody(options, "Room_SaveHint", "Every save creates a new JSON file. Finishing the room also saves automatically.", 54f);
+            AddBody(options, "Room_ArchiveLabel", "Room archive name", 28f);
+            AddInput(options, "Room_ArchiveName", "P001_room", false, 44f);
+            var saveGrid = AddGrid(options, "Room_SaveGrid", 2, 202f, 44f, 50f);
+            AddButton(saveGrid, "Room_Save", "Save named JSON", 44f);
+            AddButton(saveGrid, "Room_SaveParticipant", "Save with Participant ID", 44f);
+            AddText(options, "Room_LastSaved", string.Empty, 13, FontStyle.Italic, Primary, 30f);
+            AddBody(options, "Room_LoadLabel", "JSON file name to load", 28f);
+            AddInput(options, "Room_LoadName", "room.json", false, 44f);
+            var loadGrid = AddGrid(options, "Room_LoadGrid", 2, 202f, 44f, 100f);
+            AddButton(loadGrid, "Room_Load", "Load JSON by name", 44f);
+            AddButton(loadGrid, "Room_LoadLatest", "Load latest JSON", 44f);
+            AddButton(loadGrid, "Room_Refresh", "Refresh saved file list", 44f);
+            options.gameObject.SetActive(false);
+
+            var furnitureSection = AddVerticalGroup(left, "Room_FurnitureSection", 522f, LightCard);
+            AddSectionLabel(furnitureSection, "Pick something to place");
+            AddBody(furnitureSection, "Room_FurnitureHint", "Choose an item below, then click its green preview in the room.", 54f);
+            var furniture = AddGrid(furnitureSection, "Room_FurnitureGrid", 2, 202f, 52f, 420f);
             var names = new[] { "Door", "Bed", "Wardrobe", "Desk", "Chair", "Bookshelf", "Bathtub", "Sofa", "Television", "Air Conditioner", "Window", "Lamp", "Plant", "Toilet" };
             for (var i = 0; i < names.Length; i++)
             {
                 AddButton(furniture, $"Room_Furniture_{i}", names[i], 50f, false, $"Room_FurnitureLabel_{i}");
             }
-            var selected = AddVerticalGroup(left, "Room_SelectedGroup", 148f, Card);
-            AddText(selected, "Room_SelectedName", "Selected furniture", 18, FontStyle.Bold, TextColor, 34f);
-            var selectedGrid = AddGrid(selected, "Room_SelectedButtons", 3, 138f, 48f, 54f);
+            furnitureSection.gameObject.SetActive(false);
+
+            var selected = AddVerticalGroup(left, "Room_SelectedGroup", 150f, LightCard);
+            AddText(selected, "Room_SelectedName", "Selected furniture", 18, FontStyle.Bold, LightInk, 34f);
+            var selectedGrid = AddGrid(selected, "Room_SelectedButtons", 3, 128f, 44f, 50f);
             AddButton(selectedGrid, "Room_Move", "Move", 46f, true, "Room_MoveLabel");
             AddButton(selectedGrid, "Room_Rotate", "Rotate", 46f);
             AddButton(selectedGrid, "Room_Remove", "Remove", 46f);
-            AddSectionLabel(left, "Save and reuse room JSON");
-            AddInput(left, "Room_ArchiveName", "P001_room", false, 48f);
-            var saveGrid = AddGrid(left, "Room_SaveGrid", 2, 225f, 48f, 54f);
-            AddButton(saveGrid, "Room_Save", "Save named JSON", 46f);
-            AddButton(saveGrid, "Room_SaveParticipant", "Save with Participant ID", 46f);
-            AddText(left, "Room_LastSaved", string.Empty, 13, FontStyle.Normal, Muted, 34f);
-            AddInput(left, "Room_LoadName", "room.json", false, 48f);
-            var loadGrid = AddGrid(left, "Room_LoadGrid", 2, 225f, 48f, 108f);
-            AddButton(loadGrid, "Room_Load", "Load JSON by name", 46f);
-            AddButton(loadGrid, "Room_LoadLatest", "Load latest JSON", 46f);
-            AddButton(loadGrid, "Room_Refresh", "Refresh file list", 46f);
-            AddText(left, "Room_Count", string.Empty, 13, FontStyle.Normal, Muted, 48f);
+            selected.gameObject.SetActive(false);
             AddText(left, "Room_Status", string.Empty, 14, FontStyle.Italic, Primary, 72f);
 
             var hud = CreatePanel(root.transform, "Room_Hud", new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(560f, -120f), new Vector2(-24f, -18f), Page, true);
-            AddTextAbsolute(hud, "Room_HudTitle", "Build within the yellow boundary", 20, FontStyle.Bold,
-                new Vector2(18f, 12f), new Vector2(630f, 34f), TextAnchor.MiddleLeft, TextColor);
-            AddTextAbsolute(hud, "Room_HudHint", "WASD move | Q lower | E raise | Right-drag look | Wheel zoom", 14, FontStyle.Normal,
-                new Vector2(18f, 50f), new Vector2(760f, 30f), TextAnchor.MiddleLeft, Muted);
+                new Vector2(536f, -120f), new Vector2(-18f, -12f), LightPage, true);
+            AddTextAbsolute(hud, "Room_HudTitle", "Draw the room", 20, FontStyle.Bold,
+                new Vector2(18f, 10f), new Vector2(630f, 30f), TextAnchor.MiddleLeft, LightInk);
+            AddTextAbsolute(hud, "Room_HudHint", "Left-drag add | Right-click erase | 1-4 change step | WASD/Q/E move | Right-drag look | Wheel zoom", 14, FontStyle.Normal,
+                new Vector2(18f, 45f), new Vector2(860f, 28f), TextAnchor.MiddleLeft, LightMuted);
             AddButtonAbsolute(hud, "Room_Done", "Done - Continue", new Vector2(-208f, 28f), new Vector2(180f, 58f), true, "Room_DoneLabel");
         }
 
@@ -367,7 +409,7 @@ namespace MemPalaceLLM.Editor
         {
             var root = CreateStageRoot(stageRoot, "Stage_RoomFamiliarization");
             var content = CreateScrollPanel(root.transform, "Familiarization_Panel", new Vector2(0f, 1f), new Vector2(0f, 1f),
-                new Vector2(18f, -330f), new Vector2(430f, -18f), Page);
+                new Vector2(18f, -248f), new Vector2(408f, -18f), Page);
             AddHeading(content, "Familiarization_Title", "Explore the example room");
             AddBody(content, "Familiarization_Instructions", "WASD: move | Right mouse drag: look. Become familiar with the furniture and layout; no target words are shown.", 90f);
             AddText(content, "Familiarization_Timer", string.Empty, 15, FontStyle.Normal, TextColor, 54f);
@@ -376,7 +418,7 @@ namespace MemPalaceLLM.Editor
 
         private static void BuildPreTest(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_PreTest", 920f);
+            var content = CreateFullWidthScrollStage(stageRoot, "Stage_PreTest");
             AddHeading(content, "PreTest_Title", "Spanish Word Pre-test");
             AddBody(content, "PreTest_Instructions", "Type the English meaning. Leave it blank if you do not know. Screening stops after eight unknown words; no correctness feedback is shown.", 76f);
             var question = AddVerticalGroup(content, "PreTest_QuestionGroup", 330f, Card);
@@ -391,7 +433,7 @@ namespace MemPalaceLLM.Editor
 
         private static void BuildGeneration(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_Generation", 1260f);
+            var content = CreateFullWidthScrollStage(stageRoot, "Stage_Generation");
             AddHeading(content, "Generation_Title", "Choose one LLM-generated story");
             AddBody(content, "Generation_Intro", "Read three complete continuous stories and select exactly one. The selected story is used unchanged for furniture mapping and VR narration.", 72f);
             AddText(content, "Generation_Timer", string.Empty, 14, FontStyle.Normal, Muted, 34f);
@@ -413,7 +455,7 @@ namespace MemPalaceLLM.Editor
 
         private static void BuildStoryAuthoring(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_StoryAuthoring", 1280f);
+            var content = CreateFullWidthScrollStage(stageRoot, "Stage_StoryAuthoring");
             AddHeading(content, "Story_Title", "Write your story");
             AddBody(content, "Story_Intro", "Write one complete English story using every English target word. Then split it and classify every sentence.", 58f);
             AddText(content, "Story_Timer", string.Empty, 14, FontStyle.Normal, Muted, 34f);
@@ -452,7 +494,7 @@ namespace MemPalaceLLM.Editor
         {
             var root = CreateStageRoot(stageRoot, "Stage_SelfAuthoring");
             var left = CreateScrollPanel(root.transform, "Assignment_LeftPanel", new Vector2(0f, 0f), new Vector2(0f, 1f),
-                new Vector2(18f, 18f), new Vector2(430f, -18f), Page);
+                new Vector2(18f, 0f), new Vector2(428f, 0f), Page);
             AddHeading(left, "Assignment_Title", "Map Furniture And Words");
             AddBody(left, "Assignment_Intro", "Use WASD and right-drag to look, then click an actual furniture model. Choose one unused word in the right panel.", 84f);
             AddText(left, "Assignment_Count", string.Empty, 17, FontStyle.Bold, TextColor, 34f);
@@ -466,7 +508,7 @@ namespace MemPalaceLLM.Editor
             AddButton(left, "Assignment_Leave", "Leave without finishing", 46f);
 
             var right = CreateScrollPanel(root.transform, "Assignment_RightPanel", new Vector2(1f, 0f), new Vector2(1f, 1f),
-                new Vector2(-468f, 18f), new Vector2(-18f, -18f), Page);
+                new Vector2(-448f, 0f), new Vector2(-18f, 0f), Page);
             AddText(right, "Assignment_SelectedFurniture", "Click Furniture", 28, FontStyle.Bold, TextColor, 50f);
             AddBody(right, "Assignment_SelectHint", "Click directly on a furniture model. Its two-column word card appears here.", 74f);
             var selected = AddVerticalGroup(right, "Assignment_SelectedGroup", 710f);
@@ -486,7 +528,7 @@ namespace MemPalaceLLM.Editor
         {
             var root = CreateStageRoot(stageRoot, "Stage_Study");
             var left = CreateScrollPanel(root.transform, "Study_LeftPanel", new Vector2(0f, 1f), new Vector2(0f, 1f),
-                new Vector2(18f, -650f), new Vector2(418f, -18f), Page);
+                new Vector2(18f, -650f), new Vector2(404f, 0f), Page);
             AddHeading(left, "Study_Title", "VR Memory Palace Study");
             AddText(left, "Study_Info", string.Empty, 14, FontStyle.Normal, TextColor, 176f);
             AddSectionLabel(left, "Guided voice route");
@@ -500,7 +542,7 @@ namespace MemPalaceLLM.Editor
             AddButton(left, "Study_Back", "Back to Setup", 44f);
 
             var right = CreateScrollPanel(root.transform, "Study_RightPanel", new Vector2(1f, 0f), new Vector2(1f, 1f),
-                new Vector2(-468f, 18f), new Vector2(-18f, -18f), Page);
+                new Vector2(-448f, 0f), new Vector2(-18f, 0f), Page);
             var selected = AddVerticalGroup(right, "Study_SelectedGroup", 760f);
             AddText(selected, "Study_SelectedInfo", string.Empty, 16, FontStyle.Normal, TextColor, 190f);
             AddRawImage(selected, "Study_WordImage", 250f);
@@ -511,7 +553,7 @@ namespace MemPalaceLLM.Editor
 
         private static void BuildRecall(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_Recall", 1320f);
+            var content = CreateFullWidthScrollStage(stageRoot, "Stage_Recall");
             AddHeading(content, "Recall_Title", "Immediate Post-test");
             AddBody(content, "Recall_Instructions", string.Empty, 60f);
             AddText(content, "Recall_Timer", string.Empty, 14, FontStyle.Normal, Muted, 34f);
@@ -547,7 +589,7 @@ namespace MemPalaceLLM.Editor
 
         private static void BuildQuestionnaire(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_Questionnaire", 980f);
+            var content = CreateFullWidthScrollStage(stageRoot, "Stage_Questionnaire");
             AddHeading(content, "Questionnaire_Title", "Post-Session Questionnaire");
             AddBody(content, "Questionnaire_Intro", "NASA-TLX style workload ratings and study-experience quality ratings.", 54f);
             AddText(content, "Questionnaire_Timer", string.Empty, 14, FontStyle.Normal, Muted, 34f);
@@ -569,7 +611,7 @@ namespace MemPalaceLLM.Editor
 
         private static void BuildResult(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_Result", 1100f);
+            var content = CreateFullWidthScrollStage(stageRoot, "Stage_Result");
             AddHeading(content, "Result_Title", "Session Summary");
             AddText(content, "Result_Summary", string.Empty, 15, FontStyle.Normal, TextColor, 330f);
             AddSectionLabel(content, "Export paths");
@@ -911,7 +953,14 @@ namespace MemPalaceLLM.Editor
         {
             var root = CreateStageRoot(stageRoot, name);
             return CreateScrollPanel(root.transform, name + "_Page", new Vector2(0.5f, 0f), new Vector2(0.5f, 1f),
-                new Vector2(-width * 0.5f, 18f), new Vector2(width * 0.5f, -18f), Page);
+                new Vector2(-width * 0.5f, 0f), new Vector2(width * 0.5f, 0f), Page);
+        }
+
+        private static Transform CreateFullWidthScrollStage(Transform stageRoot, string name)
+        {
+            var root = CreateStageRoot(stageRoot, name);
+            return CreateScrollPanel(root.transform, name + "_Page", Vector2.zero, Vector2.one,
+                new Vector2(18f, 0f), new Vector2(-18f, 0f), Page);
         }
 
         private static GameObject CreateStageRoot(Transform parent, string name)
@@ -1069,6 +1118,8 @@ namespace MemPalaceLLM.Editor
             var root = CreateObject(name, parent);
             var image = root.AddComponent<Image>();
             image.color = primary ? Primary : new Color(0.22f, 0.25f, 0.30f, 1f);
+            image.sprite = defaultUiSprite;
+            image.type = Image.Type.Sliced;
             var button = root.AddComponent<Button>();
             button.targetGraphic = image;
             var colors = button.colors;
@@ -1097,6 +1148,8 @@ namespace MemPalaceLLM.Editor
             var root = CreateObject(name, parent);
             var image = root.AddComponent<Image>();
             image.color = Field;
+            image.sprite = defaultUiSprite;
+            image.type = Image.Type.Sliced;
             var input = root.AddComponent<InputField>();
             input.targetGraphic = image;
             input.lineType = multiline ? InputField.LineType.MultiLineNewline : InputField.LineType.SingleLine;
@@ -1174,6 +1227,8 @@ namespace MemPalaceLLM.Editor
             var root = CreateObject(name, parent);
             var rootImage = root.AddComponent<Image>();
             rootImage.color = Field;
+            rootImage.sprite = defaultUiSprite;
+            rootImage.type = Image.Type.Sliced;
             var dropdown = root.AddComponent<Dropdown>();
             dropdown.targetGraphic = rootImage;
             root.AddComponent<LayoutElement>().preferredHeight = height;
@@ -1238,6 +1293,129 @@ namespace MemPalaceLLM.Editor
             dropdown.itemText = itemLabel;
             template.SetActive(false);
             return dropdown;
+        }
+
+        private static void ApplyLegacyDarkButtonTheme(Transform stageRoot)
+        {
+            if (stageRoot == null)
+            {
+                return;
+            }
+
+            for (var childIndex = 0; childIndex < stageRoot.childCount; childIndex++)
+            {
+                var stage = stageRoot.GetChild(childIndex);
+                if (stage.name == "Stage_Setup" || stage.name == "Stage_RoomBuilder")
+                {
+                    continue;
+                }
+
+                var buttons = stage.GetComponentsInChildren<Button>(true);
+                for (var i = 0; i < buttons.Length; i++)
+                {
+                    var image = buttons[i].GetComponent<Image>();
+                    if (image != null)
+                    {
+                        image.color = DarkButton;
+                        image.sprite = defaultUiSprite;
+                        image.type = Image.Type.Sliced;
+                    }
+
+                    var label = buttons[i].GetComponentInChildren<Text>(true);
+                    if (label != null)
+                    {
+                        label.fontSize = 13;
+                        label.fontStyle = FontStyle.Normal;
+                        label.color = TextColor;
+                    }
+                }
+            }
+        }
+
+        private static void ApplyLegacyLightTheme(Transform stage)
+        {
+            if (stage == null)
+            {
+                return;
+            }
+
+            var texts = stage.GetComponentsInChildren<Text>(true);
+            for (var i = 0; i < texts.Length; i++)
+            {
+                var text = texts[i];
+                var alpha = text.color.a;
+                if (ApproximatelyRgb(text.color, Muted) || ApproximatelyRgb(text.color, LightMuted))
+                {
+                    text.color = new Color(LightMuted.r, LightMuted.g, LightMuted.b, alpha);
+                }
+                else if (ApproximatelyRgb(text.color, Primary))
+                {
+                    text.color = new Color(Primary.r, Primary.g, Primary.b, alpha);
+                }
+                else
+                {
+                    text.color = new Color(LightInk.r, LightInk.g, LightInk.b, alpha);
+                }
+            }
+
+            var images = stage.GetComponentsInChildren<Image>(true);
+            for (var i = 0; i < images.Length; i++)
+            {
+                var image = images[i];
+                var button = image.GetComponent<Button>();
+                if (button != null)
+                {
+                    var isPrimary = ApproximatelyRgb(image.color, Primary);
+                    image.color = isPrimary ? Primary : LightSecondary;
+                    image.sprite = defaultUiSprite;
+                    image.type = Image.Type.Sliced;
+                    var label = button.GetComponentInChildren<Text>(true);
+                    if (label != null)
+                    {
+                        label.fontSize = isPrimary ? 16 : 14;
+                        label.fontStyle = isPrimary ? FontStyle.Bold : FontStyle.Normal;
+                        label.color = isPrimary ? Color.white : LightInk;
+                    }
+                    continue;
+                }
+
+                if (image.GetComponent<InputField>() != null || image.GetComponent<Dropdown>() != null)
+                {
+                    image.color = Color.white;
+                    image.sprite = defaultUiSprite;
+                    image.type = Image.Type.Sliced;
+                    continue;
+                }
+
+                if (image.color.a <= 0.02f)
+                {
+                    continue;
+                }
+
+                if (image.name.EndsWith("_Handle", StringComparison.Ordinal))
+                {
+                    image.color = Primary;
+                }
+                else if (image.name.Contains("Scrollbar", StringComparison.Ordinal))
+                {
+                    image.color = LightSecondary;
+                }
+                else if (ApproximatelyRgb(image.color, Card) || ApproximatelyRgb(image.color, LightCard))
+                {
+                    image.color = LightCard;
+                }
+                else if (ApproximatelyRgb(image.color, Page) || ApproximatelyRgb(image.color, LightPage))
+                {
+                    image.color = LightPage;
+                }
+            }
+        }
+
+        private static bool ApproximatelyRgb(Color a, Color b)
+        {
+            return Mathf.Abs(a.r - b.r) < 0.01f &&
+                   Mathf.Abs(a.g - b.g) < 0.01f &&
+                   Mathf.Abs(a.b - b.b) < 0.01f;
         }
 
         private static Transform CreatePanel(

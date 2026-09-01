@@ -28,14 +28,19 @@ namespace MemPalaceLLM
         [SerializeField] private GameObject vrRecallPanelTemplate;
 
         [Header("Theme (used by the rebuild tool)")]
-        [SerializeField] private Color pageColor = new(0.075f, 0.095f, 0.14f, 0.96f);
-        [SerializeField] private Color cardColor = new(0.12f, 0.145f, 0.20f, 0.97f);
-        [SerializeField] private Color primaryColor = new(0.32f, 0.62f, 0.65f, 1f);
-        [SerializeField] private Color textColor = new(0.96f, 0.97f, 0.99f, 1f);
-        [SerializeField] private Color mutedTextColor = new(0.68f, 0.74f, 0.82f, 1f);
+        [SerializeField] private Color pageColor = new(0.10f, 0.12f, 0.17f, 0.94f);
+        [SerializeField] private Color cardColor = new(0.14f, 0.17f, 0.23f, 0.95f);
+        [SerializeField] private Color primaryColor = new(0.10f, 0.38f, 0.42f, 1f);
+        [SerializeField] private Color textColor = new(0.95f, 0.96f, 0.99f, 1f);
+        [SerializeField] private Color mutedTextColor = new(0.70f, 0.76f, 0.84f, 1f);
+        [SerializeField] private Color lightPageColor = new(0.94f, 0.94f, 0.91f, 0.98f);
+        [SerializeField] private Color lightSecondaryColor = new(0.88f, 0.89f, 0.85f, 1f);
+        [SerializeField] private Color lightInkColor = new(0.13f, 0.18f, 0.20f, 1f);
+        [SerializeField] private Color lightMutedTextColor = new(0.34f, 0.39f, 0.39f, 1f);
 
         private readonly Dictionary<string, GameObject> objectsByName = new(StringComparer.Ordinal);
         private bool initialized;
+        private bool lightStageTheme = true;
 
         public Canvas Canvas => canvas;
         public GameObject StageRoot => stageRoot;
@@ -148,6 +153,18 @@ namespace MemPalaceLLM
             }
         }
 
+        public void ApplyLegacyStageTheme(ExperimentStage stage)
+        {
+            lightStageTheme = stage == ExperimentStage.Setup || stage == ExperimentStage.RoomBuilder;
+            SetGraphicColor("Common_Header", lightStageTheme ? lightPageColor : pageColor);
+            SetGraphicColor(
+                "Common_StageBadge",
+                lightStageTheme ? lightSecondaryColor : new Color(0.17f, 0.35f, 0.58f, 0.95f));
+            SetTextColor("Common_Title", lightStageTheme ? lightInkColor : Color.white);
+            SetTextColor("Common_Status", lightStageTheme ? lightMutedTextColor : mutedTextColor);
+            SetTextColor("Common_Stage", lightStageTheme ? lightInkColor : Color.white);
+        }
+
         public void SetVisible(string objectName, bool visible)
         {
             if (TryGetObject(objectName, out var target) && target.activeSelf != visible)
@@ -195,6 +212,30 @@ namespace MemPalaceLLM
             colors.normalColor = selected ? primaryColor : Color.white;
             colors.selectedColor = selected ? primaryColor : Color.white;
             selectable.colors = colors;
+
+            var label = selectable.GetComponentInChildren<Text>(true);
+            if (label != null)
+            {
+                label.color = selected ? Color.white : lightStageTheme ? lightInkColor : textColor;
+            }
+        }
+
+        private void SetGraphicColor(string objectName, Color color)
+        {
+            var graphic = Get<Graphic>(objectName);
+            if (graphic != null)
+            {
+                graphic.color = color;
+            }
+        }
+
+        private void SetTextColor(string objectName, Color color)
+        {
+            var text = Get<Text>(objectName);
+            if (text != null)
+            {
+                text.color = color;
+            }
         }
 
         public void SetSliderValue(string objectName, float value)
