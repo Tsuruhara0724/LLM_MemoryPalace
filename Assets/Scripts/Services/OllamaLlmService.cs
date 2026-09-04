@@ -253,6 +253,7 @@ namespace MemPalaceLLM
             public string action;
             public string result;
             public string goal_link;
+            public string memory_cue;
         }
 
         [Serializable]
@@ -419,7 +420,7 @@ namespace MemPalaceLLM
             {
                 model = model.Trim(),
                 prompt = BuildStoryPrompt(words, causalPlanJson),
-                system = "You are a strict causal fiction editor and JSON API. Audit the supplied plan, repair any physically impossible link, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                system = "You are a strict causal fiction editor for adult A2-B1 English learners and a JSON API. Audit the supplied plan, repair any unsafe or impossible link, enforce short readable sentences and distinct concrete memory cues, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
@@ -450,7 +451,7 @@ namespace MemPalaceLLM
                 {
                     model = model.Trim(),
                     prompt = BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
-                    system = "You repair a rejected causal micro-story. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                    system = "You repair a rejected causal micro-story for adult A2-B1 English learners. Enforce the stated readability, grammar, safety, causality, and memory-cue rules. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                     format = "json",
                     stream = false,
                     options = new OllamaRequestOptions
@@ -544,7 +545,7 @@ namespace MemPalaceLLM
                 apiKey.Trim(),
                 model.Trim(),
                 BuildStoryPrompt(words, causalPlanJson),
-                "You are a strict causal fiction editor and JSON API. Audit the supplied plan, repair any physically impossible link, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                "You are a strict causal fiction editor for adult A2-B1 English learners and a JSON API. Audit the supplied plan, repair any unsafe or impossible link, enforce short readable sentences and distinct concrete memory cues, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                 0.48f,
                 2000,
                 value => storyResponse = value,
@@ -566,7 +567,7 @@ namespace MemPalaceLLM
                     apiKey.Trim(),
                     model.Trim(),
                     BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
-                    "You repair a rejected causal micro-story. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                    "You repair a rejected causal micro-story for adult A2-B1 English learners. Enforce the stated readability, grammar, safety, causality, and memory-cue rules. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                     0.38f,
                     2200,
                     value => repairedResponse = value,
@@ -1031,15 +1032,17 @@ namespace MemPalaceLLM
             builder.AppendLine("The plan must be linear: item N creates the exact situation that item N+1 responds to. Do not make a set of separate episodes, parallel actions, or unrelated scenes.");
             builder.AppendLine("Choose ONE target as the central destination, person, place, or object that defines the story's urgent goal. Every other target must help, hinder, protect, repair, unlock, signal, transport, or otherwise change progress toward that same goal.");
             builder.AppendLine("The goal must not be a list of errands. Do not use shopping, packing several items, eating lunch, sightseeing, appreciating a view, attending unrelated events, or visiting multiple destinations as the story structure.");
-            builder.AppendLine("Return JSON exactly as: {\"goal\":\"one concrete urgent goal\",\"items\":[{\"word\":\"zapato\",\"need\":\"specific prior obstacle requiring it\",\"action\":\"intentional physically possible action with it\",\"result\":\"visible result that makes the next item necessary\",\"goal_link\":\"how this beat changes progress toward the single goal\"}]}");
-            builder.AppendLine("Each item must have non-empty word, need, action, result, and goal_link fields.");
+            builder.AppendLine("Return JSON exactly as: {\"goal\":\"one concrete urgent goal\",\"items\":[{\"word\":\"zapato\",\"need\":\"specific prior obstacle requiring it\",\"action\":\"intentional physically possible action with it\",\"result\":\"visible result that makes the next item necessary\",\"goal_link\":\"how this beat changes progress toward the single goal\",\"memory_cue\":\"one distinctive concrete change caused by the action\"}]}");
+            builder.AppendLine("Each item must have non-empty word, need, action, result, goal_link, and memory_cue fields.");
             builder.AppendLine("HARD LINK FORMAT: copy the complete result text of item N verbatim into the need field of item N+1. The strings must be exactly identical. The action in item N+1 must respond directly to that copied situation. The last result must solve the goal.");
             builder.AppendLine("A target may be used in a normal way or in an imaginative way, but the result must still be clear and must logically cause the next need.");
+            builder.AppendLine("For memory_cue, choose one safe, plausible detail created by the target action: a clear movement, shape, color, sound, touch, or changed state. Make cues easy to picture and different from one another. A cue must do narrative work, not decorate the scene.");
             builder.AppendLine("Reject magic, coincidence, dream logic, symbolic actions, impossible tool use, distant scenery, reflections that reveal unknown facts, and objects appearing without a source.");
             builder.AppendLine("Do not claim that an inaccessible shop supplies an item, that throwing one object summons another, or that a blunt object cuts or unlocks something without a believable mechanism.");
-            builder.AppendLine("Prefer familiar actions that ordinary people could perform. Keep one route toward one destination and at least two active characters.");
+            builder.AppendLine("Prefer familiar, safe actions that ordinary people could perform. Do not make a character climb, enter danger, misuse a tool, or take another needless risk when a safe action would solve the problem. Keep one route toward one destination and at least two active characters.");
             builder.AppendLine("Use simple everyday English in goal, need, action, result, and goal_link. Prefer short common words and direct verbs. Avoid poetic, rare, or literary words.");
             builder.AppendLine("Do not introduce important non-target props such as a bowl, lunch, bottle, rope, ticket, key, or borrowed book unless absolutely unavoidable for a small connecting action. The target objects must perform the important jobs.");
+            builder.AppendLine("Do not list supplies or mention an object that no character uses. Every named prop must be used in the same item or the next item.");
             builder.AppendLine("Silently simulate the chain from beginning to end before returning JSON. Repair any step whose result would not really follow from its action.");
             builder.AppendLine();
             builder.AppendLine("Targets:");
@@ -1103,6 +1106,14 @@ namespace MemPalaceLLM
                     return false;
                 }
 
+                // Preserve otherwise valid plans from smaller models while still giving the
+                // story writer a concrete cue to improve. Stronger models provide a distinct
+                // memory_cue; the visible result is the safest semantic fallback.
+                if (string.IsNullOrWhiteSpace(item.memory_cue))
+                {
+                    item.memory_cue = item.result.Trim();
+                }
+
                 var word = item.word.Trim();
                 if (!expectedWords.Contains(word) || !usedWords.Add(word))
                 {
@@ -1156,11 +1167,12 @@ namespace MemPalaceLLM
                 {
                     word = word,
                     need = priorResult,
-                    action = "Use the " + meaning + " (" + word + ") in a practical way to move forward.",
+                    action = "Use the " + BuildTargetStoryToken(meaning, word) + " in a practical way to move forward.",
                     result = result,
                     goal_link = isLast
                         ? "This completes the journey to safety."
-                        : "This creates the next step toward safety."
+                        : "This creates the next step toward safety.",
+                    memory_cue = "The action makes one clear, easy-to-picture change involving the " + meaning + "."
                 };
                 priorResult = result;
             }
@@ -1189,10 +1201,10 @@ namespace MemPalaceLLM
             builder.AppendLine("2. Keep one setting, one goal, and one continuous chain of events from the opening problem to its resolution.");
             builder.AppendLine("2a. The story must be strictly linear. Each sentence must start from the situation created by the previous sentence and must create the situation needed by the next sentence.");
             builder.AppendLine("2b. The first sentence must be a real opening: it must state the main goal or urgent need before or while using the first target word. Do not start in the middle with a guard, gate, ceremony, reward, or final obstacle unless the goal has already been stated in that same sentence.");
-            builder.AppendLine("3. Write roughly one sentence per target word and normally introduce exactly one new target pair in each sentence.");
-            builder.AppendLine("3a. No sentence may contain more than one target token. If two targets interact, write two consecutive sentences, one token per sentence.");
-            builder.AppendLine("4. Every target sentence must contain all three parts: a reason the character needs the target, an intentional physical action involving it, and an immediate visible result.");
-            builder.AppendLine("5. That visible result must create the reason for the next sentence. The final target action must solve the original problem.");
+            builder.AppendLine("3. Give each target a beat of one or two short sentences. Put exactly one new target pair in that beat, and never put two target pairs in one sentence.");
+            builder.AppendLine("4. Across those one or two sentences, show three things: why the target is needed, an intentional physical action involving it, and an immediate concrete result. Split the beat instead of packing all three into a long sentence.");
+            builder.AppendLine("5. That concrete result must create the reason for the next target beat. The final target beat must solve the original problem.");
+            builder.AppendLine("6. End as soon as the goal is solved. The last sentence may show a brief reaction or payoff, but it must not begin an unrelated activity.");
             builder.AppendLine();
             builder.AppendLine("ACTION TEST FOR EVERY TARGET");
             builder.AppendLine("The target must be the direct subject or object of a concrete action verb. A character should carry, open, close, wear, strike, repair, turn, pour, cut, block, signal with, climb, move, or otherwise physically act on it.");
@@ -1206,24 +1218,36 @@ namespace MemPalaceLLM
             builder.AppendLine("Imaginative use of a target is allowed, but it still needs a clear cause and effect. The reader must understand why that target action changes the next moment.");
             builder.AppendLine("Do not use meanwhile, elsewhere, later that day, suddenly, another problem, or scene jumps to move between targets.");
             builder.AppendLine("Bad: The drum echoes in the distance where a flower seller waits. Both targets are scenery.");
-            builder.AppendLine("Good: The loose gate traps Ana, so you beat the drum to call the flower seller; the seller cuts a tough flower stem and uses it to lift the jammed latch.");
+            builder.AppendLine("Good: The loose gate traps Ana. You beat the drum to call the flower seller. The seller uses a tough flower stem to lift the latch.");
             builder.AppendLine("Silently delete each target sentence. If the sentences before and after still connect, rewrite that target sentence because it is not doing narrative work.");
             builder.AppendLine();
-            builder.AppendLine("STYLE AND TONE");
+            builder.AppendLine("MEMORY TEST");
+            builder.AppendLine("Turn each plan memory_cue into a specific consequence of the target action. Give every target one distinct, safe, easy-to-picture detail such as a clear movement, shape, color, sound, touch, or changed state.");
+            builder.AppendLine("The memorable detail must clarify the target meaning or its result. Do not add random oddness, decorative spectacle, or a second event just to make the sentence vivid.");
+            builder.AppendLine("Vary the physical actions and results. Do not repeat a vague pattern such as use it carefully, move forward, or solve the problem.");
+            builder.AppendLine("At the payoff, let at least one earlier physical change help the final success. Refer to it with plain English or a pronoun; do not repeat its Spanish target pair.");
+            builder.AppendLine();
+            builder.AppendLine("READABILITY, STYLE, AND TONE");
             builder.AppendLine("Use active voice, concrete verbs, character choices, small setbacks, and a satisfying practical resolution.");
-            builder.AppendLine("Use simple learner-friendly English, about A2-B1 level. Prefer short sentences and common words. If two words can express the same idea, choose the simpler word.");
+            builder.AppendLine("Write for adult English learners at A2-B1 level. Use common words and direct verbs. If two words express the same idea, choose the simpler word.");
+            builder.AppendLine("Most sentences must contain 8-16 words. No sentence may exceed 20 words, including the Spanish word and its English meaning. Use a new sentence before adding a second main action.");
+            builder.AppendLine("Use periods and simple connectors. Do not use semicolons, colons, em dashes, more than one comma in a sentence, nested clauses, or long while/which/that phrases.");
+            builder.AppendLine("Prefer one clear subject and one main verb per sentence. Avoid long lists of objects, tools, locations, or actions.");
             builder.AppendLine("Avoid poetic or difficult words such as shrouded, treacherous, illuminate, amplify, fashioned, dense, and swirling. Use simple words like covered, hard, light, made, thick, and moving instead.");
             builder.AppendLine("Do not use generic filler such as next problem, keep moving, the story, the plot, or the route. Name the concrete problem and the visible result.");
             builder.AppendLine("Use no more than one short atmospheric clause in the entire story. Do not describe distant scenery or ambient sounds unless a character immediately acts on them.");
             builder.AppendLine("Keep the tone bright, everyday, and emotionally safe. No horror, dream logic, uncanny living objects, supernatural transformations, or unrelated parade, dance, spectacle, or celebration.");
+            builder.AppendLine("Keep every action physically plausible and reasonably safe. Do not create avoidable danger merely to connect two target words.");
             builder.AppendLine("Write in second person: the main character is always you. Do not name the main character or use he, she, his, or her for the main character.");
             builder.AppendLine("Do not mention the memory room, furniture anchors, route instructions, walking directions, mnemonics, or image generation.");
-            builder.AppendLine("Aim for about 160-210 words for eight targets, scaling proportionally for other counts.");
+            builder.AppendLine("Aim for 12-18 words per target, plus at most 20 words total for the opening and ending.");
             builder.AppendLine();
             builder.AppendLine("WORD FORMAT");
             builder.AppendLine("Every target must appear once as SpanishWord (EnglishMeaning), for example zapato (shoe).");
             builder.AppendLine("Do not add a label before a sentence. Bad: zapato (shoe): You picked it up. Good: You picked up the zapato (shoe) to block the door.");
             builder.AppendLine("Never put two target tokens in the same sentence.");
+            builder.AppendLine("GRAMMAR REPLACEMENT TEST: mentally replace the whole SpanishWord (EnglishMeaning) pair with EnglishMeaning. The resulting sentence must be natural English with the correct article, preposition, part of speech, and singular or plural form.");
+            builder.AppendLine("Do not repeat the meaning beside the pair or write a tautology such as use a plug to plug something in. Rewrite the action naturally while keeping the exact target pair.");
             builder.AppendLine("Avoid repeating target pairs. If an earlier object must be referenced again, use a pronoun or ordinary synonym without repeating the Spanish word.");
             builder.AppendLine("Return JSON exactly in this minimal shape:");
             builder.AppendLine("{\"fullStory\":\"one continuous story paragraph with no route instructions\",\"items\":[{\"word\":\"zapato\",\"storyOrder\":1}]}");
@@ -1260,11 +1284,15 @@ namespace MemPalaceLLM
             builder.AppendLine("Return exactly: {\"fullStory\":\"...\",\"items\":[{\"word\":\"target\",\"storyOrder\":1}]}.");
             builder.AppendLine("Every selected target must appear naturally in the fullStory exactly once as SpanishWord (EnglishMeaning), and each must perform an action that changes progress toward the same goal.");
             builder.AppendLine("No sentence may contain more than one target token; split any multi-target sentence into separate consecutive sentences.");
+            builder.AppendLine("Give each target a one- or two-sentence beat containing its need, intentional action, concrete result, and one distinct easy-to-picture detail caused by that action.");
             builder.AppendLine("Do not append isolated repair sentences, dream imagery, scenery-only descriptions, room-tour instructions, anchors, or furniture assignments.");
             builder.AppendLine("Keep the causal order from the plan, but repair any implausible action or weak connection.");
             builder.AppendLine("Make the story strictly linear: every sentence must follow from the previous sentence and create the reason for the next sentence. No separate episodes or scene jumps.");
             builder.AppendLine("The target's role may be normal or imaginative, but it must produce a concrete result that changes the next moment.");
-            builder.AppendLine("Use simple learner-friendly English, about A2-B1 level. Prefer short sentences, common words, and direct verbs. Replace difficult or poetic words with simpler words.");
+            builder.AppendLine("Use A2-B1 English, common words, and direct verbs. Keep most sentences at 8-16 words and every sentence at 20 words or fewer. Split long sentences rather than joining actions with commas.");
+            builder.AppendLine("Use periods, at most one comma per sentence, and no semicolons, colons, or em dashes.");
+            builder.AppendLine("Apply the grammar replacement test to every target pair: replacing SpanishWord (EnglishMeaning) with EnglishMeaning must leave a natural English sentence without repeated meaning or tautology.");
+            builder.AppendLine("Keep every action safe and physically plausible, use every named prop, and stop when the original goal is solved.");
             builder.AppendLine("Do not use generic filler such as next problem, keep moving, the story, the plot, or the route. Name the concrete problem and the visible result.");
             builder.AppendLine();
             builder.AppendLine("Selected targets:");
@@ -1329,6 +1357,12 @@ namespace MemPalaceLLM
             if (ContainsStoryRouteCue(envelope.fullStory, out var routeCueError))
             {
                 error = routeCueError;
+                return false;
+            }
+
+            if (HasLearnerReadabilityProblems(envelope.fullStory, words, out var readabilityError))
+            {
+                error = readabilityError;
                 return false;
             }
 
@@ -1564,6 +1598,148 @@ namespace MemPalaceLLM
             }
 
             return terms;
+        }
+
+        private static bool HasLearnerReadabilityProblems(
+            string fullStory,
+            List<WordEntry> words,
+            out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return false;
+            }
+
+            var sentences = SplitStorySentences(fullStory);
+            if (sentences.Count == 0)
+            {
+                error = "Story has no complete readable sentences.";
+                return true;
+            }
+
+            var totalWordCount = 0;
+            for (var sentenceIndex = 0; sentenceIndex < sentences.Count; sentenceIndex++)
+            {
+                var sentence = sentences[sentenceIndex];
+                var wordCount = CountStoryWords(sentence);
+                totalWordCount += wordCount;
+
+                // The writing prompt asks for at most 20 words. Two words of tolerance avoid
+                // rejecting an otherwise strong story because a model counted a hyphenated word
+                // or a multi-word target meaning differently.
+                if (wordCount > 22)
+                {
+                    error = "Sentence " + (sentenceIndex + 1) + " has " + wordCount +
+                            " words. Split it into A2-B1 sentences of at most 20 words.";
+                    return true;
+                }
+
+                if (sentence.IndexOf(';') >= 0 || sentence.IndexOf(':') >= 0 ||
+                    sentence.IndexOf('\u2013') >= 0 || sentence.IndexOf('\u2014') >= 0)
+                {
+                    error = "Sentence " + (sentenceIndex + 1) +
+                            " uses dense punctuation. Rewrite it with short sentences and periods.";
+                    return true;
+                }
+
+                if (Regex.Matches(sentence, ",").Count > 1)
+                {
+                    error = "Sentence " + (sentenceIndex + 1) +
+                            " has more than one comma. Split its clauses into shorter sentences.";
+                    return true;
+                }
+
+                var targetPairCount = 0;
+                if (words != null)
+                {
+                    for (var wordIndex = 0; wordIndex < words.Count; wordIndex++)
+                    {
+                        var occurrenceCount = CountTargetPairOccurrences(sentence, words[wordIndex]);
+                        if (occurrenceCount > 1)
+                        {
+                            error = "Sentence " + (sentenceIndex + 1) + " repeats target pair " +
+                                    BuildTargetStoryToken(words[wordIndex]?.meaning, words[wordIndex]?.word) + ".";
+                            return true;
+                        }
+
+                        if (occurrenceCount == 1)
+                        {
+                            targetPairCount++;
+                        }
+                    }
+                }
+
+                if (targetPairCount > 1)
+                {
+                    error = "Sentence " + (sentenceIndex + 1) +
+                            " contains more than one target pair. Give each target its own short beat.";
+                    return true;
+                }
+            }
+
+            if (words != null && words.Count > 0)
+            {
+                for (var wordIndex = 0; wordIndex < words.Count; wordIndex++)
+                {
+                    var occurrenceCount = CountTargetPairOccurrences(fullStory, words[wordIndex]);
+                    if (occurrenceCount != 1)
+                    {
+                        error = "Story must contain target pair " +
+                                BuildTargetStoryToken(words[wordIndex]?.meaning, words[wordIndex]?.word) +
+                                " exactly once, but found " + occurrenceCount + ".";
+                        return true;
+                    }
+                }
+
+                var maximumSentenceCount = (words.Count * 2) + 2;
+                if (sentences.Count > maximumSentenceCount)
+                {
+                    error = "Story has " + sentences.Count + " sentences. Keep each target to a compact one- or two-sentence beat.";
+                    return true;
+                }
+
+                var maximumTotalWords = Mathf.Max(60, (words.Count * 20) + 20);
+                if (totalWordCount > maximumTotalWords)
+                {
+                    error = "Story has " + totalWordCount + " words. Shorten it to about 12-18 words per target plus a brief opening and ending.";
+                    return true;
+                }
+            }
+
+            var averageWordsPerSentence = totalWordCount / (float)sentences.Count;
+            if (averageWordsPerSentence > 17f)
+            {
+                error = "Story averages " + averageWordsPerSentence.ToString("0.0") +
+                        " words per sentence. Split or simplify it for A2-B1 readers.";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int CountStoryWords(string text)
+        {
+            return string.IsNullOrWhiteSpace(text)
+                ? 0
+                : Regex.Matches(text, @"[\p{L}\p{N}]+(?:['\u2019\-][\p{L}\p{N}]+)*").Count;
+        }
+
+        private static int CountTargetPairOccurrences(string text, WordEntry word)
+        {
+            if (string.IsNullOrWhiteSpace(text) || word == null ||
+                string.IsNullOrWhiteSpace(word.word) || string.IsNullOrWhiteSpace(word.meaning))
+            {
+                return 0;
+            }
+
+            var spanish = Regex.Escape(word.word.Trim()).Replace("\\ ", @"\s+");
+            var meaning = Regex.Escape(word.meaning.Trim()).Replace("\\ ", @"\s+");
+            var boundary = @"(?<![\p{L}\p{N}_])";
+            var canonicalPattern = boundary + spanish + @"\s*\(\s*" + meaning + @"\s*\)";
+            var legacyPattern = boundary + meaning + @"\s*\(\s*" + spanish + @"\s*\)";
+            return Regex.Matches(text, canonicalPattern, RegexOptions.IgnoreCase).Count +
+                   Regex.Matches(text, legacyPattern, RegexOptions.IgnoreCase).Count;
         }
 
         private static bool LooksLikeFragmentedObjectScenes(string fullStory, List<WordEntry> words, out string error)
