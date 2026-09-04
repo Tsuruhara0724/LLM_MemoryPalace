@@ -274,20 +274,20 @@ namespace MemPalaceLLM
 
         private static readonly GridFurnitureDefinition[] GridFurnitureDefinitions =
         {
-            new("door", "Door", "door", "door", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(0.85f, 2.1f, 0.10f), "#7B5032", true, 0.0f),
-            new("bed", "Bed", "bed", "bed", GridFurnitureSnapType.Floor, new Vector2Int(2, 3), new Vector3(1.8f, 0.55f, 2.6f), "#D8D6D0", true, 0.0f),
-            new("wardrobe", "Wardrobe", "wardrobe", "wardrobe", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.35f, 2.0f, 0.55f), "#7E6B55", true, 0.0f, true),
-            new("desk", "Desk", "desk", "desk", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.35f, 0.75f, 0.75f), "#7A5A3B", true, 0.0f, true),
-            new("chair", "Chair", "chair", "chair", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.7f, 0.85f, 0.7f), "#5C6A7A", true, 0.0f),
-            new("bookshelf", "Bookshelf", "bookshelf", "bookshelf", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.85f, 2.0f, 0.45f), "#8B6A3A", true, 0.0f, true),
-            new("bathtub", "Bathtub", "bathtub", "bathtub", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.7f, 0.55f, 0.95f), "#DDE7EF", true, 0.0f, true),
-            new("sofa", "Sofa", "sofa", "sofa", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.7f, 0.85f, 0.85f), "#6A5C72", true, 0.0f, true),
-            new("television", "Television", "television", "television", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.25f, 0.75f, 0.12f), "#252A32", false, 1.35f),
-            new("air_conditioner", "Air Conditioner", "air_conditioner", "air_conditioner", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.25f, 0.35f, 0.16f), "#E6ECEF", false, 2.25f),
-            new("window", "Window", "window", "window", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.2f, 0.85f, 0.08f), "#779CCB", false, 1.45f),
-            new("lamp", "Lamp", "lamp", "lamp", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.45f, 1.45f, 0.45f), "#FFD98A", true, 0.0f),
-            new("plant", "Plant", "plant", "plant", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.55f, 1.15f, 0.55f), "#6F8F5D", true, 0.0f),
-            new("toilet", "Toilet", "toilet", "toilet", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.75f, 0.75f, 0.85f), "#E9ECEF", true, 0.0f, true)
+            new("door", "Door", "door", "door", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.0f, 2.1f, 0.19f), "#7B5032", true, 0.0f),
+            new("bed", "Bed", "bed", "bed", GridFurnitureSnapType.Floor, new Vector2Int(2, 3), new Vector3(1.74f, 0.67f, 1.99f), "#D8D6D0", true, 0.0f),
+            new("wardrobe", "Wardrobe", "wardrobe", "wardrobe", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.30f, 1.70f, 0.60f), "#7E6B55", true, 0.0f, true),
+            new("desk", "Desk", "desk", "desk", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(1.76f, 1.05f, 0.87f), "#7A5A3B", true, 0.0f, true),
+            new("chair", "Chair", "chair", "chair", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.71f, 0.90f, 0.53f), "#5C6A7A", true, 0.0f),
+            new("bookshelf", "Bookshelf", "bookshelf", "bookshelf", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.86f, 1.98f, 0.69f), "#8B6A3A", true, 0.0f, true),
+            new("bathtub", "Bathtub", "bathtub", "bathtub", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(2.98f, 1.03f, 1.35f), "#DDE7EF", true, 0.0f, true),
+            new("sofa", "Sofa", "sofa", "sofa", GridFurnitureSnapType.Floor, new Vector2Int(2, 1), new Vector3(2.67f, 1.08f, 1.23f), "#6A5C72", true, 0.0f, true),
+            new("television", "Television", "television", "television", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(2.40f, 1.42f, 0.24f), "#252A32", false, 1.35f),
+            new("air_conditioner", "Air Conditioner", "air_conditioner", "air_conditioner", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.25f, 0.32f, 0.28f), "#E6ECEF", false, 2.45f),
+            new("window", "Window", "window", "window", GridFurnitureSnapType.Wall, new Vector2Int(1, 1), new Vector3(1.06f, 1.11f, 0.06f), "#779CCB", false, 1.45f),
+            new("lamp", "Lamp", "lamp", "lamp", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.48f, 1.81f, 0.48f), "#FFD98A", true, 0.0f),
+            new("plant", "Plant", "plant", "plant", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.80f, 1.49f, 0.82f), "#6F8F5D", true, 0.0f),
+            new("toilet", "Toilet", "toilet", "toilet", GridFurnitureSnapType.Floor, new Vector2Int(1, 1), new Vector3(0.71f, 1.58f, 1.25f), "#E9ECEF", true, 0.0f, true)
         };
 
         private DemoDataLibrary library;
@@ -3733,10 +3733,10 @@ namespace MemPalaceLLM
             {
                 GridEditorMode.Floor => "Left-drag: add tiles   |   Right-click: erase",
                 GridEditorMode.Wall => "Left-click: add wall   |   Right-click: remove wall",
-                GridEditorMode.Furniture => "Left-click: place   |   R: rotate   |   one item of each type",
-                _ => "Click: pick up item   |   R: rotate   |   Delete: remove"
+                GridEditorMode.Furniture => "Left-click: place   |   R: rotate item   |   one item of each type",
+                _ => "Click: pick up item   |   R: rotate item   |   Delete: remove"
             };
-            return action + "\n1-4: change step   |   WASD: move   |   Q: lower view   |   E: raise view   |   Middle-drag: look   |   Wheel: zoom   |   Esc: cancel or deselect";
+            return action + "\n1-4: change step   |   WASD: move   |   Q: zoom out   |   E: zoom in   |   Hold middle mouse: rotate view   |   Wheel: zoom   |   Esc: cancel or deselect";
         }
 
         private void SetGridEditorMode(GridEditorMode mode)
@@ -6837,7 +6837,11 @@ namespace MemPalaceLLM
                 var selected = selectedLlmStoryCandidateIndex == i;
                 GUILayout.BeginVertical(sectionStyle);
                 GUILayout.Label($"Story {i + 1}{(selected ? " · SELECTED" : string.Empty)}", smallTitleStyle);
-                GUILayout.Label(candidate?.fullStory ?? string.Empty, guideStyle);
+                GUILayout.Label(FormatStoryAsSentenceParagraphs(candidate?.fullStory), guideStyle);
+                if (GUILayout.Button("Copy Story Text", buttonStyle))
+                {
+                    CopyLlmStoryCandidateToClipboard(i);
+                }
                 GUI.backgroundColor = selected ? new Color(0.28f, 0.55f, 0.36f, 1f) : Color.white;
                 if (GUILayout.Button(selected ? "Selected" : $"Select Story {i + 1}", buttonStyle))
                 {
@@ -7341,17 +7345,6 @@ namespace MemPalaceLLM
         private void DrawStudyEntryButton()
         {
             var canEnter = CanEnterStudyAfterAssignment();
-            GUI.enabled = canEnter;
-            if (GUILayout.Button("Write Quest Package For HMD", buttonStyle))
-            {
-                WriteCurrentVRSessionPackageFromUi();
-            }
-            GUI.enabled = true;
-            if (!string.IsNullOrWhiteSpace(lastVrSessionPackagePath))
-            {
-                GUILayout.Label(lastVrSessionPackagePath, mutedStyle);
-            }
-
             GUI.enabled = canEnter && !isPreparingVoiceAudioBeforeStudy;
             var buttonLabel = isPreparingVoiceAudioBeforeStudy
                 ? "Preparing Voice Audio..."
@@ -7361,14 +7354,6 @@ namespace MemPalaceLLM
                 FinalizeSelfChoiceAndEnterStudy();
             }
             GUI.enabled = true;
-
-            GUI.enabled = canEnter;
-            if (GUILayout.Button("DEBUG: Skip Voice And Enter VR Now", buttonStyle))
-            {
-                FinalizeSelfChoiceAndEnterStudy(true);
-            }
-            GUI.enabled = true;
-            GUILayout.Label("Debug only: enters the VR room without generating or playing speech audio.", mutedStyle);
 
             if (isPreparingVoiceAudioBeforeStudy)
             {
@@ -9074,6 +9059,29 @@ namespace MemPalaceLLM
 
             FlushSentence();
             return sentences;
+        }
+
+        private static string FormatStoryAsSentenceParagraphs(string story)
+        {
+            var sentences = SplitParticipantStoryIntoSentences(story);
+            return sentences.Count > 0 ? string.Join("\n\n", sentences) : (story ?? string.Empty).Trim();
+        }
+
+        private void CopyLlmStoryCandidateToClipboard(int candidateIndex)
+        {
+            if (candidateIndex < 0 || candidateIndex >= llmStoryCandidates.Count)
+            {
+                return;
+            }
+
+            var story = llmStoryCandidates[candidateIndex]?.fullStory ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(story))
+            {
+                return;
+            }
+
+            GUIUtility.systemCopyBuffer = FormatStoryAsSentenceParagraphs(story);
+            statusMessage = $"Story {candidateIndex + 1} copied to the clipboard.";
         }
 
         private static bool IsSentenceTerminator(char c)
@@ -22111,7 +22119,7 @@ namespace MemPalaceLLM
 
             if (ContainsAny(label, "television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996"))
             {
-                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 1.2f), 1.0f, 1.9f), Mathf.Clamp(Mathf.Max(scale.y, 0.75f), 0.65f, 1.25f), Mathf.Clamp(scale.z, 0.12f, 0.45f));
+                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 1.2f), 1.0f, 2.6f), Mathf.Clamp(Mathf.Max(scale.y, 0.75f), 0.65f, 1.6f), Mathf.Clamp(scale.z, 0.12f, 0.45f));
             }
 
             if (ContainsAny(label, "computer", "pc", "laptop", "desktop", "keyboard", "comput", "omputer", "macbook", "\u30b3\u30f3\u30d4\u30e5\u30fc\u30bf", "\u7535\u8111", "\u96fb\u8133"))
@@ -22136,7 +22144,7 @@ namespace MemPalaceLLM
 
             if (ContainsAny(label, "sofa", "couch", "\u30bd\u30d5\u30a1"))
             {
-                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 1.35f), 1.1f, 2.2f), Mathf.Clamp(Mathf.Max(scale.y, 0.65f), 0.55f, 1.1f), Mathf.Clamp(Mathf.Max(scale.z, 0.7f), 0.55f, 1.15f));
+                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 1.35f), 1.1f, 2.9f), Mathf.Clamp(Mathf.Max(scale.y, 0.65f), 0.55f, 1.2f), Mathf.Clamp(Mathf.Max(scale.z, 0.7f), 0.55f, 1.4f));
             }
 
             if (ContainsAny(label, "table", "desk", "counter", "\u673a", "\u30c6\u30fc\u30d6\u30eb", "\u30ab\u30a6\u30f3\u30bf\u30fc"))
@@ -22151,7 +22159,7 @@ namespace MemPalaceLLM
 
             if (ContainsAny(label, "toilet", "wc", "\u9a6c\u6876", "\u99ac\u6876", "\u4fbf\u5668", "\u30c8\u30a4\u30ec"))
             {
-                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 0.75f), 0.6f, 1.05f), Mathf.Clamp(Mathf.Max(scale.y, 0.65f), 0.55f, 0.95f), Mathf.Clamp(Mathf.Max(scale.z, 0.85f), 0.65f, 1.2f));
+                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 0.75f), 0.6f, 1.05f), Mathf.Clamp(Mathf.Max(scale.y, 0.65f), 0.55f, 1.7f), Mathf.Clamp(Mathf.Max(scale.z, 0.85f), 0.65f, 1.4f));
             }
 
             if (ContainsAny(label, "sink", "\u6d17\u9762", "\u6d41\u3057"))
@@ -22161,7 +22169,7 @@ namespace MemPalaceLLM
 
             if (ContainsAny(label, "plant", "lamp", "light", "\u690d\u7269", "\u89b3\u8449", "\u7167\u660e", "\u30e9\u30a4\u30c8", "\u30e9\u30f3\u30d7"))
             {
-                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 0.35f), 0.3f, 0.8f), Mathf.Clamp(Mathf.Max(scale.y, 0.9f), 0.65f, 1.7f), Mathf.Clamp(Mathf.Max(scale.z, 0.35f), 0.3f, 0.8f));
+                return new Vector3(Mathf.Clamp(Mathf.Max(scale.x, 0.35f), 0.3f, 0.9f), Mathf.Clamp(Mathf.Max(scale.y, 0.9f), 0.65f, 2.0f), Mathf.Clamp(Mathf.Max(scale.z, 0.35f), 0.3f, 0.9f));
             }
 
             return new Vector3(
@@ -22624,7 +22632,7 @@ namespace MemPalaceLLM
 
         private bool IsWallMountedAnchor(AnchorDefinition anchor)
         {
-            return IsDoorAnchor(anchor) || IsWindowAnchor(anchor) || IsHighWallAnchor(anchor);
+            return IsDoorAnchor(anchor) || IsWindowAnchor(anchor) || IsHighWallAnchor(anchor) || IsTelevisionAnchor(anchor);
         }
 
         private bool IsDoorAnchor(AnchorDefinition anchor)
@@ -22640,6 +22648,11 @@ namespace MemPalaceLLM
         private bool IsHighWallAnchor(AnchorDefinition anchor)
         {
             return ContainsAny(BuildAnchorSearchText(anchor), "air conditioner", "aircon", "air conditioning", "ac unit", "a/c");
+        }
+
+        private bool IsTelevisionAnchor(AnchorDefinition anchor)
+        {
+            return ContainsAny(BuildAnchorSearchText(anchor), "television", "tv", "monitor", "screen", "\u30c6\u30ec\u30d3", "\u7535\u89c6", "\u96fb\u8996");
         }
 
         private string BuildAnchorSearchText(AnchorDefinition anchor)
@@ -22760,10 +22773,118 @@ namespace MemPalaceLLM
 
             var instance = Instantiate(prefab, modelRoot);
             instance.name = modelKey + "_Prefab";
+
+            // Use the prefab's authored rotation and scale verbatim so replacement
+            // furniture can be sized directly in the Prefab Inspector. Discard only
+            // scene position captured while the prefab was created.
             instance.transform.localPosition = Vector3.zero;
-            instance.transform.localRotation = Quaternion.identity;
-            instance.transform.localScale = GetFurnitureRenderScale(anchor);
+            AlignFurniturePrefabToAnchor(anchor, modelRoot, instance.transform);
             return true;
+        }
+
+        private void AlignFurniturePrefabToAnchor(AnchorDefinition anchor, Transform modelRoot, Transform prefabRoot)
+        {
+            if (!TryGetFurniturePrefabBounds(modelRoot, out var bounds))
+            {
+                return;
+            }
+
+            var targetSize = GetFurnitureRenderScale(anchor);
+            var offset = new Vector3(-bounds.center.x, 0f, -bounds.center.z);
+            if (IsWallMountedAnchor(anchor))
+            {
+                // Wall-placement yaw always points local +Z toward the wall. Keep the
+                // visible back surface on that plane regardless of the prefab pivot.
+                offset.z = targetSize.z * 0.5f - bounds.max.z;
+                offset.y = IsDoorAnchor(anchor)
+                    ? -targetSize.y * 0.5f - bounds.min.y
+                    : -bounds.center.y;
+            }
+            else
+            {
+                // Grid anchors store the center height of the expected object. Source
+                // prefabs often use a bottom pivot, so normalize their visible bottom
+                // to the floor without changing authored scale or proportions.
+                offset.y = -targetSize.y * 0.5f - bounds.min.y;
+            }
+
+            prefabRoot.localPosition += offset;
+        }
+
+        private static bool TryGetFurniturePrefabBounds(Transform localSpace, out Bounds combinedBounds)
+        {
+            combinedBounds = default;
+            var hasBounds = false;
+
+            var meshFilters = localSpace.GetComponentsInChildren<MeshFilter>(true);
+            for (var i = 0; i < meshFilters.Length; i++)
+            {
+                var meshFilter = meshFilters[i];
+                if (meshFilter == null || meshFilter.sharedMesh == null)
+                {
+                    continue;
+                }
+
+                EncapsulateTransformedBounds(
+                    meshFilter.sharedMesh.bounds,
+                    meshFilter.transform,
+                    localSpace,
+                    ref combinedBounds,
+                    ref hasBounds);
+            }
+
+            var skinnedRenderers = localSpace.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (var i = 0; i < skinnedRenderers.Length; i++)
+            {
+                var skinnedRenderer = skinnedRenderers[i];
+                if (skinnedRenderer == null)
+                {
+                    continue;
+                }
+
+                EncapsulateTransformedBounds(
+                    skinnedRenderer.localBounds,
+                    skinnedRenderer.transform,
+                    localSpace,
+                    ref combinedBounds,
+                    ref hasBounds);
+            }
+
+            return hasBounds && combinedBounds.size.sqrMagnitude > 0.00000001f;
+        }
+
+        private static void EncapsulateTransformedBounds(
+            Bounds sourceBounds,
+            Transform sourceTransform,
+            Transform localSpace,
+            ref Bounds combinedBounds,
+            ref bool hasBounds)
+        {
+            var min = sourceBounds.min;
+            var max = sourceBounds.max;
+            for (var x = 0; x < 2; x++)
+            {
+                for (var y = 0; y < 2; y++)
+                {
+                    for (var z = 0; z < 2; z++)
+                    {
+                        var sourcePoint = new Vector3(
+                            x == 0 ? min.x : max.x,
+                            y == 0 ? min.y : max.y,
+                            z == 0 ? min.z : max.z);
+                        var localPoint = localSpace.InverseTransformPoint(sourceTransform.TransformPoint(sourcePoint));
+                        if (!hasBounds)
+                        {
+                            combinedBounds = new Bounds(localPoint, Vector3.zero);
+                            hasBounds = true;
+                        }
+                        else
+                        {
+                            combinedBounds.Encapsulate(localPoint);
+                        }
+                    }
+                }
+            }
         }
 
         private void FitFurnitureCollidersToRenderedGeometry(GameObject furnitureRoot, bool editable, int editableIndex)
@@ -26660,28 +26781,72 @@ namespace MemPalaceLLM
         {
             hitPoint = ray.origin + ray.direction * maxDistance;
             var hits = Physics.RaycastAll(ray, maxDistance);
-            if (hits == null || hits.Length == 0)
+            VrPanelButtonInteractable closestButton = null;
+            var closestDistance = maxDistance;
+            if (hits != null && hits.Length > 0)
             {
-                return null;
+                Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+                for (var i = 0; i < hits.Length; i++)
+                {
+                    var button = hits[i].collider.GetComponent<VrPanelButtonInteractable>();
+                    if (button == null)
+                    {
+                        button = hits[i].collider.GetComponentInParent<VrPanelButtonInteractable>();
+                    }
+
+                    if (button != null && button.Enabled)
+                    {
+                        closestButton = button;
+                        closestDistance = hits[i].distance;
+                        hitPoint = hits[i].point;
+                        break;
+                    }
+                }
             }
 
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            for (var i = 0; i < hits.Length; i++)
+            // Screen-space-camera canvases and camera-following world-space canvases can
+            // visually move before Unity synchronizes their BoxColliders. Intersect the
+            // controller ray with each currently visible RectTransform as a reliable fallback.
+            foreach (var button in VrPanelButtonInteractable.ActiveButtons)
             {
-                var button = hits[i].collider.GetComponent<VrPanelButtonInteractable>();
-                if (button == null)
+                if (!TryRaycastVrButtonRect(ray, button, maxDistance, out var distance, out var rectHitPoint) ||
+                    distance >= closestDistance)
                 {
-                    button = hits[i].collider.GetComponentInParent<VrPanelButtonInteractable>();
+                    continue;
                 }
 
-                if (button != null && button.Enabled)
-                {
-                    hitPoint = hits[i].point;
-                    return button;
-                }
+                closestButton = button;
+                closestDistance = distance;
+                hitPoint = rectHitPoint;
             }
 
-            return null;
+            return closestButton;
+        }
+
+        private static bool TryRaycastVrButtonRect(
+            Ray ray,
+            VrPanelButtonInteractable button,
+            float maxDistance,
+            out float distance,
+            out Vector3 hitPoint)
+        {
+            distance = float.PositiveInfinity;
+            hitPoint = ray.origin + ray.direction * maxDistance;
+            var rectTransform = button != null ? button.transform as RectTransform : null;
+            if (button == null || !button.Enabled || !button.isActiveAndEnabled || rectTransform == null)
+            {
+                return false;
+            }
+
+            var plane = new Plane(rectTransform.forward, rectTransform.position);
+            if (!plane.Raycast(ray, out distance) || distance < 0f || distance > maxDistance)
+            {
+                return false;
+            }
+
+            hitPoint = ray.GetPoint(distance);
+            var localPoint = rectTransform.InverseTransformPoint(hitPoint);
+            return rectTransform.rect.Contains(new Vector2(localPoint.x, localPoint.y));
         }
 
         private static VrAudioProgressInteractable FindVrAudioProgress(Ray ray, float maxDistance, out Vector3 hitPoint)
@@ -27887,8 +28052,8 @@ namespace MemPalaceLLM
         {
             EnsureGridRoomEditorInitialized();
 
-            var rightMouseLookActive = IsGridRoomCameraLookActive(mouse, keyboard);
-            HandleGridRoomCameraControls(mouse, keyboard, rightMouseLookActive);
+            var cameraLookActive = IsGridRoomCameraLookActive(mouse);
+            HandleGridRoomCameraControls(mouse, keyboard, cameraLookActive);
 
             var ctrlPressed = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
             if (!IsPointerOverGui() && !ctrlPressed)
@@ -27925,7 +28090,8 @@ namespace MemPalaceLLM
             }
 
             if (keyboard.escapeKey.wasPressedThisFrame ||
-                (gridEditorMode == GridEditorMode.Furniture && mouse.rightButton.wasPressedThisFrame && !rightMouseLookActive))
+                (gridEditorMode == GridEditorMode.Furniture && mouse.rightButton.wasPressedThisFrame
+                 && !cameraLookActive))
             {
                 if (movingGridFurnitureInstanceIndex >= 0)
                 {
@@ -28043,7 +28209,7 @@ namespace MemPalaceLLM
                 {
                     PaintGridFloorCell(gridHoverCell);
                 }
-                else if (mouse.rightButton.isPressed && !rightMouseLookActive)
+                else if (mouse.rightButton.isPressed && !cameraLookActive)
                 {
                     RemoveGridFloorCell(gridHoverCell);
                 }
@@ -28057,7 +28223,7 @@ namespace MemPalaceLLM
                 {
                     AddGridManualWallFromPreview();
                 }
-                else if (mouse.rightButton.wasPressedThisFrame)
+                else if (mouse.rightButton.wasPressedThisFrame && !cameraLookActive)
                 {
                     RemoveGridManualWallFromPreview();
                 }
@@ -28172,25 +28338,17 @@ namespace MemPalaceLLM
             BuildRoomBuilderPreview();
         }
 
-        private bool IsGridRoomCameraLookActive(Mouse mouse, Keyboard keyboard)
+        private bool IsGridRoomCameraLookActive(Mouse mouse)
         {
-            if (mouse == null || keyboard == null || IsPointerOverGui())
+            if (mouse == null || IsPointerOverGui())
             {
                 return false;
             }
 
-            if (mouse.middleButton.isPressed)
-            {
-                return true;
-            }
-
-            return mouse.rightButton.isPressed &&
-                (gridEditorMode == GridEditorMode.Select
-                 || keyboard.leftAltKey.isPressed
-                 || keyboard.rightAltKey.isPressed);
+            return mouse.middleButton.isPressed;
         }
 
-        private void HandleGridRoomCameraControls(Mouse mouse, Keyboard keyboard, bool rightMouseLookActive)
+        private void HandleGridRoomCameraControls(Mouse mouse, Keyboard keyboard, bool cameraLookActive)
         {
             if (keyboard == null || runtimeCamera == null || IsPointerOverGui())
             {
@@ -28204,18 +28362,16 @@ namespace MemPalaceLLM
                 var scroll = mouse.scroll.ReadValue().y;
                 if (Mathf.Abs(scroll) > 0.01f)
                 {
-                    if (runtimeCamera.orthographic)
-                    {
-                        runtimeCamera.orthographicSize = Mathf.Clamp(
-                            runtimeCamera.orthographicSize - scroll * 0.005f,
-                            2.4f,
-                            12f);
-                    }
-                    else
-                    {
-                        runtimeCamera.transform.position += runtimeCamera.transform.forward * (scroll * 0.008f);
-                    }
+                    ApplyGridRoomCameraZoom(scroll * 0.005f);
                 }
+            }
+
+            var keyboardZoom = 0f;
+            if (keyboard.eKey.isPressed) keyboardZoom += 1f;
+            if (keyboard.qKey.isPressed) keyboardZoom -= 1f;
+            if (Mathf.Abs(keyboardZoom) > 0.01f)
+            {
+                ApplyGridRoomCameraZoom(keyboardZoom * moveSpeed * deltaTime);
             }
 
             var flatForward = runtimeCamera.transform.forward;
@@ -28237,15 +28393,13 @@ namespace MemPalaceLLM
             if (keyboard.sKey.isPressed) move -= flatForward.normalized;
             if (keyboard.dKey.isPressed) move += flatRight.normalized;
             if (keyboard.aKey.isPressed) move -= flatRight.normalized;
-            if (keyboard.qKey.isPressed) move -= Vector3.up;
-            if (keyboard.eKey.isPressed) move += Vector3.up;
 
             if (move.sqrMagnitude > 0.001f)
             {
                 runtimeCamera.transform.position += move.normalized * moveSpeed * deltaTime;
             }
 
-            if (!rightMouseLookActive || mouse == null)
+            if (!cameraLookActive || mouse == null)
             {
                 if (Cursor.lockState == CursorLockMode.Locked)
                 {
@@ -28261,6 +28415,25 @@ namespace MemPalaceLLM
             runtimeCamera.transform.rotation = Quaternion.Euler(cameraPitch, cameraYaw, 0f);
             Cursor.visible = false;
             Cursor.lockState = CursorLockMode.Locked;
+        }
+
+        private void ApplyGridRoomCameraZoom(float amount)
+        {
+            if (runtimeCamera == null || Mathf.Abs(amount) < 0.0001f)
+            {
+                return;
+            }
+
+            if (runtimeCamera.orthographic)
+            {
+                runtimeCamera.orthographicSize = Mathf.Clamp(
+                    runtimeCamera.orthographicSize - amount,
+                    2.4f,
+                    12f);
+                return;
+            }
+
+            runtimeCamera.transform.position += runtimeCamera.transform.forward * amount;
         }
 
         private void PaintGridFloorCell(Vector2Int cell)
@@ -30169,11 +30342,30 @@ namespace MemPalaceLLM
 
     public sealed class VrPanelButtonInteractable : MonoBehaviour
     {
+        private static readonly HashSet<VrPanelButtonInteractable> ActiveButtonSet = new();
+
+        public static IEnumerable<VrPanelButtonInteractable> ActiveButtons => ActiveButtonSet;
+
         public VrPanelButtonAction Action;
         public Image Background;
         public Text Label;
         public bool Enabled = true;
         public string OptionWord;
+
+        private void OnEnable()
+        {
+            ActiveButtonSet.Add(this);
+        }
+
+        private void OnDisable()
+        {
+            ActiveButtonSet.Remove(this);
+        }
+
+        private void OnDestroy()
+        {
+            ActiveButtonSet.Remove(this);
+        }
     }
 
     public sealed class VrAudioProgressInteractable : MonoBehaviour

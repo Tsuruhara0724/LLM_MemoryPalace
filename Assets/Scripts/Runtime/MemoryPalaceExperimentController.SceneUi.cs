@@ -93,6 +93,7 @@ namespace MemPalaceLLM
             for (var i = 0; i < LlmStoryCandidateCount; i++)
             {
                 var captured = i;
+                BindButton($"Generation_Copy_{i}", () => CopyLlmStoryCandidateToClipboard(captured));
                 BindButton($"Generation_Select_{i}", () => SelectLlmStoryCandidateFromSceneUi(captured));
             }
 
@@ -103,9 +104,7 @@ namespace MemPalaceLLM
             BindButton("Story_Back", ReturnToSetupFromSceneUi);
 
             BindButton("Assignment_Clear", ClearSelectedFurnitureAssignment);
-            BindButton("Assignment_WritePackage", WriteCurrentVRSessionPackageFromUi);
             BindButton("Assignment_EnterStudy", () => FinalizeSelfChoiceAndEnterStudy());
-            BindButton("Assignment_DebugEnter", () => FinalizeSelfChoiceAndEnterStudy(true));
             BindButton("Assignment_Leave", LeaveFurnitureAssignmentFromSceneUi);
             for (var i = 0; i < RandomAdvancedWordCount; i++)
             {
@@ -324,6 +323,7 @@ namespace MemPalaceLLM
             editableSceneUi.SetVisible("Room_OptionsGroup", showRoomBuilderOptions);
             editableSceneUi.SetVisible("Room_FurnitureSection", gridEditorMode == GridEditorMode.Furniture);
             editableSceneUi.SetText("Room_HudTitle", GetGridBuilderStepTitle());
+            editableSceneUi.SetText("Room_HudHint", GetGridBuilderViewportHint());
 
             for (var i = 0; i < 4; i++)
             {
@@ -416,7 +416,9 @@ namespace MemPalaceLLM
                     continue;
                 }
 
-                editableSceneUi.SetText($"Generation_Story_{i}", llmStoryCandidates[i]?.fullStory ?? string.Empty);
+                editableSceneUi.SetText(
+                    $"Generation_Story_{i}",
+                    FormatStoryAsSentenceParagraphs(llmStoryCandidates[i]?.fullStory));
                 editableSceneUi.SetText(
                     $"Generation_SelectLabel_{i}",
                     selectedLlmStoryCandidateIndex == i ? "Selected" : $"Select Story {i + 1}");
@@ -569,9 +571,7 @@ namespace MemPalaceLLM
                 "Assignment_Image",
                 assigned != null && mnemonicImageCues.TryGetValue(assigned.word, out var texture) ? texture : null);
             var canEnter = CanEnterStudyAfterAssignment();
-            editableSceneUi.SetInteractable("Assignment_WritePackage", canEnter);
             editableSceneUi.SetInteractable("Assignment_EnterStudy", canEnter && !isPreparingVoiceAudioBeforeStudy);
-            editableSceneUi.SetInteractable("Assignment_DebugEnter", canEnter);
             editableSceneUi.SetText("Assignment_EnterLabel", isPreparingVoiceAudioBeforeStudy
                 ? "Preparing Voice Audio..."
                 : "Finish Assignment And Enter VR Study");
@@ -580,7 +580,6 @@ namespace MemPalaceLLM
                 isPreparingVoiceAudioBeforeStudy ? preStudyVoiceStatus
                     : !canEnter ? GetAssignmentCompletionHint()
                     : preStudyVoiceStatus ?? string.Empty);
-            editableSceneUi.SetText("Assignment_PackagePath", lastVrSessionPackagePath ?? string.Empty);
         }
 
         private void RefreshSceneUiStudy()

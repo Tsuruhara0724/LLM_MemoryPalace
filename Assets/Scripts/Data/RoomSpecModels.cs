@@ -57,8 +57,8 @@ namespace MemPalaceLLM
 
     public static class RoomSpecCatalog
     {
-        public const float DefaultShellWallHeight = 2.8f;
-        public const float DefaultShellMinimumWallHeight = 2.2f;
+        public const float DefaultShellWallHeight = 3.0f;
+        public const float DefaultShellMinimumWallHeight = 2.95f;
         public const float DefaultShellCeilingThickness = 0.1f;
         public const float DefaultShellCeilingCenterY = DefaultShellWallHeight + DefaultShellCeilingThickness * 0.5f;
 

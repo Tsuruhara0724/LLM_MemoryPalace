@@ -374,7 +374,7 @@ namespace MemPalaceLLM.Editor
                 new Vector2(536f, -120f), new Vector2(-18f, -12f), LightPage, true);
             AddTextAbsolute(hud, "Room_HudTitle", "Draw the room", 20, FontStyle.Bold,
                 new Vector2(18f, 10f), new Vector2(630f, 30f), TextAnchor.MiddleLeft, LightInk);
-            AddTextAbsolute(hud, "Room_HudHint", "Left-drag add | Right-click erase | 1-4 change step | WASD/Q/E move | Right-drag look | Wheel zoom", 14, FontStyle.Normal,
+            AddTextAbsolute(hud, "Room_HudHint", "Left-drag add | Right-click erase | 1-4 step | WASD move | Q/E zoom | Hold middle mouse to rotate view", 14, FontStyle.Normal,
                 new Vector2(18f, 45f), new Vector2(860f, 28f), TextAnchor.MiddleLeft, LightMuted);
             AddButtonAbsolute(hud, "Room_Done", "Done - Continue", new Vector2(-208f, 28f), new Vector2(180f, 58f), true, "Room_DoneLabel");
         }
@@ -417,10 +417,13 @@ namespace MemPalaceLLM.Editor
             AddBody(content, "Generation_Error", string.Empty, 48f);
             for (var i = 0; i < 3; i++)
             {
-                var card = AddVerticalGroup(content, $"Generation_Card_{i}", 310f, Card);
-                AddText(card, $"Generation_CardTitle_{i}", $"Story {i + 1}", 20, FontStyle.Bold, TextColor, 34f);
-                AddText(card, $"Generation_Story_{i}", string.Empty, 15, FontStyle.Normal, TextColor, 206f);
-                AddButton(card, $"Generation_Select_{i}", $"Select Story {i + 1}", 50f, false, $"Generation_SelectLabel_{i}");
+                var card = AddVerticalGroup(content, $"Generation_Card_{i}", 590f, Card);
+                AddText(card, $"Generation_CardTitle_{i}", $"Story {i + 1}", 22, FontStyle.Bold, TextColor, 38f);
+                var storyText = AddText(card, $"Generation_Story_{i}", string.Empty, 18, FontStyle.Normal, TextColor, 450f);
+                storyText.lineSpacing = 1.18f;
+                var actions = AddGrid(card, $"Generation_Actions_{i}", 2, 590f, 52f, 52f);
+                AddButton(actions, $"Generation_Copy_{i}", "Copy Story Text", 50f);
+                AddButton(actions, $"Generation_Select_{i}", $"Select Story {i + 1}", 50f, false, $"Generation_SelectLabel_{i}");
             }
             AddButton(content, "Generation_Confirm", "Confirm Selected Story - Map Furniture And Words", 58f, true);
             AddButton(content, "Generation_Retry", "Retry Three Story Candidates", 52f);
@@ -470,15 +473,14 @@ namespace MemPalaceLLM.Editor
             var left = CreateScrollPanel(root.transform, "Assignment_LeftPanel", new Vector2(0f, 0f), new Vector2(0f, 1f),
                 new Vector2(18f, 0f), new Vector2(428f, 0f), Page);
             AddHeading(left, "Assignment_Title", "Map Furniture And Words");
-            AddBody(left, "Assignment_Intro", "Use WASD and right-drag to look, then click an actual furniture model. Choose one unused word in the right panel.", 84f);
-            AddText(left, "Assignment_Count", string.Empty, 17, FontStyle.Bold, TextColor, 34f);
-            AddText(left, "Assignment_Timer", string.Empty, 14, FontStyle.Normal, Muted, 48f);
-            AddText(left, "Assignment_Summary", string.Empty, 14, FontStyle.Normal, Muted, 270f);
-            AddButton(left, "Assignment_WritePackage", "Write Quest Package For HMD", 50f);
-            AddText(left, "Assignment_PackagePath", string.Empty, 12, FontStyle.Normal, Muted, 62f);
-            AddButton(left, "Assignment_EnterStudy", "Finish Assignment And Enter VR Study", 58f, true, "Assignment_EnterLabel");
-            AddButton(left, "Assignment_DebugEnter", "DEBUG: Skip Voice And Enter VR Now", 48f);
-            AddBody(left, "Assignment_Status", string.Empty, 74f);
+            var intro = AddText(left, "Assignment_Intro", "Use WASD and right-drag to look, then click an actual furniture model. Choose one unused word in the right panel.", 18, FontStyle.Normal, Muted, 112f);
+            intro.lineSpacing = 1.08f;
+            AddText(left, "Assignment_Count", string.Empty, 22, FontStyle.Bold, TextColor, 44f);
+            AddText(left, "Assignment_Timer", string.Empty, 18, FontStyle.Normal, Muted, 56f);
+            var summary = AddText(left, "Assignment_Summary", string.Empty, 18, FontStyle.Normal, Muted, 350f);
+            summary.lineSpacing = 1.12f;
+            AddButton(left, "Assignment_EnterStudy", "Finish Assignment And Enter VR Study", 64f, true, "Assignment_EnterLabel");
+            AddBody(left, "Assignment_Status", string.Empty, 86f);
             AddButton(left, "Assignment_Leave", "Leave without finishing", 46f);
 
             var right = CreateScrollPanel(root.transform, "Assignment_RightPanel", new Vector2(1f, 0f), new Vector2(1f, 1f),
