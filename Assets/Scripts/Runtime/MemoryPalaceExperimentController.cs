@@ -7498,7 +7498,11 @@ namespace MemPalaceLLM
 
             currentStory = llmStoryCandidates[selectedLlmStoryCandidateIndex];
             MergeGeneratedStoryIntoCurrentItems(currentStory, activeWordSet?.words ?? new List<WordEntry>());
-            usedLiveLlmForCurrentSession = true;
+            usedLocalFallbackForCurrentSession = string.Equals(
+                currentStory.storySource,
+                "local_story_testing_fallback",
+                StringComparison.OrdinalIgnoreCase);
+            usedLiveLlmForCurrentSession = !usedLocalFallbackForCurrentSession;
             liveGeneratedMnemonicCount = currentItems.Count;
             liveMnemonicProviderLabelForCurrentSession = currentStory.storyProvider;
             liveMnemonicModelForCurrentSession = currentStory.storyModel;
@@ -10098,8 +10102,22 @@ namespace MemPalaceLLM
             var safeWord = string.IsNullOrWhiteSpace(word) ? "word" : word.Trim();
             var phrase = safeWord + " (" + safeMeaning + ")";
             var context = BuildLocalFallbackLinearContext(index, totalCount);
-            var action = BuildLocalFallbackAction(NormalizeLocalFallbackMeaning(safeMeaning), phrase);
-            return context + ", so " + action;
+            var action = BuildLocalFallbackAction(NormalizeLocalFallbackMeaning(safeMeaning), phrase).Trim().TrimEnd('.', '!', '?');
+            var finalIndex = Mathf.Max(0, totalCount - 1);
+
+            if (totalCount <= 1)
+            {
+                return "Ana needs to show her lonely father that she remembered his birthday, so " + action +
+                       " and he receives her card with a smile.";
+            }
+
+            if (index >= finalIndex)
+            {
+                return "At the bus stop " + action +
+                       ", so Ana's father receives her birthday card and smiles at her.";
+            }
+
+            return context + ", so " + action + ".";
         }
 
         private static string BuildLocalFallbackLinearContext(int index, int totalCount)
@@ -10107,26 +10125,33 @@ namespace MemPalaceLLM
             var finalIndex = Mathf.Max(0, totalCount - 1);
             if (index <= 0)
             {
-                return "You and your friend must reach a safe gate before the rain gets worse";
+                return "Ana fears her father feels forgotten, but you both must deliver his birthday card";
             }
 
             if (index >= finalIndex)
             {
-                return "At the last door, one more barrier keeps you outside";
+                return "One last problem blocks the community room";
             }
 
-            switch (index % 5)
+            // Spread a small human arc across any target count instead of emitting a list of
+            // route or repair operations. The target-specific action still supplies the
+            // concrete mnemonic, while this context supplies reaction, choice, and payoff.
+            var progress = index / (float)Mathf.Max(1, finalIndex);
+            var stage = Mathf.Clamp(Mathf.CeilToInt(progress * 6f), 1, 6);
+            switch (stage)
             {
                 case 1:
-                    return "That first action gets you into a narrow hall, but you cannot see well";
+                    return "Ana's hands shake, but your first success gives her hope";
                 case 2:
-                    return "You move forward, but a closed gate stops you";
+                    return "A lost child asks for help, and Ana chooses kindness despite the delay";
                 case 3:
-                    return "The gate opens into a dusty passage";
+                    return "The grateful child points out a shorter way to the bus stop";
                 case 4:
-                    return "You get through the passage, but your friend loses the path";
+                    return "Ana sees the waiting bus and fears that her choice made them too late";
+                case 5:
+                    return "You remind Ana that her father needs her courage more than perfect timing";
                 default:
-                    return "You find the path, but a broken bridge blocks the river";
+                    return "Her father starts to board, but Ana calls his name and he turns";
             }
         }
 
@@ -10134,6 +10159,38 @@ namespace MemPalaceLLM
         {
             switch (normalizedMeaning)
             {
+                case "backpack":
+                    return "you place the birthday card in the " + phrase + " and keep it safe.";
+                case "bridge":
+                    return "you cross the " + phrase + " with your friend and reach the far side.";
+                case "suitcase":
+                    return "you roll the " + phrase + " over the loose board and press it flat.";
+                case "coin":
+                    return "you slide the " + phrase + " into the narrow latch and lift it.";
+                case "spoon":
+                    return "you use the " + phrase + " to scrape mud from the sign.";
+                case "market":
+                    return "you pass through the covered " + phrase + " and avoid the flooded street.";
+                case "library":
+                    return "you enter the quiet " + phrase + " and follow its marked exit.";
+                case "window":
+                    return "you open the " + phrase + " and call your friend through it.";
+                case "rug":
+                    return "you roll the " + phrase + " over the wet floor and make a dry path.";
+                case "key":
+                    return "you turn the " + phrase + " and release the door.";
+                case "clock":
+                    return "you check the " + phrase + " and choose the shorter path.";
+                case "notebook":
+                    return "you open the " + phrase + " and find the safe room number.";
+                case "neighbor":
+                    return "the " + phrase + " points to the covered entrance and follows you.";
+                case "path":
+                    return "you follow the marked " + phrase + " and avoid the deep water.";
+                case "bird":
+                    return "you follow the " + phrase + " as it flies toward the covered entrance.";
+                case "roof":
+                    return "you lead Ana beneath the " + phrase + " and keep the birthday card dry.";
                 case "star":
                     return "you follow the " + phrase + " until you find the next door.";
                 case "mirror":
@@ -10148,6 +10205,58 @@ namespace MemPalaceLLM
                     return "you beat the " + phrase + " and your friend hears you.";
                 case "cloud":
                     return "the " + phrase + " covers the bright sun and lets you see the path.";
+                case "swing":
+                    return "you hold the " + phrase + " still and use its seat as a firm step.";
+                case "fence":
+                    return "you open the small gate in the " + phrase + " and clear the way.";
+                case "lock":
+                    return "you turn the " + phrase + " and pull the door open.";
+                case "umbrella":
+                    return "you raise the " + phrase + " over Ana and protect the birthday card.";
+                case "plug":
+                    return "you push the " + phrase + " into the outlet and the hall lights turn on.";
+                case "egg":
+                    return "you roll the " + phrase + " across the floor and discover which way slopes down.";
+                case "zipper":
+                    return "you close the " + phrase + " on the bag and keep the birthday card dry.";
+                case "knee":
+                    return "you brace your " + phrase + " with both hands and stand steadily.";
+                case "lightning":
+                    return "a " + phrase + " flash reveals the sign and you choose the correct door.";
+                case "wheel":
+                    return "you roll the " + phrase + " under the heavy board and move it aside.";
+                case "glue":
+                    return "you spread the " + phrase + " across the split sign and join its arrow.";
+                case "laughter":
+                    return "your " + phrase + " reaches your lost friend and guides them back.";
+                case "hunger":
+                    return "you ignore the " + phrase + " and help Ana carry the birthday card onward.";
+                case "achievement":
+                    return "you show the " + phrase + " badge and the helper opens the marked gate.";
+                case "hug":
+                    return "you give your worried friend a " + phrase + " and help them stand.";
+                case "help":
+                    return "you call for " + phrase + " and a neighbor clears the fallen board.";
+                case "noise":
+                    return "the " + phrase + " reveals a loose panel and you secure it.";
+                case "mud":
+                    return "you wipe the " + phrase + " from the arrow and recover the route.";
+                case "wait":
+                    return "you choose to " + phrase + " until the rushing water falls.";
+                case "search":
+                    return "you begin a " + phrase + " along the wall and find the door mark.";
+                case "shadow":
+                    return "you trace the " + phrase + " to the lamp and restore the light.";
+                case "footprint":
+                    return "you follow the wet " + phrase + " and catch up with your friend.";
+                case "crack":
+                    return "you press the " + phrase + " closed and stop water reaching the path.";
+                case "bubble":
+                    return "you blow a " + phrase + " through the gap and reveal the airflow.";
+                case "game":
+                    return "you turn the " + phrase + " into a signal and your friend copies it.";
+                case "forget":
+                    return "you refuse to " + phrase + " the marked turn and guide your friend correctly.";
                 case "bell":
                     return "you ring the " + phrase + " and a guard comes to help.";
                 case "flashlight":
