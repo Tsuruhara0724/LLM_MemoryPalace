@@ -10022,16 +10022,27 @@ namespace MemPalaceLLM
             isGenerating = false;
             if (llmStoryCandidates.Count == 0)
             {
-                currentStory = BuildPendingLlmStorySession();
+                var onlineFailure = GetSelectedLiveMnemonicProviderLabel() +
+                                    " did not return a structurally usable candidate. " + string.Join(" ", errors);
+                var fallbackStory = BuildLocalFallbackStorySession(
+                    words,
+                    RoomSpecCatalog.CurrentRoom?.anchors,
+                    onlineFailure);
+                llmStoryCandidates.Add(fallbackStory);
                 usedLiveLlmForCurrentSession = false;
-                generationError = GetSelectedLiveMnemonicProviderLabel() + " did not return a usable candidate. " + string.Join(" ", errors);
-                statusMessage = "No story candidate was usable. Retry generation.";
-                LogInteraction("llm_story_candidate_generation_failed", string.Empty, string.Empty, generationError);
+                usedLocalFallbackForCurrentSession = true;
+                generationError = string.Empty;
+                statusMessage = "The online stories were unavailable, so a complete local fallback story is ready to select.";
+                LogInteraction("llm_story_local_fallback_created", string.Empty, string.Empty, onlineFailure);
                 yield break;
             }
 
-            generationError = errors.Count == 0 ? string.Empty : string.Join(" ", errors);
+            generationError = string.Empty;
             statusMessage = $"Generated {llmStoryCandidates.Count} story candidate(s). The participant must select one complete story.";
+            if (errors.Count > 0)
+            {
+                LogInteraction("llm_story_candidate_partial_failures", string.Empty, string.Empty, string.Join(" ", errors));
+            }
             LogInteraction("llm_story_candidate_generation_completed", string.Empty, string.Empty, statusMessage);
         }
 

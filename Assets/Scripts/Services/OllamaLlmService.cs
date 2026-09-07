@@ -471,17 +471,35 @@ namespace MemPalaceLLM
 
                 if (!string.IsNullOrWhiteSpace(repairRequestError))
                 {
-                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the online repair request failed: " + repairRequestError);
+                    if (TryParseAndBuildUsableStoryResponse(storyResponse, words, model.Trim(), out story, out var usableError))
+                    {
+                        story.storySource = "ollama_story_quality_degraded";
+                        Debug.LogWarning("Story repair request failed, so the complete original story was kept. Quality issue: " + firstFailure);
+                        onSuccess?.Invoke(story);
+                        yield break;
+                    }
+
+                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the online repair request failed: " + repairRequestError + ". Original story was not usable: " + usableError);
                     yield break;
                 }
 
                 if (!TryParseAndBuildStoryResponse(repairedResponse, words, model.Trim(), out story, out validationError))
                 {
-                    onError?.Invoke("Online story repair still failed validation: " + validationError + "\nRaw response preview:\n" + BuildPreview(repairedResponse));
-                    yield break;
-                }
+                    var repairFailure = validationError;
+                    if (!TryParseAndBuildUsableStoryResponse(repairedResponse, words, model.Trim(), out story, out var usableError) &&
+                        !TryParseAndBuildUsableStoryResponse(storyResponse, words, model.Trim(), out story, out usableError))
+                    {
+                        onError?.Invoke("Online story repair still failed validation: " + repairFailure + ". No structurally usable response remained: " + usableError);
+                        yield break;
+                    }
 
-                story.storySource += "_retry";
+                    story.storySource = "ollama_story_quality_degraded";
+                    Debug.LogWarning("Story repair still missed a soft quality rule, so the complete usable story was kept. Quality issue: " + repairFailure);
+                }
+                else
+                {
+                    story.storySource += "_retry";
+                }
             }
 
             onSuccess?.Invoke(story);
@@ -575,25 +593,49 @@ namespace MemPalaceLLM
 
                 if (!string.IsNullOrWhiteSpace(requestError))
                 {
-                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the Gemini repair request failed: " + requestError);
+                    if (TryParseAndBuildUsableStoryResponse(storyResponse, words, resolvedModel, out story, out var usableError))
+                    {
+                        story.storySource = "gemini_story_quality_degraded";
+                        Debug.LogWarning("Gemini story repair request failed, so the complete original story was kept. Quality issue: " + firstFailure);
+                        story.storyProvider = "Gemini Online";
+                        story.storyModel = resolvedModel;
+                        onSuccess?.Invoke(story);
+                        yield break;
+                    }
+
+                    onError?.Invoke("The first story failed validation (" + firstFailure + ") and the Gemini repair request failed: " + requestError + ". Original story was not usable: " + usableError);
                     yield break;
                 }
 
                 resolvedModel = string.IsNullOrWhiteSpace(GeminiModelsUsedSummary) ? model.Trim() : GeminiModelsUsedSummary;
                 if (!TryParseAndBuildStoryResponse(repairedResponse, words, resolvedModel, out story, out validationError))
                 {
-                    onError?.Invoke("Gemini story repair still failed validation: " + validationError + "\nRaw response preview:\n" + BuildPreview(repairedResponse));
-                    yield break;
-                }
+                    var repairFailure = validationError;
+                    if (!TryParseAndBuildUsableStoryResponse(repairedResponse, words, resolvedModel, out story, out var usableError) &&
+                        !TryParseAndBuildUsableStoryResponse(storyResponse, words, resolvedModel, out story, out usableError))
+                    {
+                        onError?.Invoke("Gemini story repair still failed validation: " + repairFailure + ". No structurally usable response remained: " + usableError);
+                        yield break;
+                    }
 
-                story.storySource += "_retry";
+                    story.storySource = "gemini_story_quality_degraded";
+                    Debug.LogWarning("Gemini story repair still missed a soft quality rule, so the complete usable story was kept. Quality issue: " + repairFailure);
+                }
+                else
+                {
+                    story.storySource += "_retry";
+                }
             }
 
             story.storyProvider = "Gemini Online";
             story.storyModel = resolvedModel;
-            story.storySource = string.Equals(story.storySource, "ollama_story_repaired", StringComparison.Ordinal)
-                ? "gemini_story_repaired"
-                : "gemini_story";
+            if (string.IsNullOrWhiteSpace(story.storySource) ||
+                story.storySource.IndexOf("quality_degraded", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                story.storySource = story.storySource != null && story.storySource.EndsWith("_retry", StringComparison.OrdinalIgnoreCase)
+                    ? "gemini_story_repaired"
+                    : "gemini_story";
+            }
             onSuccess?.Invoke(story);
         }
 
@@ -1323,13 +1365,34 @@ namespace MemPalaceLLM
                 return false;
             }
 
-            return TryBuildStorySession(envelope, words, model, out story, out error);
+            return TryBuildStorySession(envelope, words, model, true, out story, out error);
+        }
+
+        private static bool TryParseAndBuildUsableStoryResponse(
+            string response,
+            List<WordEntry> words,
+            string model,
+            out StorySessionData story,
+            out string error)
+        {
+            story = null;
+            if (!TryParseStoryEnvelope(response, out var envelope, out var parseError))
+            {
+                error = "Failed to parse story JSON: " + parseError;
+                return false;
+            }
+
+            // This path is used only after the model's repair pass has failed. Keep structural
+            // requirements, exact target coverage, and route isolation, but do not let softer
+            // readability preferences erase an otherwise complete participant-facing story.
+            return TryBuildStorySession(envelope, words, model, false, out story, out error);
         }
 
         private static bool TryBuildStorySession(
             GeneratedStoryEnvelope envelope,
             List<WordEntry> words,
             string model,
+            bool enforceSoftQuality,
             out StorySessionData story,
             out string error)
         {
@@ -1354,19 +1417,26 @@ namespace MemPalaceLLM
                 return false;
             }
             var storySource = repairedWords.Count > 0 ? "ollama_story_repaired" : "ollama_story";
+
+            if (HasTargetPairIntegrityProblems(envelope.fullStory, words, out var targetPairError))
+            {
+                error = targetPairError;
+                return false;
+            }
+
             if (ContainsStoryRouteCue(envelope.fullStory, out var routeCueError))
             {
                 error = routeCueError;
                 return false;
             }
 
-            if (HasLearnerReadabilityProblems(envelope.fullStory, words, out var readabilityError))
+            if (enforceSoftQuality && HasLearnerReadabilityProblems(envelope.fullStory, words, out var readabilityError))
             {
                 error = readabilityError;
                 return false;
             }
 
-            if (LooksLikeFragmentedObjectScenes(envelope.fullStory, words, out var qualityError))
+            if (enforceSoftQuality && LooksLikeFragmentedObjectScenes(envelope.fullStory, words, out var qualityError))
             {
                 error = qualityError;
                 return false;
@@ -1600,6 +1670,32 @@ namespace MemPalaceLLM
             return terms;
         }
 
+        private static bool HasTargetPairIntegrityProblems(
+            string fullStory,
+            List<WordEntry> words,
+            out string error)
+        {
+            error = string.Empty;
+            if (words == null)
+            {
+                return false;
+            }
+
+            for (var wordIndex = 0; wordIndex < words.Count; wordIndex++)
+            {
+                var occurrenceCount = CountTargetPairOccurrences(fullStory, words[wordIndex]);
+                if (occurrenceCount != 1)
+                {
+                    error = "Story must contain target pair " +
+                            BuildTargetStoryToken(words[wordIndex]?.meaning, words[wordIndex]?.word) +
+                            " exactly once, but found " + occurrenceCount + ".";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool HasLearnerReadabilityProblems(
             string fullStory,
             List<WordEntry> words,
@@ -1680,18 +1776,6 @@ namespace MemPalaceLLM
 
             if (words != null && words.Count > 0)
             {
-                for (var wordIndex = 0; wordIndex < words.Count; wordIndex++)
-                {
-                    var occurrenceCount = CountTargetPairOccurrences(fullStory, words[wordIndex]);
-                    if (occurrenceCount != 1)
-                    {
-                        error = "Story must contain target pair " +
-                                BuildTargetStoryToken(words[wordIndex]?.meaning, words[wordIndex]?.word) +
-                                " exactly once, but found " + occurrenceCount + ".";
-                        return true;
-                    }
-                }
-
                 var maximumSentenceCount = (words.Count * 2) + 2;
                 if (sentences.Count > maximumSentenceCount)
                 {
