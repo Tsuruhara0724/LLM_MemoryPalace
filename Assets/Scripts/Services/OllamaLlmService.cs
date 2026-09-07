@@ -243,6 +243,7 @@ namespace MemPalaceLLM
         {
             public string opening_problem;
             public string goal;
+            public string supporting_character;
             public string relationship;
             public string emotional_stake;
             public string turning_choice;
@@ -364,6 +365,7 @@ namespace MemPalaceLLM
             string endpoint,
             string model,
             List<WordEntry> words,
+            int candidateRank,
             Action<StorySessionData> onSuccess,
             Action<string> onError)
         {
@@ -388,8 +390,8 @@ namespace MemPalaceLLM
             var causalPlanRequest = new OllamaGenerateRequest
             {
                 model = model.Trim(),
-                prompt = BuildCausalStoryPlanPrompt(words),
-                system = "You plan a complete character-driven micro-story, not a procedure or task log. Give it a personal stake, a choice-driven turn, and an emotional payoff, with exactly one sentence beat per target. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
+                prompt = BuildCausalStoryPlanPrompt(words) + BuildStoryCandidateInstruction(candidateRank),
+                system = "Plan a complete character-driven micro-story with I as the first-person narrator and exactly one named supporting character. No other people may appear. Give it a personal stake, a choice-driven turn, and an emotional payoff, with exactly one sentence beat per target. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
@@ -427,8 +429,8 @@ namespace MemPalaceLLM
             var storyRequest = new OllamaGenerateRequest
             {
                 model = model.Trim(),
-                prompt = BuildStoryPrompt(words, causalPlanJson),
-                system = "You write character-driven micro-stories for adult A2-B1 English learners, never procedures or task logs. Produce exactly one sentence per target, with a personal stake, a choice-driven turn, and a practical plus emotional payoff. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                prompt = BuildStoryPrompt(words, causalPlanJson) + BuildStoryCandidateInstruction(candidateRank),
+                system = "Write character-driven micro-stories for adult A2-B1 English learners with I as the first-person narrator and exactly one named supporting character. No other people may appear. Never write procedures or task logs. Produce exactly one sentence per target, with a personal stake, a choice-driven turn, and a practical plus emotional payoff. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
@@ -459,7 +461,7 @@ namespace MemPalaceLLM
                 {
                     model = model.Trim(),
                     prompt = BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
-                    system = "You repair a rejected character-driven micro-story for adult A2-B1 English learners. Replace procedural steps with human reactions, a meaningful choice, and a practical plus emotional payoff. Return exactly one sentence per target and exactly one valid JSON object. No markdown. No commentary.",
+                    system = "Repair a rejected character-driven micro-story for adult A2-B1 English learners. Use I as the first-person narrator and exactly one named supporting character, with no other people. Replace procedural steps with human reactions, a meaningful choice, and a practical plus emotional payoff. Return exactly one sentence per target and exactly one valid JSON object. No markdown. No commentary.",
                     format = "json",
                     stream = false,
                     options = new OllamaRequestOptions
@@ -545,7 +547,7 @@ namespace MemPalaceLLM
                 apiKey.Trim(),
                 model.Trim(),
                 BuildCausalStoryPlanPrompt(words),
-                "You plan a complete character-driven micro-story, not a procedure or task log. Give it a personal stake, a choice-driven turn, and an emotional payoff, with exactly one sentence beat per target. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
+                "Plan a complete character-driven micro-story with I as the first-person narrator and exactly one named supporting character. No other people may appear. Give it a personal stake, a choice-driven turn, and an emotional payoff, with exactly one sentence beat per target. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
                 0.28f,
                 1600,
                 value => causalPlanJson = value,
@@ -571,7 +573,7 @@ namespace MemPalaceLLM
                 apiKey.Trim(),
                 model.Trim(),
                 BuildStoryPrompt(words, causalPlanJson),
-                "You write character-driven micro-stories for adult A2-B1 English learners, never procedures or task logs. Produce exactly one sentence per target, with a personal stake, a choice-driven turn, and a practical plus emotional payoff. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                "Write character-driven micro-stories for adult A2-B1 English learners with I as the first-person narrator and exactly one named supporting character. No other people may appear. Never write procedures or task logs. Produce exactly one sentence per target, with a personal stake, a choice-driven turn, and a practical plus emotional payoff. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                 0.48f,
                 2000,
                 value => storyResponse = value,
@@ -593,7 +595,7 @@ namespace MemPalaceLLM
                     apiKey.Trim(),
                     model.Trim(),
                     BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
-                    "You repair a rejected character-driven micro-story for adult A2-B1 English learners. Replace procedural steps with human reactions, a meaningful choice, and a practical plus emotional payoff. Return exactly one sentence per target and exactly one valid JSON object. No markdown. No commentary.",
+                    "Repair a rejected character-driven micro-story for adult A2-B1 English learners. Use I as the first-person narrator and exactly one named supporting character, with no other people. Replace procedural steps with human reactions, a meaningful choice, and a practical plus emotional payoff. Return exactly one sentence per target and exactly one valid JSON object. No markdown. No commentary.",
                     0.38f,
                     2200,
                     value => repairedResponse = value,
@@ -1074,6 +1076,19 @@ namespace MemPalaceLLM
             return true;
         }
 
+        private static string BuildStoryCandidateInstruction(int candidateRank)
+        {
+            switch (Mathf.Clamp(candidateRank, 0, 2))
+            {
+                case 1:
+                    return "\nCANDIDATE 2 OF 3: Write the second-best fully valid alternative. Use a different premise, target-action chain, character choice, and payoff from the most obvious first solution.\n";
+                case 2:
+                    return "\nCANDIDATE 3 OF 3: Write the third-best fully valid alternative. Choose another distinct premise and development; do not repeat the likely first or second story.\n";
+                default:
+                    return "\nCANDIDATE 1 OF 3: Write the strongest overall solution.\n";
+            }
+        }
+
         private static string BuildCausalStoryPlanPrompt(List<WordEntry> words)
         {
             var builder = new StringBuilder();
@@ -1081,16 +1096,17 @@ namespace MemPalaceLLM
             builder.AppendLine("Use every target exactly once. Each plan item becomes exactly one story sentence, so choose the order that makes the strongest causal chain.");
             builder.AppendLine("Use a TOTAL-DEVELOPMENT-TOTAL arc: item 1 opens with the whole problem and success goal, the middle items develop and turn the action, and the last item explicitly completes that same goal.");
             builder.AppendLine("This must be a STORY, not a repair guide, delivery route, checklist, or chronological work report. Physical progress alone is not a plot.");
-            builder.AppendLine("Choose one relationship between you and a named second character. Give that person a simple want or fear, and make the concrete goal matter personally to both characters.");
+            builder.AppendLine("Use exactly two people: the first-person narrator I and one named supporting character. No friend, parent, child, neighbor, helper, guard, crowd, group, or other third person may appear.");
+            builder.AppendLine("Choose one relationship between me and that supporting character. Give the supporting character a simple want or fear, and make the concrete goal matter personally to both of us.");
             builder.AppendLine("Build two connected arcs: an OUTER arc with one observable goal and an INNER arc where trust, courage, forgiveness, belonging, or care changes through a choice.");
             builder.AppendLine("The plan must be linear: item N creates the situation, feeling, discovery, or choice that item N+1 responds to. Do not make separate episodes, parallel actions, unrelated scenes, or an opening with no ending.");
             builder.AppendLine("Choose ONE central person, place, object, or outcome that defines a small concrete goal with a clear finish. Targets may change practical progress, what a character knows, what a character decides, or the relationship.");
             builder.AppendLine("Vary the premise to fit the targets. Use an everyday repair, delivery, search, reunion, mistake, or helpful task when suitable; do not default to storms, floods, dangerous races, or reaching safety unless the target set truly supports it.");
             builder.AppendLine("The goal must not be a list of errands. Do not use shopping, packing several items, eating lunch, sightseeing, appreciating a view, attending unrelated events, or visiting multiple destinations as the story structure.");
-            builder.AppendLine("Return JSON exactly as: {\"opening_problem\":\"the concrete problem stated in sentence 1\",\"goal\":\"the observable outer success condition\",\"relationship\":\"who the named second character is to you\",\"emotional_stake\":\"what that person wants or fears and why the goal matters\",\"turning_choice\":\"the difficult but safe choice that changes the story\",\"final_outcome\":\"the visible result proving the outer goal succeeded\",\"emotional_payoff\":\"the small reaction or callback proving the relationship or feeling changed\",\"items\":[{\"word\":\"zapato\",\"arc_role\":\"opening|development|turn|resolution\",\"story_function\":\"hook|reaction|complication|pressure|choice|consequence|final_decision|payoff\",\"need\":\"specific prior situation, feeling, or discovery requiring this beat\",\"action\":\"physically possible event, reaction, or decision involving it\",\"result\":\"consequence that makes the next beat necessary\",\"goal_link\":\"how this beat changes the outer goal or inner arc\",\"memory_cue\":\"one distinctive concrete change caused by the target\"}]}");
+            builder.AppendLine("Return JSON exactly as: {\"opening_problem\":\"the concrete problem stated in sentence 1\",\"goal\":\"the observable outer success condition\",\"supporting_character\":\"the only other person's short name\",\"relationship\":\"who that person is to me\",\"emotional_stake\":\"what that person wants or fears and why the goal matters\",\"turning_choice\":\"the difficult but safe choice that changes the story\",\"final_outcome\":\"the visible result proving the outer goal succeeded\",\"emotional_payoff\":\"the small reaction or callback proving the relationship or feeling changed\",\"items\":[{\"word\":\"zapato\",\"arc_role\":\"opening|development|turn|resolution\",\"story_function\":\"hook|reaction|complication|pressure|choice|consequence|final_decision|payoff\",\"need\":\"specific prior situation, feeling, or discovery requiring this beat\",\"action\":\"physically possible event, reaction, or decision involving it\",\"result\":\"consequence that makes the next beat necessary\",\"goal_link\":\"how this beat changes the outer goal or inner arc\",\"memory_cue\":\"one distinctive concrete change caused by the target\"}]}");
             builder.AppendLine("Each item must have non-empty word, need, action, result, goal_link, and memory_cue fields.");
             builder.AppendLine("ARC ROLES: item 1 is opening; the last item is resolution; choose one middle item as turn, where a revelation or meaningful character choice changes both the plan and the relationship; all other middle items are development.");
-            builder.AppendLine("The opening need must name the second character, the problem, the observable goal, and the personal reason it matters. The first target must begin the story in the same beat.");
+            builder.AppendLine("The opening need must use I, name the one supporting character, state the problem and goal, and explain why it matters. The first target must begin the story in the same beat.");
             builder.AppendLine("HARD LINK FORMAT: copy the complete result text of item N verbatim into the need field of item N+1. The strings must be exactly identical. The action in item N+1 must respond directly to that copied situation.");
             builder.AppendLine("At least three beats must be human beats: a character reacts, asks, admits, chooses, helps, refuses, remembers, trusts, or changes feeling. Do not place more than two tool-use or task-operation beats in a row.");
             builder.AppendLine("The turn cannot be only bad weather, a stuck object, a missing tool, or another physical obstacle. A character must learn something or make a choice with a consequence.");
@@ -1100,7 +1116,7 @@ namespace MemPalaceLLM
             builder.AppendLine("For memory_cue, choose one safe, plausible detail created by the target action: a clear movement, shape, color, sound, touch, or changed state. Make cues easy to picture and different from one another. A cue must do narrative work, not decorate the scene.");
             builder.AppendLine("Reject magic, coincidence, dream logic, symbolic actions, impossible tool use, distant scenery, reflections that reveal unknown facts, and objects appearing without a source.");
             builder.AppendLine("Do not claim that an inaccessible shop supplies an item, that throwing one object summons another, or that a blunt object cuts or unlocks something without a believable mechanism.");
-            builder.AppendLine("Prefer familiar, safe actions that ordinary people could perform. Do not make a character climb, enter danger, misuse a tool, or take another needless risk when a safe action would solve the problem. Keep one route toward one destination and at least two active characters.");
+            builder.AppendLine("Prefer familiar, safe actions that ordinary people could perform. Do not make either character climb, enter danger, misuse a tool, or take another needless risk when a safe action would solve the problem. Keep exactly the narrator I and the one named supporting character throughout.");
             builder.AppendLine("Use simple everyday English in opening_problem, goal, final_outcome, need, action, result, and goal_link. Prefer short common words and direct verbs. Avoid poetic, rare, or literary words.");
             builder.AppendLine("Do not introduce important non-target props such as a bowl, lunch, bottle, rope, ticket, key, or borrowed book unless absolutely unavoidable for a small connecting action. The target objects must perform the important jobs.");
             builder.AppendLine("Do not list supplies or mention an object that no character uses. Every named prop must be used in the same item or the next item.");
@@ -1159,9 +1175,14 @@ namespace MemPalaceLLM
                 plan.final_outcome = plan.items.Length > 0 ? plan.items[plan.items.Length - 1]?.result : plan.goal;
             }
 
+            if (string.IsNullOrWhiteSpace(plan.supporting_character))
+            {
+                plan.supporting_character = "Ana";
+            }
+
             if (string.IsNullOrWhiteSpace(plan.relationship))
             {
-                plan.relationship = "A named friend shares the goal with you.";
+                plan.relationship = "Ana is the only other person and shares the goal with me.";
             }
 
             if (string.IsNullOrWhiteSpace(plan.emotional_stake))
@@ -1171,7 +1192,7 @@ namespace MemPalaceLLM
 
             if (string.IsNullOrWhiteSpace(plan.turning_choice))
             {
-                plan.turning_choice = "You choose to help the other character instead of only following the task.";
+                plan.turning_choice = "I choose honesty and help Ana instead of only following the task.";
             }
 
             if (string.IsNullOrWhiteSpace(plan.emotional_payoff))
@@ -1244,13 +1265,14 @@ namespace MemPalaceLLM
         {
             var plan = new CausalStoryPlanEnvelope
             {
-                opening_problem = "You and Ana must bring her birthday card to her lonely father before his bus leaves.",
-                goal = "Ana's father receives her birthday card before he leaves.",
-                relationship = "Ana is your worried friend, and her father fears that she forgot him.",
-                emotional_stake = "Ana wants her father to know that she remembered his birthday.",
-                turning_choice = "A delay costs time, but you choose to help Ana continue instead of giving up.",
-                final_outcome = "Ana's father receives the birthday card before his bus leaves.",
-                emotional_payoff = "Her father smiles at Ana, and she knows he no longer feels forgotten.",
+                opening_problem = "I must return Ana's lost birthday letter before her train leaves because she thinks I forgot our promise.",
+                goal = "Ana receives her birthday letter before her train leaves.",
+                supporting_character = "Ana",
+                relationship = "Ana is my close friend and the only other person in the story.",
+                emotional_stake = "Ana wants proof that I remembered our promise.",
+                turning_choice = "I discover damage on the letter and choose to admit my mistake instead of hiding it.",
+                final_outcome = "Ana receives her birthday letter before her train leaves.",
+                emotional_payoff = "Ana smiles at me and trusts me again.",
                 items = new CausalStoryPlanItem[words.Count]
             };
 
@@ -1268,21 +1290,21 @@ namespace MemPalaceLLM
                 }
                 else if (i == 0)
                 {
-                    result = "Ana sees the first sign that the birthday visit may still succeed.";
+                    result = "Ana sees the first sign that I may have kept our promise.";
                 }
                 else if (i == Mathf.Max(1, (words.Count - 1) / 2))
                 {
-                    result = "The delay frightens Ana, but your choice gives her courage to continue.";
+                    result = "I admit my mistake, and Ana chooses to give me one final chance.";
                 }
                 else if (i == words.Count - 2)
                 {
-                    result = "Ana spots her father boarding the bus and calls to him one last time.";
+                    result = "Ana trusts me with one final chance as her train is about to leave.";
                 }
                 else
                 {
                     result = i < words.Count / 2
                         ? "The new result changes Ana's hope and creates the next difficult choice."
-                        : "Ana responds to your help and moves one step closer to her father.";
+                        : "Ana responds to my honesty and moves one step closer to trusting me.";
                 }
 
                 plan.items[i] = new CausalStoryPlanItem
@@ -1291,11 +1313,11 @@ namespace MemPalaceLLM
                     arc_role = GetCausalStoryArcRole(i, words.Count),
                     story_function = GetCausalStoryFunction(i, words.Count),
                     need = priorResult,
-                    action = "Use " + BuildTargetStoryToken(meaning, word) + " in a plausible event, reaction, or choice that changes both the visit and Ana's feelings.",
+                    action = "Use " + BuildTargetStoryToken(meaning, word) + " in a plausible first-person event, reaction, or choice that changes both the goal and Ana's feelings.",
                     result = result,
                     goal_link = isLast
                         ? "This completes the visit and answers Ana's fear."
-                        : "This changes practical progress or the trust between you and Ana.",
+                        : "This changes practical progress or the trust between me and Ana.",
                     memory_cue = "The action makes one clear, easy-to-picture change involving the " + meaning + "."
                 };
                 priorResult = result;
@@ -1376,16 +1398,17 @@ namespace MemPalaceLLM
             builder.AppendLine();
             builder.AppendLine("NON-NEGOTIABLE STORY SHAPE");
             builder.AppendLine("1. SENTENCE COUNT: write exactly " + words.Count + " complete sentences. Every sentence must contain exactly one new target pair. Write no target-free setup, scenery, transition, reaction, or epilogue sentences.");
-            builder.AppendLine("2. OPENING TOTAL — sentence 1 must include you and one other active character, the concrete problem, the observable success goal, and why it matters. State the goal with must or need to, use the first target, and begin solving the problem in this same sentence.");
+            builder.AppendLine("2. OPENING TOTAL — sentence 1 must use I, name the one supporting character, state the concrete problem and success goal, and explain why it matters. State my goal with must or need to, use the first target, and begin the story in this sentence.");
             builder.AppendLine("3. DEVELOPMENT — sentences 2 through " + Mathf.Max(2, words.Count - 1) + " must mix action with human response. Include a reaction, a complication, growing pressure, a choice, its consequence, and a final decision where the sentence budget permits.");
             builder.AppendLine("4. TURN — one middle sentence must reveal something important or force a meaningful choice. Bad turn: another tool is missing. Good turn: a character admits a fear, risks losing trust, chooses another person over convenience, or understands the problem differently.");
             builder.AppendLine("5. CLOSING TOTAL — sentence " + words.Count + " must use the final target to solve the outer problem and show a small human payoff such as relief, trust, gratitude, courage, reunion, or a callback to the opening fear.");
             builder.AppendLine("6. CLOSED-LOOP TEST: compare the first and last sentences. The answer to Did the characters achieve the opening goal? must be an explicit yes in the last sentence.");
             builder.AppendLine("7. Repeat at least one key plain-English person, place, or object from the opening goal in the final result so the closure is unmistakable. Do not repeat its Spanish target pair.");
             builder.AppendLine("8. The last sentence must contain both the final target action or event AND its achieved result, joined clearly with so, and, until, leaving, or letting. End immediately after that payoff.");
-            builder.AppendLine("9. Never end with preparation or progress such as Now you grab it, You see the destination ahead, You are ready to leave, The door can open, or You move toward safety. Those are beginnings of missing sentences, not endings.");
-            builder.AppendLine("10. HUMAN ARC: name the second character. At least three sentences must show that character reacting, speaking indirectly, deciding, helping, refusing, remembering, trusting, or changing feeling.");
-            builder.AppendLine("11. ANTI-WORKFLOW RULE: never write more than two consecutive sentences whose main content is finding a tool, moving an object, applying material, checking work, or following route steps.");
+            builder.AppendLine("9. Never end with preparation or progress such as Now I grab it, I see the destination ahead, I am ready to leave, The door can open, or I move toward safety. Those are beginnings of missing sentences, not endings.");
+            builder.AppendLine("10. TWO-PERSON LIMIT: the narrator is I and there is exactly one named supporting character. Do not introduce or mention any third person, group, crowd, family member, helper, guard, child, neighbor, or passerby.");
+            builder.AppendLine("11. HUMAN ARC: at least three sentences must show the one supporting character reacting, speaking indirectly, deciding, helping, refusing, remembering, trusting, or changing feeling.");
+            builder.AppendLine("12. ANTI-WORKFLOW RULE: never write more than two consecutive sentences whose main content is finding a tool, moving an object, applying material, checking work, or following route steps.");
             builder.AppendLine();
             builder.AppendLine("ACTION TEST FOR EVERY TARGET");
             builder.AppendLine("Each sentence has one compact story beat: an event, reaction, discovery, decision, or consequence involving one target. Its effect must remain in that sentence.");
@@ -1403,7 +1426,7 @@ namespace MemPalaceLLM
             builder.AppendLine("Imaginative use of a target is allowed, but it still needs a clear cause and effect. The reader must understand why that target action changes the next moment.");
             builder.AppendLine("Do not use meanwhile, elsewhere, later that day, suddenly, another problem, or scene jumps to move between targets.");
             builder.AppendLine("Bad: A relámpago (lightning) flashes outside. This only describes weather.");
-            builder.AppendLine("Good: A relámpago (lightning) reveals the exit sign, so you lead Ana to it. The event changes the action now.");
+            builder.AppendLine("Good: A relámpago (lightning) reveals the exit sign, so I lead Ana to it. The event changes my action now.");
             builder.AppendLine("Silently delete each target sentence. If the sentences before and after still connect, rewrite that target sentence because it is not doing narrative work.");
             builder.AppendLine();
             builder.AppendLine("MEMORY TEST");
@@ -1414,7 +1437,7 @@ namespace MemPalaceLLM
             builder.AppendLine();
             builder.AppendLine("READABILITY, STYLE, AND TONE");
             builder.AppendLine("Use active voice, concrete verbs, character choices, small setbacks, and a satisfying practical resolution.");
-            builder.AppendLine("The second character must affect events rather than wait passively for you to finish a job. Give that character at least one consequential reaction or choice.");
+            builder.AppendLine("The one supporting character must affect events rather than wait passively for me to finish a job. Give that character at least one consequential reaction or choice.");
             builder.AppendLine("Write for adult English learners at A2-B1 level. Use common words and direct verbs. If two words express the same idea, choose the simpler word.");
             builder.AppendLine("Most sentences must contain 10-18 words. Middle sentences may not exceed 20 words. The opening and closing may use up to 24 words because each must state a target action and the story-level goal or outcome.");
             builder.AppendLine("Use periods and simple connectors. Do not use semicolons, colons, em dashes, more than one comma in a sentence, nested clauses, or long while/which/that phrases.");
@@ -1424,13 +1447,14 @@ namespace MemPalaceLLM
             builder.AppendLine("Use no more than one short atmospheric clause in the entire story. Do not describe distant scenery or ambient sounds unless a character immediately acts on them.");
             builder.AppendLine("Keep the tone bright, everyday, and emotionally safe. No horror, dream logic, uncanny living objects, supernatural transformations, or unrelated parade, dance, spectacle, or celebration.");
             builder.AppendLine("Keep every action physically plausible and reasonably safe. Do not create avoidable danger merely to connect two target words.");
-            builder.AppendLine("Write in second person: the main character is always you. Do not name the main character or use he, she, his, or her for the main character.");
+            builder.AppendLine("Write in first person: the narrator and main character is always I. Use I, me, my, we, or our naturally, and never address the reader as you.");
+            builder.AppendLine("Use only the narrator I and the single supporting character named in the plan. Places and objects are allowed, but no other person may appear even briefly.");
             builder.AppendLine("Do not mention the memory room, furniture anchors, route instructions, walking directions, mnemonics, or image generation.");
             builder.AppendLine("Use the sentence budget efficiently: there is no extra setup or ending outside the one-sentence-per-target structure.");
             builder.AppendLine();
             builder.AppendLine("WORD FORMAT");
             builder.AppendLine("Every target must appear once as SpanishWord (EnglishMeaning), for example zapato (shoe).");
-            builder.AppendLine("Do not add a label before a sentence. Bad: zapato (shoe): You picked it up. Good: You picked up the zapato (shoe) to block the door.");
+            builder.AppendLine("Do not add a label before a sentence. Bad: zapato (shoe): I picked it up. Good: I picked up the zapato (shoe) to block the door.");
             builder.AppendLine("Never put two target tokens in the same sentence.");
             builder.AppendLine("GRAMMAR REPLACEMENT TEST: mentally replace the whole SpanishWord (EnglishMeaning) pair with EnglishMeaning. The resulting sentence must be natural English with the correct article, preposition, part of speech, and singular or plural form.");
             builder.AppendLine("Do not repeat the meaning beside the pair or write a tautology such as use a plug to plug something in. Rewrite the action naturally while keeping the exact target pair.");
@@ -1471,11 +1495,13 @@ namespace MemPalaceLLM
             builder.AppendLine("Write EXACTLY " + words.Count + " complete sentences for the " + words.Count + " selected targets: no extra setup, description, transition, reaction, or epilogue sentence.");
             builder.AppendLine("Every selected target must appear naturally in the fullStory exactly once as SpanishWord (EnglishMeaning), and each must perform an action that changes progress toward the same goal.");
             builder.AppendLine("Every sentence must contain exactly one target pair. Each target gets exactly one sentence containing its need, target-linked action or event, immediate result, and one easy-to-picture change.");
-            builder.AppendLine("Sentence 1 is the opening total: use must or need to, state who has the concrete problem and the observable success goal, and begin solving it with the first target.");
+            builder.AppendLine("Sentence 1 is the opening total: use I plus must or need to, name the one supporting character, state the concrete goal, and begin with the first target.");
             builder.AppendLine("The middle sentences are the development: every result causes the next action, and at least one middle beat creates a small setback, discovery, or change of plan.");
             builder.AppendLine("Sentence " + words.Count + " is the closing total: the final target must cause a visible completed result that explicitly solves the opening problem.");
             builder.AppendLine("Do not return a procedure, repair guide, route, checklist, or task log. A sequence of successful operations is still not a story.");
-            builder.AppendLine("Keep one named second character active. At least three beats must show a human reaction, indirect speech, discovery, decision, help, refusal, memory, trust, or changed feeling.");
+            builder.AppendLine("Write entirely in first person with I as the narrator. Never address the reader as you.");
+            builder.AppendLine("Keep exactly one named supporting character active. Do not mention any other person, relative, child, neighbor, helper, guard, group, family, or crowd.");
+            builder.AppendLine("At least three beats must show that one supporting character reacting, speaking indirectly, discovering, deciding, helping, refusing, remembering, trusting, or changing feeling.");
             builder.AppendLine("Make the middle turn a revelation or meaningful character choice with a consequence, not merely another broken, missing, or stuck object.");
             builder.AppendLine("Never use more than two tool-use, material-processing, object-moving, or route-following beats in a row.");
             builder.AppendLine("The last sentence must finish the practical goal and answer the opening personal stake with relief, trust, gratitude, courage, reunion, or a clear callback.");
@@ -1485,7 +1511,7 @@ namespace MemPalaceLLM
             builder.AppendLine("Keep the causal order from the plan, but repair any implausible action or weak connection.");
             builder.AppendLine("Make the story strictly linear: every sentence must follow from the previous sentence and create the reason for the next sentence. No separate episodes or scene jumps.");
             builder.AppendLine("The target's role may be normal or imaginative. If it cannot be handled directly, it must cause an immediate character decision or action in that same sentence, not a separate description.");
-            builder.AppendLine("Use A2-B1 English, common words, and direct verbs. Keep most sentences at 10-18 words, middle sentences at 20 words or fewer, and opening and closing at 24 words or fewer.");
+            builder.AppendLine("Use A2-B1 English, common words, and direct verbs. HARD LIMIT: middle sentences may contain at most 20 words; the opening and closing may contain at most 24 words.");
             builder.AppendLine("Use periods, at most one comma per sentence, and no semicolons, colons, or em dashes.");
             builder.AppendLine("Apply the grammar replacement test to every target pair: replacing SpanishWord (EnglishMeaning) with EnglishMeaning must leave a natural English sentence without repeated meaning or tautology.");
             builder.AppendLine("Keep every action safe and physically plausible, use every named prop, and stop only after the original goal is visibly solved in the last sentence.");
@@ -1585,6 +1611,18 @@ namespace MemPalaceLLM
             if (HasClosedMicroStoryStructureProblems(envelope.fullStory, words, out var structureError))
             {
                 error = structureError;
+                return false;
+            }
+
+            if (HasStoryNarratorOrCharacterProblems(envelope.fullStory, words, out var characterError))
+            {
+                error = characterError;
+                return false;
+            }
+
+            if (HasStorySentenceLengthProblems(envelope.fullStory, out var sentenceLengthError))
+            {
+                error = sentenceLengthError;
                 return false;
             }
 
@@ -2029,7 +2067,7 @@ namespace MemPalaceLLM
             {
                 "the", "and", "but", "for", "with", "from", "into", "onto", "over", "under",
                 "before", "after", "while", "because", "that", "this", "these", "those", "your",
-                "you", "our", "their", "his", "her", "its", "one", "same", "today", "tonight",
+                "you", "i", "me", "my", "we", "us", "our", "their", "his", "her", "its", "one", "same", "today", "tonight",
                 "must", "need", "needs", "have", "has", "get", "make", "use", "find", "reach",
                 "enter", "bring", "carry", "deliver", "repair", "fix", "stop", "save", "keep",
                 "open", "close", "return", "take", "move", "protect", "rescue", "solve", "finish",
@@ -2110,7 +2148,7 @@ namespace MemPalaceLLM
 
             var acquisitionOnly = Regex.IsMatch(
                 sentence,
-                @"^(?:(?:At\s+last|Finally),?\s+|Now\s+|Then\s+)?You\s+(?:grab|take|pick\s+up|reach\s+for|find|notice|see|hear)\b",
+                @"^(?:(?:At\s+last|Finally),?\s+|Now\s+|Then\s+)?I\s+(?:grab|take|pick\s+up|reach\s+for|find|notice|see|hear)\b",
                 RegexOptions.IgnoreCase);
             var hasResultLink = Regex.IsMatch(
                 sentence,
@@ -2129,8 +2167,99 @@ namespace MemPalaceLLM
             var tail = text.Substring(startIndex);
             return Regex.IsMatch(
                 tail,
-                @"\b(?:but|so|and|until)\b[^.!?]{0,120}\b(?:(?:arrived|reached|entered|delivered|received|finished|completed|solved|repaired|fixed|rescued|saved|returned|recovered|restored|secured|escaped|unlocked|opened|closed|stopped|ended|won|worked|succeeded|reunited|built|cleaned)|(?:arrives|reaches|enters|delivers|receives|finishes|completes|solves|repairs|fixes|rescues|saves|returns|recovers|restores|secures|escapes|unlocks|opens|closes|stops|ends|wins|works|succeeds|reunites|cleans)|(?:you|we|they)\s+(?:arrive|reach|enter|deliver|receive|finish|complete|solve|repair|fix|rescue|save|return|recover|restore|secure|escape|unlock|open|close|stop|end|win|work|succeed|reunite|clean)|(?:is|are|becomes?|stays?|gets?)\s+(?:safe|safer|dry|inside|free|open|closed|complete|finished|over|together))\b",
+                @"\b(?:but|so|and|until)\b[^.!?]{0,120}\b(?:(?:arrived|reached|entered|delivered|received|finished|completed|solved|repaired|fixed|rescued|saved|returned|recovered|restored|secured|escaped|unlocked|opened|closed|stopped|ended|won|worked|succeeded|reunited|built|cleaned)|(?:arrives|reaches|enters|delivers|receives|finishes|completes|solves|repairs|fixes|rescues|saves|returns|recovers|restores|secures|escapes|unlocks|opens|closes|stops|ends|wins|works|succeeds|reunites|cleans)|(?:I|we)\s+(?:arrive|reach|enter|deliver|receive|finish|complete|solve|repair|fix|rescue|save|return|recover|restore|secure|escape|unlock|open|close|stop|end|win|work|succeed|reunite|clean)|(?:is|are|becomes?|stays?|gets?)\s+(?:safe|safer|dry|inside|free|open|closed|complete|finished|over|together))\b",
                 RegexOptions.IgnoreCase);
+        }
+
+        private static bool HasStoryNarratorOrCharacterProblems(
+            string fullStory,
+            List<WordEntry> words,
+            out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(fullStory))
+            {
+                return false;
+            }
+
+            var sentences = SplitStorySentences(fullStory);
+            if (sentences.Count == 0 || !Regex.IsMatch(sentences[0], @"\bI\b"))
+            {
+                error = "The story must use I as the first-person narrator from sentence 1.";
+                return true;
+            }
+
+            if (Regex.IsMatch(fullStory, @"\b(?:you|your|yours|yourself)\b", RegexOptions.IgnoreCase))
+            {
+                error = "The story addresses the reader as you. Rewrite the protagonist consistently as I, me, my, we, or our.";
+                return true;
+            }
+
+            if (Regex.IsMatch(
+                    fullStory,
+                    @"\b(?:friends|children|parents|people|neighbors|helpers|guards|workers|classmates|passersby|crowd|group|team|family|someone|somebody)\b|\b(?:a|an|the|another)\s+(?:friend|child|parent|neighbor|helper|guard|worker|classmate|passerby|stranger|teacher|boss|driver|doctor|nurse|clerk|customer|owner|manager|waiter|waitress|police\s+officer|firefighter|mechanic)\b|\b(?:his|her|their)\s+(?:father|mother|parent|child|son|daughter|brother|sister|friend|neighbor|teacher|boss|helper|guard)\b",
+                    RegexOptions.IgnoreCase))
+            {
+                error = "The story introduces extra people. Keep only the narrator I and at most one supporting character.";
+                return true;
+            }
+
+            var ignoredCapitalWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "I", "At", "As", "After", "Before", "Because", "But", "By", "During", "Finally",
+                "For", "If", "In", "Inside", "Later", "Meanwhile", "Near", "Next", "Now", "On",
+                "Once", "Outside", "Since", "So", "That", "The", "Then", "This", "Through", "To",
+                "Today", "Tonight", "Until", "When", "While", "With", "Without"
+            };
+            if (words != null)
+            {
+                for (var i = 0; i < words.Count; i++)
+                {
+                    AddStoryWordsToSet(ignoredCapitalWords, words[i]?.word);
+                    AddStoryWordsToSet(ignoredCapitalWords, words[i]?.meaning);
+                }
+            }
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var capitalWords = Regex.Matches(fullStory, @"\b[A-Z][a-z]{1,20}\b");
+            for (var i = 0; i < capitalWords.Count; i++)
+            {
+                var candidate = capitalWords[i].Value;
+                if (!ignoredCapitalWords.Contains(candidate))
+                {
+                    names.Add(candidate);
+                }
+            }
+
+            if (names.Count > 1)
+            {
+                error = "The story names more than one supporting character (" + string.Join(", ", names) + "). Keep at most two people total: I and one other person.";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasStorySentenceLengthProblems(string fullStory, out string error)
+        {
+            error = string.Empty;
+            var sentences = SplitStorySentences(fullStory);
+            for (var i = 0; i < sentences.Count; i++)
+            {
+                var wordCount = CountStoryWords(sentences[i]);
+                var maximumWords = i == 0 || i == sentences.Count - 1 ? 24 : 20;
+                if (wordCount <= maximumWords)
+                {
+                    continue;
+                }
+
+                error = "Sentence " + (i + 1) + " has " + wordCount +
+                        " words. The hard limit is " + maximumWords +
+                        " words for this " + (i == 0 || i == sentences.Count - 1 ? "opening or closing" : "middle") + " sentence.";
+                return true;
+            }
+
+            return false;
         }
 
         private static bool LooksLikeProceduralWorkflow(
@@ -2166,7 +2295,7 @@ namespace MemPalaceLLM
                     RegexOptions.IgnoreCase).Count;
                 var procedureLed = Regex.IsMatch(
                     sentence,
-                    @"^(?:At\s+[^,]+,?\s+)?You\s+(?:slowly\s+|carefully\s+)?" + procedureVerb + @"\b",
+                    @"^(?:At\s+[^,]+,?\s+)?I\s+(?:slowly\s+|carefully\s+)?" + procedureVerb + @"\b",
                     RegexOptions.IgnoreCase);
                 if (procedureLed || procedureVerbCount >= 2)
                 {
@@ -2244,10 +2373,9 @@ namespace MemPalaceLLM
                 totalWordCount += wordCount;
 
                 // Opening and closing carry the story-level goal/outcome, so they receive a
-                // slightly larger budget than the one-action middle beats. Two words of
-                // tolerance cover hyphenated words and multi-word target meanings.
+                // slightly larger hard budget than the one-action middle beats.
                 var isOpeningOrClosing = sentenceIndex == 0 || sentenceIndex == sentences.Count - 1;
-                var maximumWords = isOpeningOrClosing ? 26 : 22;
+                var maximumWords = isOpeningOrClosing ? 24 : 20;
                 if (wordCount > maximumWords)
                 {
                     error = "Sentence " + (sentenceIndex + 1) + " has " + wordCount +
@@ -2869,8 +2997,8 @@ namespace MemPalaceLLM
 
         private static string NormalizeDisplayStory(string fullStory)
         {
-            // The prompt already requires second person. Rewriting every he/she/name after
-            // validation can erase the second active character and change the selected story.
+            // The prompt and validator already require a first-person narrator. Rewriting
+            // names after validation could erase the one supporting character.
             return Regex.Replace(fullStory ?? string.Empty, @"\s+", " ").Trim();
         }
 

@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
@@ -10005,11 +10006,19 @@ namespace MemPalaceLLM
                     GetSelectedLlmEndpoint(),
                     GetSelectedLiveMnemonicModelLabel(),
                     words,
+                    candidateIndex,
                     story => generatedStory = story,
                     err => error = err));
 
                 if (generatedStory != null && string.IsNullOrWhiteSpace(error))
                 {
+                    var isDuplicate = llmStoryCandidates.Exists(candidate => AreStoryCandidatesEquivalent(candidate, generatedStory));
+                    if (isDuplicate)
+                    {
+                        errors.Add($"Candidate {candidateIndex + 1}: the online model repeated an earlier story.");
+                        continue;
+                    }
+
                     generatedStory.storyProvider = GetSelectedLiveMnemonicProviderLabel();
                     generatedStory.storyModel = GetSelectedLiveMnemonicModelLabel();
                     generatedStory.storySource = (generatedStory.storySource ?? GetSelectedLiveMnemonicSourceTag())
@@ -10024,25 +10033,30 @@ namespace MemPalaceLLM
             }
 
             isGenerating = false;
-            if (llmStoryCandidates.Count == 0)
+            var onlineCandidateCount = llmStoryCandidates.Count;
+            while (llmStoryCandidates.Count < LlmStoryCandidateCount)
             {
-                var onlineFailure = GetSelectedLiveMnemonicProviderLabel() +
-                                    " did not return a structurally usable candidate. " + string.Join(" ", errors);
+                var fallbackIndex = llmStoryCandidates.Count;
+                var onlineFailure = onlineCandidateCount == 0
+                    ? GetSelectedLiveMnemonicProviderLabel() +
+                      " did not return a structurally usable candidate. " + string.Join(" ", errors)
+                    : GetSelectedLiveMnemonicProviderLabel() + " returned only " + onlineCandidateCount +
+                      " usable candidate(s), so local alternatives filled the remaining choice slots. " + string.Join(" ", errors);
                 var fallbackStory = BuildLocalFallbackStorySession(
                     words,
                     RoomSpecCatalog.CurrentRoom?.anchors,
-                    onlineFailure);
+                    onlineFailure,
+                    fallbackIndex);
                 llmStoryCandidates.Add(fallbackStory);
-                usedLiveLlmForCurrentSession = false;
                 usedLocalFallbackForCurrentSession = true;
-                generationError = string.Empty;
-                statusMessage = "The online stories were unavailable, so a complete local fallback story is ready to select.";
-                LogInteraction("llm_story_local_fallback_created", string.Empty, string.Empty, onlineFailure);
-                yield break;
+                LogInteraction("llm_story_local_fallback_created", string.Empty, string.Empty, $"Story {fallbackIndex + 1}: {onlineFailure}");
             }
 
             generationError = string.Empty;
-            statusMessage = $"Generated {llmStoryCandidates.Count} story candidate(s). The participant must select one complete story.";
+            usedLiveLlmForCurrentSession = onlineCandidateCount > 0;
+            statusMessage = onlineCandidateCount == LlmStoryCandidateCount
+                ? "Generated 3 complete story candidates. The participant must select one story."
+                : $"Prepared 3 complete story candidates ({onlineCandidateCount} online, {LlmStoryCandidateCount - onlineCandidateCount} local).";
             if (errors.Count > 0)
             {
                 LogInteraction("llm_story_candidate_partial_failures", string.Empty, string.Empty, string.Join(" ", errors));
@@ -10050,7 +10064,18 @@ namespace MemPalaceLLM
             LogInteraction("llm_story_candidate_generation_completed", string.Empty, string.Empty, statusMessage);
         }
 
-        private StorySessionData BuildLocalFallbackStorySession(List<WordEntry> words, List<AnchorDefinition> anchors, string failureReason)
+        private static bool AreStoryCandidatesEquivalent(StorySessionData left, StorySessionData right)
+        {
+            var leftText = Regex.Replace(left?.fullStory ?? string.Empty, @"\s+", " ").Trim();
+            var rightText = Regex.Replace(right?.fullStory ?? string.Empty, @"\s+", " ").Trim();
+            return leftText.Length > 0 && string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private StorySessionData BuildLocalFallbackStorySession(
+            List<WordEntry> words,
+            List<AnchorDefinition> anchors,
+            string failureReason,
+            int variantIndex)
         {
             var story = new StorySessionData
             {
@@ -10070,7 +10095,7 @@ namespace MemPalaceLLM
                 var safeWord = string.IsNullOrWhiteSpace(word?.word) ? $"word_{i + 1}" : word.word.Trim();
                 var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
                 var anchorLabel = string.IsNullOrWhiteSpace(anchor?.label) ? $"anchor {i + 1}" : anchor.label.Trim();
-                var storyBeat = BuildLocalFallbackStoryBeat(i, meaning, safeWord, words.Count);
+                var storyBeat = BuildLocalFallbackStoryBeat(i, meaning, safeWord, words.Count, variantIndex);
                 var segment = storyBeat;
 
                 if (fullStory.Length > 0)
@@ -10096,36 +10121,64 @@ namespace MemPalaceLLM
             return story;
         }
 
-        private static string BuildLocalFallbackStoryBeat(int index, string meaning, string word, int totalCount)
+        private static string BuildLocalFallbackStoryBeat(int index, string meaning, string word, int totalCount, int variantIndex)
         {
             var safeMeaning = string.IsNullOrWhiteSpace(meaning) ? "target meaning" : meaning.Trim();
             var safeWord = string.IsNullOrWhiteSpace(word) ? "word" : word.Trim();
             var phrase = safeWord + " (" + safeMeaning + ")";
-            var context = BuildLocalFallbackLinearContext(index, totalCount);
-            var action = BuildLocalFallbackAction(NormalizeLocalFallbackMeaning(safeMeaning), phrase).Trim().TrimEnd('.', '!', '?');
+            var variant = ((variantIndex % 3) + 3) % 3;
+            var supportingCharacter = GetLocalFallbackSupportingCharacter(variant);
+            var storyObject = GetLocalFallbackStoryObject(variant);
+            var endingPlace = GetLocalFallbackEndingPlace(variant);
+            var context = BuildLocalFallbackLinearContext(index, totalCount, supportingCharacter, storyObject);
+            var action = ConvertLocalFallbackActionToFirstPerson(
+                    BuildLocalFallbackAction(NormalizeLocalFallbackMeaning(safeMeaning), phrase),
+                    supportingCharacter,
+                    storyObject)
+                .Trim()
+                .TrimEnd('.', '!', '?');
             var finalIndex = Mathf.Max(0, totalCount - 1);
 
             if (totalCount <= 1)
             {
-                return "Ana needs to show her lonely father that she remembered his birthday, so " + action +
-                       " and he receives her card with a smile.";
+                return "I must return " + supportingCharacter + "'s letter, so I use the " + phrase +
+                       " and deliver it.";
             }
 
             if (index >= finalIndex)
             {
-                return "At the bus stop " + action +
-                       ", so Ana's father receives her birthday card and smiles at her.";
+                var closing = "At the " + endingPlace + " " + action +
+                              ", so " + supportingCharacter + " receives the " + storyObject + " and trusts me.";
+                return CompactLocalFallbackStoryBeatIfNeeded(
+                    closing,
+                    "I use the " + phrase + ", so " + supportingCharacter + " receives the " + storyObject + " and trusts me.",
+                    24);
             }
 
-            return context + ", so " + action + ".";
+            var sentence = context + ", so " + action + ".";
+            var compactSentence = index <= 0
+                ? "I must return " + supportingCharacter + "'s " + storyObject + " today, using the " + phrase + "."
+                : supportingCharacter + " sees the " + phrase + ", so I choose honesty and continue.";
+            return CompactLocalFallbackStoryBeatIfNeeded(sentence, compactSentence, index <= 0 ? 24 : 20);
         }
 
-        private static string BuildLocalFallbackLinearContext(int index, int totalCount)
+        private static string CompactLocalFallbackStoryBeatIfNeeded(string preferred, string compact, int maximumWords)
+        {
+            return Regex.Matches(preferred ?? string.Empty, @"[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*").Count <= maximumWords
+                ? preferred
+                : compact;
+        }
+
+        private static string BuildLocalFallbackLinearContext(
+            int index,
+            int totalCount,
+            string supportingCharacter,
+            string storyObject)
         {
             var finalIndex = Mathf.Max(0, totalCount - 1);
             if (index <= 0)
             {
-                return "Ana fears her father feels forgotten, but you both must deliver his birthday card";
+                return "I must return " + supportingCharacter + "'s " + storyObject + " today";
             }
 
             if (index >= finalIndex)
@@ -10133,26 +10186,66 @@ namespace MemPalaceLLM
                 return "One last problem blocks the community room";
             }
 
-            // Spread a small human arc across any target count instead of emitting a list of
-            // route or repair operations. The target-specific action still supplies the
-            // concrete mnemonic, while this context supplies reaction, choice, and payoff.
+            // Spread a compact two-person arc across any target count. Short contexts leave
+            // enough room for the target action while keeping each middle sentence under 20 words.
             var progress = index / (float)Mathf.Max(1, finalIndex);
             var stage = Mathf.Clamp(Mathf.CeilToInt(progress * 6f), 1, 6);
             switch (stage)
             {
                 case 1:
-                    return "Ana's hands shake, but your first success gives her hope";
+                    return supportingCharacter + " admits my mistake still hurts";
                 case 2:
-                    return "A lost child asks for help, and Ana chooses kindness despite the delay";
+                    return "I find new damage and choose honesty";
                 case 3:
-                    return "The grateful child points out a shorter way to the bus stop";
+                    return supportingCharacter + " hears my apology and stays";
                 case 4:
-                    return "Ana sees the waiting bus and fears that her choice made them too late";
+                    return "We lose time, but our trust returns";
                 case 5:
-                    return "You remind Ana that her father needs her courage more than perfect timing";
+                    return supportingCharacter + " gives me one final chance";
                 default:
-                    return "Her father starts to board, but Ana calls his name and he turns";
+                    return "The deadline arrives, but I continue";
             }
+        }
+
+        private static string GetLocalFallbackSupportingCharacter(int variantIndex)
+        {
+            return variantIndex == 1 ? "Leo" : variantIndex == 2 ? "Maya" : "Ana";
+        }
+
+        private static string GetLocalFallbackStoryObject(int variantIndex)
+        {
+            return variantIndex == 1 ? "lost photograph" : variantIndex == 2 ? "borrowed notebook" : "birthday letter";
+        }
+
+        private static string GetLocalFallbackEndingPlace(int variantIndex)
+        {
+            return variantIndex == 1 ? "library" : variantIndex == 2 ? "school gate" : "station";
+        }
+
+        private static string ConvertLocalFallbackActionToFirstPerson(
+            string action,
+            string supportingCharacter,
+            string storyObject)
+        {
+            var rewritten = (action ?? string.Empty)
+                .Replace("birthday card", storyObject)
+                .Replace("Ana", supportingCharacter)
+                .Replace("your worried friend", supportingCharacter)
+                .Replace("your lost friend", supportingCharacter)
+                .Replace("your friend", supportingCharacter)
+                .Replace("a scared child", supportingCharacter)
+                .Replace("the child", supportingCharacter)
+                .Replace("a neighbor", supportingCharacter)
+                .Replace("the helper", supportingCharacter)
+                .Replace("the guard", supportingCharacter)
+                .Replace("he opens", supportingCharacter + " opens")
+                .Replace("them", supportingCharacter)
+                .Replace("lets you", "lets me")
+                .Replace("hears you", "hears me")
+                .Replace("follows you", "follows me")
+                .Replace("behind you", "behind me")
+                .Replace("your", "my");
+            return Regex.Replace(rewritten, @"\byou\b", "I", RegexOptions.IgnoreCase);
         }
 
         private static string BuildLocalFallbackAction(string normalizedMeaning, string phrase)
@@ -10184,7 +10277,7 @@ namespace MemPalaceLLM
                 case "notebook":
                     return "you open the " + phrase + " and find the safe room number.";
                 case "neighbor":
-                    return "the " + phrase + " points to the covered entrance and follows you.";
+                    return "Ana, my " + phrase + ", points to the covered entrance and follows me.";
                 case "path":
                     return "you follow the marked " + phrase + " and avoid the deep water.";
                 case "bird":
