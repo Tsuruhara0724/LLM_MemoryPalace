@@ -79,184 +79,137 @@
                                    ]
                      },
                      {
-                         "setId":  "formal_12_pool",
-                         "displayName":  "Formal 12-Word Pool",
-                         "description":  "Fixed 12-word pool for formal runs; each participant can sample 8 words while assets are pre-generated for 12 words x 10 furniture types.",
+                         "setId":  "formal_32_pool",
+                         "displayName":  "Formal 32-Word Pool",
+                         "description":  "Fixed 32-word candidate pool for formal pre-test screening, spanning varied everyday objects, body parts, natural phenomena, materials, actions, states, and abstract concepts that can be represented in a single image.",
                          "words":  [
                                        {
-                                           "word":  "aeropuerto",
-                                           "meaning":  "airport"
+                                           "word":  "pájaro",
+                                           "meaning":  "bird"
                                        },
                                        {
-                                           "word":  "almohada",
-                                           "meaning":  "pillow"
+                                           "word":  "techo",
+                                           "meaning":  "roof"
                                        },
                                        {
-                                           "word":  "anillo",
-                                           "meaning":  "ring"
+                                           "word":  "estrella",
+                                           "meaning":  "star"
                                        },
                                        {
-                                           "word":  "zapato",
-                                           "meaning":  "shoe"
+                                           "word":  "espejo",
+                                           "meaning":  "mirror"
                                        },
                                        {
-                                           "word":  "botella",
-                                           "meaning":  "bottle"
-                                       },
-                                       {
-                                           "word":  "cartera",
-                                           "meaning":  "wallet"
-                                       },
-                                       {
-                                           "word":  "cartel",
-                                           "meaning":  "poster"
-                                       },
-                                       {
-                                           "word":  "cortina",
-                                           "meaning":  "curtain"
-                                       },
-                                       {
-                                           "word":  "escalera",
-                                           "meaning":  "staircase"
-                                       },
-                                       {
-                                           "word":  "isla",
-                                           "meaning":  "island"
-                                       },
-                                       {
-                                           "word":  "manta",
-                                           "meaning":  "blanket"
-                                       },
-                                       {
-                                           "word":  "martillo",
-                                           "meaning":  "hammer"
-                                       }
-                                   ]
-                     },
-                     {
-                         "setId":  "advanced_pool",
-                         "displayName":  "Spanish Noun Pool",
-                         "description":  "Hidden source pool used for random Spanish noun sampling with concrete mnemonic potential.",
-                         "words":  [
-                                       {
-                                           "word":  "aeropuerto",
-                                           "meaning":  "airport"
-                                       },
-                                       {
-                                           "word":  "almohada",
-                                           "meaning":  "pillow"
-                                       },
-                                       {
-                                           "word":  "anillo",
-                                           "meaning":  "ring"
-                                       },
-                                       {
-                                           "word":  "zapato",
-                                           "meaning":  "shoe"
-                                       },
-                                       {
-                                           "word":  "barrio",
-                                           "meaning":  "neighborhood"
-                                       },
-                                       {
-                                           "word":  "botella",
-                                           "meaning":  "bottle"
-                                       },
-                                       {
-                                           "word":  "calendario",
-                                           "meaning":  "calendar"
-                                       },
-                                       {
-                                           "word":  "carretera",
-                                           "meaning":  "highway"
-                                       },
-                                       {
-                                           "word":  "cartera",
-                                           "meaning":  "wallet"
-                                       },
-                                       {
-                                           "word":  "cartel",
-                                           "meaning":  "poster"
-                                       },
-                                       {
-                                           "word":  "cascada",
-                                           "meaning":  "waterfall"
-                                       },
-                                       {
-                                           "word":  "cepillo",
-                                           "meaning":  "brush"
-                                       },
-                                       {
-                                           "word":  "cortina",
-                                           "meaning":  "curtain"
-                                       },
-                                       {
-                                           "word":  "desierto",
-                                           "meaning":  "desert"
-                                       },
-                                       {
-                                           "word":  "edificio",
-                                           "meaning":  "building"
-                                       },
-                                       {
-                                           "word":  "escalera",
-                                           "meaning":  "staircase"
-                                       },
-                                       {
-                                           "word":  "estatua",
-                                           "meaning":  "statue"
-                                       },
-                                       {
-                                           "word":  "fabrica",
-                                           "meaning":  "factory"
-                                       },
-                                       {
-                                           "word":  "faro",
-                                           "meaning":  "lighthouse"
-                                       },
-                                       {
-                                           "word":  "fogata",
-                                           "meaning":  "campfire"
-                                       },
-                                       {
-                                           "word":  "frasco",
-                                           "meaning":  "jar"
-                                       },
-                                       {
-                                           "word":  "granero",
-                                           "meaning":  "barn"
-                                       },
-                                       {
-                                           "word":  "isla",
-                                           "meaning":  "island"
-                                       },
-                                       {
-                                           "word":  "jaula",
-                                           "meaning":  "cage"
-                                       },
-                                       {
-                                           "word":  "linterna",
-                                           "meaning":  "flashlight"
-                                       },
-                                       {
-                                           "word":  "manta",
-                                           "meaning":  "blanket"
-                                       },
-                                       {
-                                           "word":  "martillo",
-                                           "meaning":  "hammer"
+                                           "word":  "vela",
+                                           "meaning":  "candle"
                                        },
                                        {
                                            "word":  "nube",
                                            "meaning":  "cloud"
                                        },
                                        {
-                                           "word":  "pasillo",
-                                           "meaning":  "hallway"
+                                           "word":  "columpio",
+                                           "meaning":  "swing"
                                        },
                                        {
-                                           "word":  "sombrero",
-                                           "meaning":  "hat"
+                                           "word":  "valla",
+                                           "meaning":  "fence"
+                                       },
+                                       {
+                                           "word":  "cerrojo",
+                                           "meaning":  "lock"
+                                       },
+                                       {
+                                           "word":  "paraguas",
+                                           "meaning":  "umbrella"
+                                       },
+                                       {
+                                           "word":  "enchufe",
+                                           "meaning":  "plug"
+                                       },
+                                       {
+                                           "word":  "huevo",
+                                           "meaning":  "egg"
+                                       },
+                                       {
+                                           "word":  "cremallera",
+                                           "meaning":  "zipper"
+                                       },
+                                       {
+                                           "word":  "rodilla",
+                                           "meaning":  "knee"
+                                       },
+                                       {
+                                           "word":  "relámpago",
+                                           "meaning":  "lightning"
+                                       },
+                                       {
+                                           "word":  "rueda",
+                                           "meaning":  "wheel"
+                                       },
+                                       {
+                                           "word":  "pegamento",
+                                           "meaning":  "glue"
+                                       },
+                                       {
+                                           "word":  "risa",
+                                           "meaning":  "laughter"
+                                       },
+                                       {
+                                           "word":  "hambre",
+                                           "meaning":  "hunger"
+                                       },
+                                       {
+                                           "word":  "logro",
+                                           "meaning":  "achievement"
+                                       },
+                                       {
+                                           "word":  "abrazo",
+                                           "meaning":  "hug"
+                                       },
+                                       {
+                                           "word":  "ayuda",
+                                           "meaning":  "help"
+                                       },
+                                       {
+                                           "word":  "ruido",
+                                           "meaning":  "noise"
+                                       },
+                                       {
+                                           "word":  "lodo",
+                                           "meaning":  "mud"
+                                       },
+                                       {
+                                           "word":  "espera",
+                                           "meaning":  "wait"
+                                       },
+                                       {
+                                           "word":  "búsqueda",
+                                           "meaning":  "search"
+                                       },
+                                       {
+                                           "word":  "sombra",
+                                           "meaning":  "shadow"
+                                       },
+                                       {
+                                           "word":  "huella",
+                                           "meaning":  "footprint"
+                                       },
+                                       {
+                                           "word":  "grieta",
+                                           "meaning":  "crack"
+                                       },
+                                       {
+                                           "word":  "burbuja",
+                                           "meaning":  "bubble"
+                                       },
+                                       {
+                                           "word":  "juego",
+                                           "meaning":  "game"
+                                       },
+                                       {
+                                           "word":  "olvidar",
+                                           "meaning":  "forget"
                                        }
                                    ]
                      }

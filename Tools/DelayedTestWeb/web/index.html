@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>One-week delayed vocabulary test</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">Memory Palace Study</p>
+        <h1>One-week delayed vocabulary test</h1>
+      </div>
+      <div id="phaseBadge" class="phase-badge" hidden>Round 1 of 2</div>
+    </header>
+
+    <section id="lookupView" class="card lookup-card" aria-labelledby="lookupTitle">
+      <p class="step-kicker">Participant access</p>
+      <h2 id="lookupTitle">Find your study session</h2>
+      <p class="lead">Enter the Participant ID or Session ID provided by the researcher.</p>
+      <form id="lookupForm" novalidate>
+        <label for="lookupId">Participant ID / Session ID</label>
+        <div class="lookup-row">
+          <input id="lookupId" name="lookupId" type="text" autocomplete="off" maxlength="100"
+                 placeholder="e.g. P001 or 20260830_173726" required>
+          <button id="lookupButton" class="primary-button" type="submit">Continue</button>
+        </div>
+      </form>
+      <p id="lookupError" class="message error-message" role="alert" hidden></p>
+      <p class="privacy-note">Your responses are stored with the matched study Session ID.</p>
+    </section>
+
+    <section id="sessionView" class="card" aria-labelledby="sessionTitle" hidden>
+      <p class="step-kicker">Session found</p>
+      <h2 id="sessionTitle">Please confirm your session</h2>
+      <dl class="session-grid">
+        <div><dt>Participant ID</dt><dd id="participantValue"></dd></div>
+        <div><dt>Session ID</dt><dd id="sessionValue"></dd></div>
+        <div><dt>Study date</dt><dd id="studyDateValue"></dd></div>
+        <div><dt>Words</dt><dd id="wordCountValue"></dd></div>
+      </dl>
+      <p id="scheduleMessage" class="schedule-message"></p>
+      <p id="matchMessage" class="message info-message" hidden></p>
+      <div class="button-row">
+        <button id="backToLookupButton" class="secondary-button" type="button">Use a different ID</button>
+        <button id="beginManualButton" class="primary-button" type="button">Begin Round 1</button>
+      </div>
+    </section>
+
+    <section id="testView" class="card test-card" aria-labelledby="roundTitle" hidden>
+      <div class="progress-copy">
+        <div>
+          <p id="roundKicker" class="step-kicker">Round 1 of 2</p>
+          <h2 id="roundTitle">Type the English meaning</h2>
+        </div>
+        <p id="questionCounter" class="question-counter">1 / 8</p>
+      </div>
+      <div class="progress-track" aria-hidden="true"><div id="progressBar" class="progress-bar"></div></div>
+      <p id="roundInstruction" class="round-instruction"></p>
+
+      <div class="question-panel">
+        <p class="prompt-label">Spanish word</p>
+        <p id="spanishWord" class="spanish-word" lang="es"></p>
+
+        <form id="manualForm" novalidate>
+          <label for="manualAnswer">English meaning</label>
+          <input id="manualAnswer" type="text" maxlength="300" autocomplete="off"
+                 placeholder="Type the English word">
+          <div class="button-row test-actions">
+            <button id="manualUnknownButton" class="secondary-button" type="button">I don't know</button>
+            <button class="primary-button" type="submit">Save and continue</button>
+          </div>
+        </form>
+
+        <div id="choiceForm" hidden>
+          <fieldset>
+            <legend>Choose the English meaning</legend>
+            <div id="choiceOptions" class="choice-options"></div>
+          </fieldset>
+          <div class="button-row test-actions">
+            <button id="choiceNextButton" class="primary-button" type="button" disabled>Save and continue</button>
+          </div>
+        </div>
+      </div>
+      <p id="testError" class="message error-message" role="alert" hidden></p>
+    </section>
+
+    <section id="transitionView" class="card transition-card" aria-labelledby="transitionTitle" hidden>
+      <div class="round-complete-icon" aria-hidden="true">1</div>
+      <p class="step-kicker">Round 1 complete</p>
+      <h2 id="transitionTitle">Now complete the multiple-choice round</h2>
+      <p class="lead">You will see the same Spanish words again with three English choices. Round 1 answers are not shown.</p>
+      <button id="beginChoiceButton" class="primary-button" type="button">Begin Round 2</button>
+    </section>
+
+    <section id="resultView" class="card result-card" aria-labelledby="resultTitle" hidden>
+      <div class="success-mark" aria-hidden="true">✓</div>
+      <p class="step-kicker">Test complete</p>
+      <h2 id="resultTitle">Thank you</h2>
+      <p class="lead">Both delayed-test rounds have been saved. You may now close this page.</p>
+      <div class="score-grid">
+        <div><span>Typed response</span><strong id="manualScoreValue">0 / 8</strong></div>
+        <div><span>Three-choice</span><strong id="choiceScoreValue">0 / 8</strong></div>
+      </div>
+      <p class="result-reference">Result reference: <code id="resultIdValue"></code></p>
+    </section>
+
+    <footer>NAIST Memory Palace study · One-week follow-up</footer>
+  </main>
+  <script src="app.js" defer></script>
+</body>
+</html>

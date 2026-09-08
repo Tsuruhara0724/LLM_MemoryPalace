@@ -1,937 +1,207 @@
-# 手工重建教程 - LLM Memory Palace
+# 手工重建指南 - LLM Memory Palace
 
-最后核对日期：2026-06-12
+最后核对：2026-07-08
 
-用途：
-- 让项目所有者不借助 AI，也能理解并手工重新搭建当前项目。
-- 本文按“从零到可运行”的顺序写。
-- 如果以后架构或运行方式变化，必须同步更新。
+## 1. 当前目标
 
-## 1. 你最终要做出的东西
+重建一个 Unity Desktop/VR 西班牙语词汇记忆宫殿实验：
 
-目标是一个 Unity 记忆宫殿实验 app。
+1. 研究者选择房间和词表。
+2. `LLM Story` 条件使用 Ollama 或 Gemini 为全部目标词生成一个连续英文故事，并把固定本地词图分配到家具锚点。
+3. `Self-Chosen Pictures` 条件不生成故事；参与者进入分配房间，自行为每个家具选择一个单词和对应本地图片。
+4. 参与者进入房间，自主学习 20 分钟。
+5. 完成最终确定的测验、问卷和 JSON/CSV 导出。
 
-最终功能：
-1. 输入 participant ID。
-2. 选择 `LLM Generated` 或 `Self Generated`。
-3. 选择或随机抽取西语词汇。
-4. 使用或编辑一个带家具 anchor 的房间。
-5. LLM 条件下，用 Ollama 生成 visual cue、association image cue、image prompt、最终 Mnemonic，以及 hook 判定元数据。
-6. Self 条件下，让用户手动分开写 image cue 和最终 Mnemonic。没有好 hook 时，Mnemonic 直接写 story-only。
-7. 进入 study room，点击每个 anchor 的 mnemonic object 查看信息。
-8. 用 Stable Diffusion 生成 image cue，每个显示结果都由 4 张原始候选经 Ollama Vision 自检打分后选出。
-9. 第一个最优结果 A 完成后立刻展示，同时后台继续准备 B/C/D 三个最优结果，用来隐藏等待时间。
-10. 捕获 memory snapshot。
-11. 完成 mid/final image-choice test。
-12. 填问卷。
-13. 导出 JSON/CSV。
+当前实验有 `LLM Story` 与 `Self-Chosen Pictures` 两个条件。后者只让参与者选择“家具—单词—固定本地图”的配对，不调用 Stable Diffusion 生成图片。
 
-## 2. 工具和环境
+## 2. 环境
 
-推荐：
 - Unity `6000.3.12f1`
-- Git
-- Ollama
-- Ollama text model: `qwen3:8b`
-- Ollama vision model: `gemma3:12b`
-- Stable Diffusion WebUI 或兼容 txt2img API
-
-默认 endpoint：
-
-```text
-Ollama: http://localhost:11434/api/generate
-Stable Diffusion: http://127.0.0.1:7860/sdapi/v1/txt2img
-```
-
-Unity package：
-- URP
+- Universal Render Pipeline
 - Input System
 - UGUI
-- XR Management
-- OpenXR
-- AI Navigation
-- Test Framework
+- XR Management + OpenXR
+- Ollama，默认 `http://localhost:11434/api/generate`
+- 默认故事模型 `gemma3:12b`
+- 在线 Gemini 默认模型 `gemini-2.5-flash`；Windows 桌面端依次读取用户级 `GEMINI_API_KEY`、`GOOGLE_API_KEY` 和 Setup 本地保存值
+- 故事先生成结构化因果计划，再生成正文；程序会强制检查“前一节点的结果”与“后一节点的需求”完全衔接，不合格时直接报错，不展示无逻辑的备用故事。
+- 学习阶段的单词图片在距离当前锚点约 `8 m` 时出现，并在约 `8.5 m` 范围内保留详情 UI。
 
-## 3. 新建项目和目录
-
-新建 Unity project：
-
-```text
-MemPalaceLLM
-```
-
-建立目录：
+## 3. Unity 工程结构
 
 ```text
-Assets/Scripts/Data
-Assets/Scripts/Runtime
-Assets/Scripts/Services
-Assets/Resources
-Docs
-ExperimentExports
-GeneratedRooms
-VRSessionPackages
-```
-
-不需要手动在 scene 里挂 controller。项目使用 runtime bootstrap 自动创建 controller。
-
-## 4. 第一步：写数据模型
-
-创建：
-
-```text
+Assets/Scenes/SampleScene.unity
 Assets/Scripts/Data/ExperimentModels.cs
-```
-
-定义 stage：
-
-```text
-Setup
-RoomBuilder
-Generation
-SelfAuthoring
-Study
-Recall
-Questionnaire
-Result
-```
-
-定义 condition：
-
-```text
-LlmGenerated
-SelfGenerated
-```
-
-定义 provider：
-
-```text
-OllamaLocal
-```
-
-定义词表数据：
-- `DemoDataLibrary`
-  - `wordSets`
-  - `sampleMnemonics`
-- `WordSetDefinition`
-  - `setId`
-  - `displayName`
-  - `description`
-  - `words`
-- `WordEntry`
-  - `word`
-  - `meaning`
-
-定义 mnemonic 数据：
-- `SampleMnemonicItem`
-- `MnemonicItemData`
-
-这两个类至少包含：
-
-```text
-word
-meaning
-anchorId
-anchorLabel
-visualCue
-associationPrompt
-mnemonic
-mnemonicMode
-hookAccepted
-hookScore
-hookReason
-mnemonicHook
-storyCue
-imagePrompt
-imagePromptCandidates
-selectedImagePrompt
-selectedImageCandidateIndex
-imageSelectionReason
-imageCuePath
-objectShape
-colorHex
-visualObjects
-```
-
-定义 `VisualObjectSpec`：
-
-```text
-label
-primitiveShape
-colorHex
-localPosition
-scale
-effect
-```
-
-定义实验响应和导出：
-- `RecallResponse`
-- `SnapshotTestResponse`
-- `QuestionnaireResponse`
-- `InteractionLog`
-- `ExportWordEntry`
-- `ExperimentSessionExport`
-
-原则：
-- 只要某个字段需要出现在最终实验数据里，就要进入 `ExportWordEntry` 或 `ExperimentSessionExport`。
-
-## 5. 第二步：写房间模型
-
-创建：
-
-```text
 Assets/Scripts/Data/RoomSpecModels.cs
-```
-
-定义：
-- `CameraPoseDefinition`
-  - `position`
-  - `eulerAngles`
-- `RoomPrimitiveDefinition`
-  - `id`
-  - `label`
-  - `primitiveShape`
-  - `colorHex`
-  - `position`
-  - `scale`
-  - `rotationEuler`
-  - `showLabel`
-  - `labelHeight`
-- `AnchorDefinition`
-  - `id`
-  - `label`
-  - `primitiveShape`
-  - `colorHex`
-  - `position`
-  - `scale`
-  - `rotationEuler`
-  - `mnemonicOffset`
-  - `labelHeight`
-  - `modelParts`
-- `RoomSpecDefinition`
-  - `roomId`
-  - `roomName`
-  - `generatedBy`
-  - `sourcePrompt`
-  - `summary`
-  - `overviewCamera`
-  - `studyCamera`
-  - `environmentPrimitives`
-  - `anchors`
-
-再写 `RoomSpecCatalog`：
-- `CurrentRoom`
-- `Anchors`
-- `AnchorCount`
-- `RoomName`
-- `SetCurrentRoom`
-- `ReloadResourceRoom`
-- `GetAnchor`
-- `GetAssignmentAnchor`
-- `EnsureDefaults`
-- `CreateFallbackRoom`
-
-加载规则：
-- 优先从 `Resources.Load<TextAsset>("MemPalaceRoomSpec")` 读取。
-- 如果没有资源或资源无效，就用 `CreateFallbackRoom`。
-
-## 6. 第三步：准备资源 JSON
-
-创建：
-
-```text
-Assets/Resources/MemPalaceDemoData.json
-```
-
-最小例子：
-
-```json
-{
-  "wordSets": [
-    {
-      "setId": "alpha",
-      "displayName": "Set Alpha",
-      "description": "Spanish noun set.",
-      "words": [
-        { "word": "mochila", "meaning": "backpack" }
-      ]
-    }
-  ],
-  "sampleMnemonics": []
-}
-```
-
-创建：
-
-```text
-Assets/Resources/MemPalaceRoomSpec.json
-```
-
-最小例子：
-
-```json
-{
-  "roomId": "room_001",
-  "roomName": "Memory Room",
-  "generatedBy": "manual",
-  "sourcePrompt": "",
-  "summary": "",
-  "overviewCamera": {
-    "position": { "x": 0, "y": 5, "z": -6 },
-    "eulerAngles": { "x": 55, "y": 0, "z": 0 }
-  },
-  "studyCamera": {
-    "position": { "x": 0, "y": 1.6, "z": -3 },
-    "eulerAngles": { "x": 0, "y": 0, "z": 0 }
-  },
-  "environmentPrimitives": [],
-  "anchors": []
-}
-```
-
-创建：
-
-```text
-Assets/Resources/MnemonicCueFrameRag.json
-```
-
-最小例子：
-
-```json
-{ "cases": [] }
-```
-
-注意：
-- Unity `JsonUtility` 对字段名很严格。
-- JSON 字段名必须和 C# public field 一样。
-- `List<T>` 在 JSON 里就是 array。
-
-## 7. 第四步：写 Bootstrap
-
-创建：
-
-```text
 Assets/Scripts/Runtime/MemoryPalaceBootstrap.cs
-```
-
-逻辑：
-1. 加 `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]`。
-2. 场景加载后检查是否已有 `MemoryPalaceExperimentController`。
-3. 如果没有，就新建 GameObject。
-4. `DontDestroyOnLoad`。
-5. `AddComponent<MemoryPalaceExperimentController>()`。
-
-这样只要打开一个空 scene，Play 后 app 就会启动。
-
-## 8. 第五步：写主 Controller
-
-创建：
-
-```text
 Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs
-```
-
-先写状态字段：
-
-```text
-stage
-condition
-participantId
-ollamaBaseUrl
-ollamaModel
-imageGenerationEndpoint
-imageCueValidationModel
-activeWordSet
-currentItems
-viewedWords
-memorizedWords
-memorySnapshots
-snapshotTestResponses
-questionnaire
-interactionLogs
-```
-
-关键常量：
-
-```text
-MidTestTriggerCount = 3
-RequiredImagePromptCandidateCount = 4
-BufferedImageCueResultCount = 4
-AdvancedPoolSetId = "advanced_pool"
-```
-
-先实现这些生命周期：
-- `Awake`
-- `Update`
-- `OnGUI`
-
-然后按 stage 写 UI：
-1. `DrawSetupView`
-2. `DrawRoomBuilderView`
-3. `DrawGenerationView`
-4. `DrawSelfAuthoringView`
-5. `DrawStudyView`
-6. `DrawRecallView`
-7. `DrawQuestionnaireView`
-8. `DrawResultView`
-
-建议顺序：
-- 先做 desktop IMGUI。
-- 等实验流程能跑通，再做 VR panel。
-
-## 9. 第六步：渲染房间和 anchor
-
-在 controller 里写一个函数，例如：
-
-```text
-BuildStudyRoom()
-```
-
-它应该：
-1. 清空旧 room root。
-2. 遍历 `RoomSpecCatalog.CurrentRoom.environmentPrimitives`。
-3. 用 Unity primitive 创建地板、墙、家具外壳。
-4. 遍历 `RoomSpecCatalog.CurrentRoom.anchors`。
-5. 创建 anchor 物体、collider、label。
-6. 为 anchor 加 `RoomAnchorInteractable`。
-7. 如果已有 `MnemonicItemData`，在 anchor 附近生成 mnemonic object。
-8. mnemonic object 上挂 `StudyInteractable`。
-
-`StudyInteractable` 至少要保存：
-
-```text
-MnemonicItemData Data
-```
-
-点击 mnemonic object 后：
-- 设置 `selectedStudyItem`。
-- 在 UI 或 VR panel 显示 association image cue、Mnemonic、图片 cue；不要显示 Visual Cue Scene，也不要单独显示 Imagination。
-
-## 10. 第七步：写 Mock Generator
-
-创建：
-
-```text
-Assets/Scripts/Services/MockMnemonicGenerator.cs
-```
-
-用途：
-- 没有 Ollama 时也能跑流程。
-- sample mnemonic 存在时用 sample。
-- 否则根据 word/meaning/anchor 生成简单 fallback。
-
-每个 fallback item 至少填：
-- `word`
-- `meaning`
-- `anchorId`
-- `anchorLabel`
-- `visualCue`
-- `associationPrompt`
-- `mnemonic`
-- `mnemonicMode`
-- `hookAccepted`
-- `hookScore`
-- `hookReason`
-- `mnemonicHook`
-- `storyCue` 只作为 legacy 兼容字段，不再生成或显示
-- `imagePrompt`
-- `imagePromptCandidates`
-- `visualObjects`
-
-## 11. 第八步：写 Ollama Service
-
-创建：
-
-```text
 Assets/Scripts/Services/OllamaLlmService.cs
+Assets/Scripts/Services/WordImageCatalog.cs
+Assets/Scripts/Services/ElevenLabsTextToSpeechService.cs
+Assets/Resources/MemPalaceDemoData.json
+Assets/Resources/MemPalaceRoomSpec.json
+Assets/Resources/ExampleRooms/example_room.json
+Assets/Resources/WordImages/
 ```
 
-请求类：
-- `OllamaGenerateRequest`
-- `OllamaGenerateResponse`
-- `OllamaRequestOptions`
+场景不需要手工挂主控制器。`MemoryPalaceBootstrap` 在场景加载后自动创建 `MemoryPalaceExperimentController`。
 
-生成结果类：
-- `GeneratedMnemonicEnvelope`
-- `GeneratedMnemonicItem`
+## 4. 数据模型
 
-公开方法：
-- `GenerateMnemonics`
-- `RegenerateMnemonicItem`
-- `GenerateRoomSpec`
-- `GenerateGuidedFurnitureLayout`
+核心模型位于 `ExperimentModels.cs`：
 
-核心是 `GenerateMnemonics`。
+- `WordEntry`: `word`, `meaning`
+- `WordImageItemData`: 单词、含义、锚点、故事顺序、故事片段、图片路径
+- `StorySessionData`: 完整故事、来源、模型、时间和有序词项
+- `SnapshotTestResponse`: 旧版图片识别测验记录
+- `QuestionnaireResponse`: NASA-TLX 风格和 1-7 主观评分
+- `ExperimentSessionExport`: 完整会话导出，包括自选配对耗时、是否进入全部照片展示及其展示时长
 
-它应按 chunk 处理 words：
-1. 取 3 个词一组。
-2. 调用 Call 1 生成 visual cue 和 image prompts。
-3. 对齐 word。
-4. 调用 Call 2 生成最终 Mnemonic 和 hook judge。
-5. 对齐 word。
-6. `MergeGeneratedMnemonicFields`。
-7. `BuildMnemonicItemData`。
-8. 如果 chunk JSON 失败或缺 item，不走本地降级；改为同一 Call 逐词重试，仍由 Ollama 生成。
+旧的 `MnemonicItemData` 和图片生成字段仍保留，以兼容大控制器中的历史代码；新功能不要继续依赖这些旧字段。
 
-## 12. 第九步：写 Prompt
+## 5. 词表
 
-Call 1 prompt 函数：
+编辑 `Assets/Resources/MemPalaceDemoData.json`：
+
+```json
+{
+  "setId": "example",
+  "displayName": "Example Set",
+  "description": "Eight Spanish nouns",
+  "words": [
+    { "word": "estrella", "meaning": "star" }
+  ]
+}
+```
+
+正式材料使用唯一的 `formal_32_pool` 候选池，最终得到 8 个不重复的学习词。
+
+## 6. 本地词图
+
+每个词保存一张：
 
 ```text
-BuildVisualCuePrompt
+Assets/Resources/WordImages/{lower-case Spanish word}.png
 ```
 
-Call 1 输入：
-- word
-- meaning
-- assigned anchor id/label
-- RAG guidance
+`WordImageCatalog` 使用 `Resources.Load<Texture2D>("WordImages/{word}")` 加载。缺图时使用 `_placeholder.png`。
 
-Call 1 输出：
+替换图片时：
 
-```text
-visual_cue_en
-association_prompt_en
-image_prompt_en
-image_prompt_candidates_en
-visual_objects
+1. 保持文件名与西语 `word` 完全一致。
+2. 使用清楚、单义、少干扰的图片。
+3. 不要在图片中直接写答案。
+4. 更新 `Assets/Resources/WordImages/ATTRIBUTION.md`。
+5. 在 Unity 中确认实际显示效果。
+
+## 7. 连续故事生成
+
+入口：`OllamaLlmService.GenerateStory`。
+
+当前使用两阶段本地生成：第一阶段只输出每个词的 `need -> action -> result` 因果计划并检查字段与词集完整性；第二阶段先修复计划中不符合物理常识的连接，再依据计划写成连续故事。两阶段都使用本地 Ollama，不消耗 ElevenLabs 额度。
+
+LLM 输出：
+
+```json
+{
+  "fullStory": "continuous English story",
+  "items": [
+    { "word": "estrella", "storyOrder": 1 }
+  ]
+}
 ```
 
-Call 1 规则：
-- 只生成画面，不生成 mnemonic 或 story。
-- meaning-first。
-- 不用西语读音、拼写、pun。
-- cue 和 anchor 必须物理交互。
-- 避免 target object display。
-- 避免 whole room overview。
-- 避免文字、标签、logo、箭头、危险内容。
-- `association_prompt_en` 是给图片模型看的单图布局指令，不是给人看的短摘要。
-- `association_prompt_en` 必须以 `Single close-up image,` 开头，并写清 anchor、cue object、相对大小、相对位置、接触/支撑关系、动作/状态。
-- image prompt 字段里不要写 candidate、version、best-of-four、selected image、story、mnemonic、learner、remember、Spanish word 等过程/学习词。
-- 生成 4 个 image prompt candidates。
-
-Call 2 prompt 函数：
-
-```text
-BuildMnemonicLinkPrompt
-BuildSingleMnemonicLinkPrompt
-```
-
-Call 2 输入：
-- word
-- meaning
-- anchor
-
-Call 2 输出：
-
-```text
-mnemonic_en
-mnemonic_mode
-hook_judge
-```
-
-Call 2 规则：
-- `mnemonic_en` 是唯一给学习者看的文本，不再单独生成 Story Cue。
-- 先生成候选 hook，再判断最好的 hook 是否真的比 story-only 更有记忆价值。
-- 只有 `hook_judge.accepted = true` 且 `hook_judge.score >= 7` 才用 `HOOK_PLUS_STORY`。
-- `HOOK_PLUS_STORY`：两小段。第一段解释高质量 hook，第二段讲 anchor-based story。
-- `STORY_ONLY`：一小段 anchor-based story。不要提“没有找到 hook”。
-- 拒绝只靠几个字母相似、弱谐音、循环解释、牵强 pun 的 hook。
-- `isla -> isl -> island` 应该拒绝，走 `STORY_ONLY`。
-- `carretera -> carry the road` 可以接受，走 `HOOK_PLUS_STORY`。
-- 不写 camera / composition / prompt 语言。
-- 不说 repeat the word，不用 `links to` / `is associated with` 这种泛泛解释。
-
-推荐 few-shot：
-
-```text
-word: isla
-meaning: island
-anchor_label: Door
-mnemonic_mode: STORY_ONLY
-mnemonic_en: "At the Door, it opens onto a tiny island instead of another room. Sand and seawater spill across the threshold, and isla becomes the island waiting behind it."
-```
-
-## 13. 第十步：写 RAG Helper
-
-创建：
-
-```text
-Assets/Scripts/Services/MnemonicCueFrameRag.cs
-```
-
-Pre-generated mnemonic catalog current note:
-- Add `Assets/Scripts/Services/PreGeneratedMnemonicCatalog.cs`.
-- Add `Assets/Resources/PreGeneratedMnemonics.json`.
-- Lookup key is normalized `word` plus normalized `anchorType`.
-- In `MemoryPalaceExperimentController`, LLM Generated first checks the catalog, optionally randomizes anchor assignment, optionally tries the selected live provider for missing combinations, then fills remaining gaps with local `STORY_ONLY` fallback items when `useLocalFallbackForMissingPreGenerated` is enabled.
-- `allowLiveLlmForMissingPreGenerated` only controls whether Gemini/Ollama is tried to improve missing catalog pairs before local fallback.
-- Export `anchorType` and `mnemonicSource` through `ExportWordEntry`.
-- Export session-level counts: `preGeneratedMnemonicCount`, `liveGeneratedMnemonicCount`, `localFallbackMnemonicCount`, and `usedLocalFallback`.
-- Add Setup QA actions: `Check Catalog Coverage` and `Validate Catalog`.
-- Coverage should list missing `word x anchorType` combinations before an experiment run.
-- Diagnostics should reject duplicate keys, empty required fields, invalid `mnemonicMode`, too few image prompt candidates, and inconsistent hook metadata.
-
-Gemini quality-provider note:
-- Add `GeminiOnline` to `LlmProviderMode`.
-- Keep Gemini API keys out of files and git. Read them from the runtime password field, `GEMINI_API_KEY`, or `GOOGLE_API_KEY`.
-- Use Gemini only for mnemonic text/cue packages unless room/image systems are intentionally refactored.
-- Add a small `Test Gemini Connection` setup action before full mnemonic generation.
-- Preserve `mnemonicSource` values such as `pre_generated`, `ollama_live`, `gemini_live`, and `self_authored`.
-
-Pre-study image cue generation note:
-- Add an `Image Cue Preparation` section to Step 2 before Study.
-- Add `Assets/Scripts/Services/PreGeneratedImageCueCatalog.cs`.
-- Add `Assets/Resources/PreGeneratedImageCueCatalog.json`.
-- Formal sessions should load A-D images from `PreGeneratedImageCueCatalog`; runtime Stable Diffusion should be a researcher-only fallback.
-- The formal image asset target is 12 words x 10 fixed anchor types x 4 reviewed images = 480 images.
-- Fixed formal anchor types: `door`, `bed`, `desk`, `chair`, `table`, `sofa`, `wardrobe`, `bookshelf`, `air_conditioner`, `television`.
-- When pre-generated image catalog mode is enabled, anchor assignment should be constrained to those fixed types.
-- `Load Missing Image Cues From Catalog` should call a batch routine such as `PrepareImageCuesBeforeStudyRoutine`, which loads each missing item from catalog first.
-- `Reload All Image Cues From Catalog` should clear existing image cue pools and reload them before Study.
-- `EnterStudyRoom` should refuse to proceed until every current item has a prepared `mnemonicImageCues` texture and at least one `imageCueCandidateResults` entry.
-- In Self-authoring, editing association/mnemonic text or changing anchors should clear the affected word's generated image cue so stale images cannot enter Study.
-- Add an `Image Catalog Builder` setup section.
-- Builder buttons: `Generate Next Missing Pair`, `Generate Missing Matrix`, and `Cancel Builder`.
-- Builder output PNGs should be saved under `Assets/Resources/PreGeneratedImageCues/<word>/<anchorType>/`.
-- Builder should update `Assets/Resources/PreGeneratedImageCueCatalog.json` after each completed pair.
-
-它不是向量 RAG，只是轻量 keyword retrieval。
-
-需要实现：
-- 读取 `Resources/MnemonicCueFrameRag.json`。
-- 根据 word/meaning/anchor keywords 给 case 打分。
-- 把 top cases 加进 prompt。
-- 永远加一个 failure checklist。
-- 根据 anchor label 给 affordance 提示：
-  - door handle
-  - shelf surface
-  - chair seat
-  - air conditioner vent
-  - cabinet top
-  - 等。
-
-## 14. 第十一步：图片生成、自检选图和 latency hiding
-
-在 controller 中实现：
-
-```text
-GenerateMnemonicImageCueRoutine
-```
-
-核心概念：
-- `RequiredImagePromptCandidateCount = 4`：一次 best-of-4 里生成 4 张原始图。
-- `BufferedImageCueResultCount = 4`：为用户准备 A/B/C/D 四个可切换结果。
-- A、B、C、D 每一个都不是原始图，而是各自从 4 张原始图里经 vision 打分选出的最优图。
-- 这叫 asynchronous speculative pre-generation / latency hiding：先显示 A，再后台准备 B/C/D。
-
-步骤：
-1. `GenerateMnemonicImageCueRoutine` 清空旧图片池。
-2. 外层循环 4 次，准备 A/B/C/D。
-3. 每次外层循环调用 `GenerateBestImageCueVariantRoutine`。
-4. `GenerateBestImageCueVariantRoutine` 调 `BuildMnemonicImagePromptCandidates`。
-   - 从 `imagePromptCandidates` 开始。
-   - 不够时用 `imagePrompt`、`associationPrompt`、`visualCue` 补。
-   - 把每个 raw prompt 重包成 `Single close-up image` 单图布局。
-   - 不把 candidate / best-of-4 / image set 等过程词发给 Stable Diffusion。
-5. 对 4 个原始 candidate 分别调 Stable Diffusion txt2img。
-6. 把 base64 image 转成 `Texture2D`。
-7. 调 `ValidateImageCueSubjectsRoutine`。
-8. vision prompt 用 `BuildImageCueValidationPrompt`。
-9. 解析 vision JSON。
-10. 用 `ScoreImageCueValidation` 打分。
-11. 保存 pass 且分数最高的原始图作为当前显示结果。
-12. A 完成时立即显示；B/C/D 继续在后台生成和评分。
-13. Desktop UI 用左右按钮切换已经准备好的 A/B/C/D。
-14. 再点 Regenerate 时，不是切到下一张原始图，而是重新开始一整轮新的 A/B/C/D。
-
-Stable Diffusion request 建议：
-
-```text
-width = 512
-height = 512
-steps = 28
-cfg_scale = 8.5
-sampler_name = "DPM++ 2M"
-batch_size = 1
-n_iter = 1
-tiling = false
-do_not_save_grid = true
-```
-
-Vision validation JSON 需要：
-
-```text
-pass
-anchor_visible
-cue_visible
-focus_ok
-meaning_specific
-foreground_clear
-anchor_interaction
-simple_scene
-familiar_objects
-novel_possible_relation
-no_room_overview
-single_continuous_image
-no_split_screen_or_collage
-caption
-reason
-missing_or_wrong
-```
-
-选择规则：
-- pass 候选胜过 non-pass。
-- pass 状态相同，score 高的胜出。
-- 如果 vision 中途失败，只能保存 best available，并记录原因。
-
-需要的数据结构：
-- `ImageCueCandidateResult`
-- `imageCueCandidateResults`
-- `displayedImageCueCandidateIndexes`
-
-需要的辅助函数：
-- `GenerateBestImageCueVariantRoutine`
-- `TryCycleDisplayedImageCueCandidate`
-- `TryDisplayImageCueCandidate`
-- `BuildImageCueResultLabel`
-- `BuildImageCueCandidateDisplaySummary`
-- `ClearImageCueCandidatePool`
-
-截图规则：
-- `CaptureMemorySnapshotRoutine` 不需要额外改。
-- 它读取当前显示的 `mnemonicImageCues[item.word]`，所以会截下用户当前切到的 A/B/C/D。
-
-## 15. 第十二步：Study 和 Snapshot Test
-
-Study 阶段要做：
-- 进入房间。
-- 点击每个 mnemonic object。
-- 显示 cue 信息。
-- 可生成 image cue。第一个最优结果先显示，后续最优结果后台准备。
-- Desktop UI 可左右切换已准备好的 A/B/C/D。
-- 可捕获 memory snapshot。
-
-需要函数：
-- `CaptureMemorySnapshotRoutine`
-- `CaptureCurrentCameraSnapshot`
-- `BeginSnapshotTest`
-- `DrawRecallView`
-
-mid test：
-- 至少 3 个 snapshot 后解锁。
-
-final test：
-- mid test 完成。
-- 所有 item 都有 snapshot。
-
-每题：
-- 1 个正确 snapshot。
-- 2 个 distractor。
-- 记录到 `SnapshotTestResponse`。
-
-## 16. 第十三步：问卷和导出
-
-问卷字段在 `QuestionnaireResponse`。
-
-实现：
-- `DrawQuestionnaireView`
-- `FinalizeAndExport`
-- `BuildExportPayload`
-- `WriteExportFiles`
-- `BuildRecallCsv`
-
-导出位置：
-
-```text
-ExperimentExports/session_<participant>_<timestamp>.json
-ExperimentExports/session_<participant>_<timestamp>.csv
-```
-
-JSON 需要包含：
-- participant/session
-- word set
-- room info
-- condition
-- LLM model
-- study duration
-- viewed/memorized count
-- mid/final test score
-- questionnaire
-- 每个 item 的 cue、association image cue、mnemonic link、story cue、selected image info
-- interaction logs
-
-CSV 可以简化，但至少要能用于统计。
-
-## 17. 第十四步：Room Builder
-
-最小可用版本：
-- 显示当前 room。
-- 添加 anchor。
-- 移动、缩放、旋转、删除 anchor。
-- 保存到 `MemPalaceRoomSpec.json`。
-
-当前项目更复杂，还包含：
-- guided floor plan
-- furniture placement suggestion
-- wall/floor primitive editing
-- shell repair
-- overlap resolution
-- top-down preview
-
-建议最后再重建复杂 builder，不要一开始就做。
-
-## 18. 第十五步：VR 支持
-
-可以先完成 desktop 版本，再做 VR。
-
-VR 需要：
-- runtime camera/head pose
-- pointer ray
-- world-space study panel
-- button interactables
-- image preview
-- selected item display
-
-按钮：
-- Generate Image Cue
-- Capture Memory Snapshot
-- Start Mid Test
-- Start Final Test
-
-Desktop 控制也要保留：
-- right mouse drag 看方向
-- WASD 移动
-- Q/E 上下
-- Shift 加速
-- left click 选择 mnemonic object
-
-## 19. 推荐重建顺序
-
-按这个顺序最稳：
-
-1. 数据模型。
-2. 房间模型和 fallback room。
-3. Bootstrap。
-4. Controller 的 Setup/Study 最小 UI。
-5. 读取 `MemPalaceDemoData.json`。
-6. 渲染 room primitives 和 anchors。
-7. Mock mnemonic generation。
-8. Study item 选择和 label。
-9. Snapshot capture。
-10. Recall/snapshot test。
-11. Export。
-12. Ollama mnemonic generation。
-13. Call 1 / Call 2 prompt 分离：图像 cue 和最终 Mnemonic 分开。
-14. Stable Diffusion image generation。
-15. Ollama Vision validation 和 best-of-4 selection。
-16. Latency hiding：A 先显示，B/C/D 后台准备，UI 可切换。
-17. Room builder。
-18. VR panel/pointer。
-19. Prompt polish、RAG、guardrails。
-
-不要从 VR 或完整 room builder 开始。它们很大，会掩盖核心实验流程。
-
-## 20. 检查清单
-
-每次重建或大改后检查：
-- Unity 没有 compile error。
-- Play 后自动创建 `MemoryPalaceExperiment`。
-- Setup UI 出现。
-- 词表能加载。
-- Room JSON 缺失时 fallback room 能出现。
-- LLM Generated 能调用 Ollama 并解析 JSON。
-- Self Generated 不依赖 Ollama 也能跑。
-- Study room 显示 anchor 和 mnemonic object。
-- 点击 item 能看到 association image cue、Mnemonic；不要显示 Visual Cue Scene 或 Imagination。
-- 图片生成能产生 A/B/C/D 四个显示结果。
-- 每个显示结果都来自一轮 4 张原始图的 vision best-of-4 选择。
-- A 完成后能先显示，B/C/D 能继续在后台准备。
-- 左右按钮能切换当前已经准备好的显示结果。
-- vision model 能选择候选并记录 reason。
-- snapshot capture 正常。
-- mid/final test 正常记录。
-- questionnaire 能完成。
-- JSON/CSV 能写入。
-
-## 21. 常见错误
-
-Ollama JSON 解析失败：
-- request 设置 `format = "json"`。
-- prompt schema 要简单。
-- 加 JSON repair pass。
-- 输出字段名必须和 C# 一致。
-
-字段互相复制：
-- 强化 Call 1 / Call 2 分离。
-- 不让 Mnemonic 进入 image prompt。
-- 不要为了填 Mnemonic 强行生成弱 hook；弱 hook 走 `STORY_ONLY`。
-- 必要时引入内部 `cue_blueprint`。
-
-图片只出现房间或只出现 cue：
-- prompt 明确 anchor 和 cue 都必须可见。
-- vision prompt 严格 reject。
-- 生成多个 foreground candidate。
-
-旧日语字段误留：
-- 当前项目是英语-only。
-- 不要再加入 `meaningJa`、`visualCueJa`、`associationPromptJa`、`mnemonicJa`、`storyCueJa`、`imagePromptJa`。
-- 资源 JSON、模型、prompt schema、UI、导出字段都保持英文。
-
-Git 误提交 build：
-- 先看 `git status -sb`。
-- 只 stage 明确需要的文件。
-- 不提交 APK、build backup、Burst debug folder。
-
-## 22. 修改位置速查
-
-改 prompt：
-- `Assets/Scripts/Services/OllamaLlmService.cs`
-- `BuildVisualCuePrompt`
-- `BuildMnemonicLinkPrompt`
-- `BuildSingleMnemonicLinkPrompt`
-
-改数据字段：
-- `Assets/Scripts/Data/ExperimentModels.cs`
-- `OllamaLlmService.GeneratedMnemonicItem`
-- `BuildMnemonicItemData`
-- controller UI
-- export mapping
-
-改图片自检标准：
-- `BuildImageCueValidationPrompt`
-- `ImageCueValidationResult`
-- `ScoreImageCueValidation`
-
-改 latency hiding / A-B-C-D 切换：
-- `GenerateMnemonicImageCueRoutine`
-- `GenerateBestImageCueVariantRoutine`
-- `ImageCueCandidateResult`
-- `imageCueCandidateResults`
-- `displayedImageCueCandidateIndexes`
-- `TryCycleDisplayedImageCueCandidate`
-- `TryDisplayImageCueCandidate`
-
-改词表：
-- `Assets/Resources/MemPalaceDemoData.json`
-
-改 RAG：
-- `Assets/Resources/MnemonicCueFrameRag.json`
-- `Assets/Scripts/Services/MnemonicCueFrameRag.cs`
-
-改模型默认值：
-- `MemoryPalaceExperimentController.cs`
-- `ollamaBaseUrl`
-- `ollamaModel`
-- `imageGenerationEndpoint`
-- `imageCueValidationModel`
-
-改导出：
-- `ExperimentModels.cs`
-- `BuildExportPayload`
-- `BuildRecallCsv`
-
-改房间格式：
-- `RoomSpecModels.cs`
-- `MemPalaceRoomSpec.json`
-- room builder 保存/加载逻辑。
+故事要求：
+
+- 一个明确问题或目标、逐步升级的冲突、转折和结尾；
+- 目标物必须参与行动并产生后果，而不是只承担环境描写；
+- 每个目标词都必须同时具备“前因、具体动作、可观察后果”；前一事件为它创造使用理由，它的动作再推动下一事件；
+- 禁止仅用“于是、因此、随后”等连接词把无关动作伪装成因果关系；删除任一目标词事件后，故事因果链应当无法保持完整；
+- 故事中段以后不能放弃最初问题，转入与主线无关的游行、舞蹈、庆典或奇观；
+- 至少 80% 的句子必须表现人物主动行动、决定、反应或纠错；目标词不能仅以远景、光影、回声、等待、悬挂、倒影等状态出现；
+- 通常每句只引入一个新目标词，并在同一句中交代使用理由、人物对它采取的动作以及立即产生的结果；
+- 环境气氛描写最多作为一个开场句，大部分句子应包含行动、决定、反应或结果；
+- 整体语气应明亮、日常、温暖，可以有喜剧性意外，但避免恐怖、梦境逻辑、诡异拟人和现实扭曲；
+- 不是购物清单、房间导览或孤立物体画面；
+- 每个目标词以 `English meaning (Spanish word)` 出现；
+- 不出现家具或锚点名称；
+- 每个目标词只建立一个路线项；
+- 允许模型选择最自然的故事顺序。
+
+解析器会修复部分缺词和坏 JSON，并能从完整故事恢复词序。任一 Ollama 阶段失败或最终故事未通过质量检查时，程序会停止并显示错误，不再把旧的本地 fallback 当作可用故事展示。
+
+## 8. 房间与锚点
+
+- 默认房间：`MemPalaceRoomSpec.json`
+- 示例房间：`ExampleRooms/example_room.json`
+- 也可以通过 Grid Room Builder 创建房间。
+- 房间必须有足够多、容易区分且可到达的家具锚点。
+- 家具只定义空间路线，不参与故事文本生成。
+
+## 9. 学习阶段
+
+当前设计要求参与者进入房间后自主学习 20 分钟。
+
+学习 UI 显示：
+
+- 完整连续故事；
+- 当前词的西语、英语含义、图片、故事片段和锚点；
+- 已浏览数量、截图数量和经过时间。
+
+房间中的单词图片默认全部隐藏。参与者进入当前语音路线锚点约 8 米范围时，只显示该锚点的图片；详情 UI 在约 8.5 米内保留。看向图片后自动视为已查看。图片会向观察者方向偏移并以前景 UI 方式渲染，避免与墙面或家具穿模。未启用语音路线时，则只显示参与者附近最近的一个图片。
+
+目前程序只显示经过时间，没有强制锁定 20 分钟。实现硬计时之前，研究者需要外部计时并记录真实开始/结束时间。
+
+语音路线由 `ElevenLabsTextToSpeechService` 和主控制器中的 `VoiceRoutePhase` 状态机完成：
+
+1. 播放下一个家具锚点和目标词图片的引导语。
+2. 等待参与者靠近并实际查看正确图片。
+3. 播放该词对应的 `StorySessionData.orderedItems[].storySegment`。
+4. 收到播放完成回调后进入下一个锚点。
+
+Windows 编辑器、桌面版和 Android/Quest 优先调用 ElevenLabs `eleven_multilingual_v2`。Setup 中输入 API Key 和 Voice ID；桌面环境也可用 `ELEVENLABS_API_KEY`、`ELEVENLABS_VOICE_ID`。ElevenLabs 返回鉴权或额度错误时，程序自动改用已有 Gemini Key 调用免费的 `gemini-2.5-flash-preview-tts`，并把 24 kHz PCM 转成 Unity `AudioClip`；字幕、顺序推进和重播共用原状态机。API Key 不应写入项目或提交到版本库。
+
+VR HMD 模式会在 world-space 学习面板显示当前正在播放的引导语或故事片段字幕。第一次 Study 必须按原顺序听完，不能跳转；全部小节完成一次后，桌面和 VR 才显示按单词/故事小节分段的整条路线进度条。点击任一段只会从该段锚点引导语开头播放，不能跳到段内任意时间；`Replay Voice`、`Restart Route` 和自动推进会同步更新整条路线位置。
+
+## 10. 测验、问卷和导出
+
+旧原型仍提供 mid/final 三选一截图识别测验。这部分是否作为 20 分钟学习后的正式测验仍需确认。
+
+两个条件在 Study 结束、进入 final test 之前都提供可选的“查看全部照片”。它不是新页面，而是在原房间中同时显示每个已分配家具上的单词+图片 UI；不倒计时，参与者自行选择进入、结束或跳过。选择与实际展示时长会写入 JSON 导出。
+
+问卷包括：
+
+- Mental Demand, Physical Demand, Temporal Demand
+- Performance, Effort, Frustration
+- Vividness, Helpfulness, Trust
+- 自由备注
+
+导出目录：`ExperimentExports/`。必须同时检查 JSON 和 CSV。
+
+## 11. 最小验证顺序
+
+1. Unity Console 无 C# 错误。
+2. 所有目标词都加载真实图片，不使用 `_placeholder.png`。
+3. Ollama 能返回合法连续故事。
+4. 故事包含全部目标词且不泄漏家具名称。
+5. 所有图片锚点都能在房间中找到和点击。
+6. 完成一次 20 分钟计时测试。
+7. 完成预定测验和问卷。
+8. 成功导出并人工核对 JSON/CSV。
+9. 若使用 VR，在目标头显上重复全流程。
+10. 验证语音引导、到达判定、小节播放、自动下一站、重播和路线重启。
+
+## 12. 语音资源
+
+- 32 个正式西班牙语单词使用 Azure `es-ES-ElviraNeural` 提前生成，不在实验运行时合成。
+- 设置当前 PowerShell 会话的 `AZURE_SPEECH_KEY` 和 `AZURE_SPEECH_REGION`，或运行脚本后在安全提示中输入；密钥不得写入项目。运行 `Tools/LocalTtsServer/Generate-FormalWordAudio.cmd` 会覆盖并验证全部正式读音。
+- 固定读音保存为 `Assets/Resources/WordAudio/{Spanish word}.wav`，格式为 24 kHz、16-bit、mono PCM。Unity 缺少对应文件时直接报错，不会临时调用其他 TTS。
+- 单词图片页面出现后先自动播放固定单词读音两次，再播放故事句；桌面和 VR 的单词旁均提供按钮来重播同一资源。
+- 英文引导句和故事句通过电脑端 Azure Speech 代理合成：先运行 `Tools/LocalTtsServer/Start-Azure.cmd`，再让 Unity 连接 `http://127.0.0.1:8880/v1`。代理会把故事中的正式西班牙语词标记为 `es-ES` 发音，而 Azure 密钥只保留在电脑端终端。Quest 独立运行时需要电脑局域网地址以访问该代理。
+
+## 13. 当前技术债
+
+- 主控制器过大，混合 UI、房间、学习、测验、VR 和导出。
+- 旧 mnemonic、Gemini、Stable Diffusion 和 A-D 图片候选代码尚未清除。
+- 没有自动化测试保护故事解析和导出格式。
+- 20 分钟学习窗口尚未由程序强制。

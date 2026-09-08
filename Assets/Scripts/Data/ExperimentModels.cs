@@ -8,7 +8,10 @@ namespace MemPalaceLLM
     {
         Setup,
         RoomBuilder,
+        RoomFamiliarization,
+        PreTest,
         Generation,
+        StoryAuthoring,
         SelfAuthoring,
         Study,
         Recall,
@@ -18,14 +21,16 @@ namespace MemPalaceLLM
 
     public enum ExperimentCondition
     {
-        LlmGenerated,
-        SelfGenerated
+        SelfRoomSelfStory = 0,
+        SelfRoomLlmStory = 1,
+        DefaultRoomSelfStory = 2,
+        DefaultRoomLlmStory = 3
     }
 
     public enum LlmProviderMode
     {
-        OllamaLocal,
-        GeminiOnline
+        ClaudeHaiku,
+        GptLuna
     }
 
     [Serializable]
@@ -144,6 +149,32 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class WordImageItemData
+    {
+        public string word;
+        public string meaning;
+        public string anchorId;
+        public string anchorLabel;
+        public string anchorType;
+        public int storyOrder;
+        public string storySegment;
+        public string imageResourcePath;
+        public string imageFilePath;
+        public bool imageLoaded;
+    }
+
+    [Serializable]
+    public class StorySessionData
+    {
+        public string fullStory;
+        public string storySource;
+        public string storyProvider;
+        public string storyModel;
+        public string generatedAtUtc;
+        public List<WordImageItemData> orderedItems = new();
+    }
+
+    [Serializable]
     public class RecallResponse
     {
         public string word;
@@ -162,7 +193,10 @@ namespace MemPalaceLLM
         public string targetWord;
         public string targetAnchorId;
         public List<string> optionWords = new();
+        public List<string> optionLabels = new();
         public string chosenWord;
+        public string chosenLabel;
+        public float responseTimeSeconds;
         public bool isCorrect;
     }
 
@@ -196,8 +230,11 @@ namespace MemPalaceLLM
     {
         public string word;
         public string meaning;
+        public int storyOrder;
         public string anchorId;
+        public string anchorLabel;
         public string anchorType;
+        public bool furnitureAssigned;
         public string mnemonicSource;
         public string cue;
         public string mainCueObject;
@@ -216,6 +253,7 @@ namespace MemPalaceLLM
         public int selectedImageCandidateIndex = -1;
         public string imageSelectionReason;
         public string imageCuePath;
+        public string sceneSnapshotPath;
         public List<ImageCueResultExport> imageCueResults = new();
         public List<VisualObjectSpec> visualObjects = new();
     }
@@ -278,6 +316,39 @@ namespace MemPalaceLLM
     }
 
     [Serializable]
+    public class VRSessionPackage
+    {
+        public string packageVersion;
+        public string exportedAtUtc;
+        public string sessionId;
+        public string participantId;
+        public string sourcePcHost;
+        public int condition;
+        public string wordSetId;
+        public string wordSetName;
+        public float roomPhaseDurationSeconds;
+        public float preTestDurationSeconds;
+        public float storyAuthoringDurationSeconds;
+        public float furnitureAssignmentDurationSeconds;
+        public int preTestScreenedWordCount;
+        public int preTestRandomSeed;
+        public bool hasRuntimeSettings;
+        public bool enableVrStudyMode;
+        public bool enableVoiceGuidance;
+        public bool useLocalUnlimitedTts;
+        public string localTtsEndpoint;
+        public string localTtsModel;
+        public string localTtsVoice;
+        public float localTtsSpeed;
+        public float localTtsExaggeration;
+        public float localTtsCfgWeight;
+        public float localTtsTemperature;
+        public RoomSpecDefinition roomSpec;
+        public StorySessionData storySession;
+        public List<MnemonicItemData> mnemonicItems = new();
+    }
+
+    [Serializable]
     public class ExperimentSessionExport
     {
         public string participantId;
@@ -292,12 +363,42 @@ namespace MemPalaceLLM
         public string llmProvider;
         public string llmModel;
         public string llmStatus;
+        public bool usedLiveLlmForStory;
+        public bool storyGeneratedInBackground;
+        public bool llmStoryGenerationInProgressAtExport;
+        public bool llmStoryGenerationCancelled;
+        public int llmStoryGenerationAttemptCount;
+        public string llmGenerationError;
         public int preGeneratedMnemonicCount;
         public int liveGeneratedMnemonicCount;
         public int localFallbackMnemonicCount;
         public bool usedLocalFallback;
         public ExperimentCondition condition;
+        public string conditionLabel;
+        public string roomSource;
+        public string storySource;
+        public string storyWorkflow;
+        public bool storyNarrationRequired;
+        public bool storyContentReady;
+        public string storyReadinessStatus;
+        public bool furnitureWordAssignmentRequired;
+        public string furnitureWordAssignmentStatus;
+        public int furnitureWordAssignmentCount;
+        public int furnitureWordAssignmentTotal;
+        public bool hmdEntryReady;
+        public string hmdEntryReadinessStatus;
+        public string hmdEntryReadinessMessage;
         public float studyDurationSeconds;
+        public float roomPhaseDurationSeconds;
+        public float preTestDurationSeconds;
+        public float immediatePostTestDurationSeconds;
+        public float questionnaireDurationSeconds;
+        public float storyAuthoringDurationSeconds;
+        public float selfChoiceDurationSeconds;
+        public int preTestScreenedWordCount;
+        public int preTestRandomSeed;
+        public bool allPhotoShowcaseEntered;
+        public float allPhotoShowcaseDurationSeconds;
         public int viewedCount;
         public int memorizedCount;
         public int totalItems;
@@ -305,9 +406,20 @@ namespace MemPalaceLLM
         public int correctWordCount;
         public int midTestCorrectCount;
         public int midTestTotal;
+        public int finalSpatialAnchorCorrectCount;
+        public int finalSpatialAnchorTotal;
+        public int finalWordImageCorrectCount;
+        public int finalWordImageTotal;
+        public int finalWordMeaningCorrectCount;
+        public int finalWordMeaningTotal;
         public int finalTestCorrectCount;
         public int finalTestTotal;
+        public string questionnaireMode;
+        public string questionnaireJoinId;
         public QuestionnaireResponse questionnaire;
+        public StorySessionData storySession;
+        public List<StorySessionData> llmStoryCandidates = new();
+        public int selectedLlmStoryCandidateIndex = -1;
         public List<ExportWordEntry> items = new();
         public List<RecallResponse> recallResponses = new();
         public List<SnapshotTestResponse> snapshotTestResponses = new();

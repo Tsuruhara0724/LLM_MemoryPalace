@@ -1,0 +1,16 @@
+{
+  "participantId": "P-DEMO",
+  "sessionId": "20260820_120000",
+  "createdAtUtc": "2026-08-20T12:00:00Z",
+  "wordSetName": "Delayed Test Demo 8",
+  "items": [
+    { "word": "rodilla", "meaning": "knee" },
+    { "word": "grieta", "meaning": "crack" },
+    { "word": "pegamento", "meaning": "glue" },
+    { "word": "rueda", "meaning": "wheel" },
+    { "word": "pajaro", "meaning": "bird" },
+    { "word": "juego", "meaning": "game" },
+    { "word": "paraguas", "meaning": "umbrella" },
+    { "word": "burbuja", "meaning": "bubble" }
+  ]
+}
