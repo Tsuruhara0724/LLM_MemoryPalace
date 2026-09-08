@@ -10002,11 +10002,13 @@ namespace MemPalaceLLM
                 statusMessage = $"Generating LLM story {candidateIndex + 1} / {LlmStoryCandidateCount}…";
                 StorySessionData generatedStory = null;
                 string error = null;
+                var priorCandidateStories = llmStoryCandidates.ConvertAll(candidate => candidate?.fullStory ?? string.Empty);
                 yield return StartCoroutine(service.GenerateStory(
                     GetSelectedLlmEndpoint(),
                     GetSelectedLiveMnemonicModelLabel(),
                     words,
                     candidateIndex,
+                    priorCandidateStories,
                     story => generatedStory = story,
                     err => error = err));
 
@@ -10042,11 +10044,12 @@ namespace MemPalaceLLM
                       " did not return a structurally usable candidate. " + string.Join(" ", errors)
                     : GetSelectedLiveMnemonicProviderLabel() + " returned only " + onlineCandidateCount +
                       " usable candidate(s), so local alternatives filled the remaining choice slots. " + string.Join(" ", errors);
-                var fallbackStory = BuildLocalFallbackStorySession(
+                var fallbackStory = BuildDistinctLocalFallbackStorySession(
                     words,
                     RoomSpecCatalog.CurrentRoom?.anchors,
                     onlineFailure,
-                    fallbackIndex);
+                    fallbackIndex,
+                    llmStoryCandidates);
                 llmStoryCandidates.Add(fallbackStory);
                 usedLocalFallbackForCurrentSession = true;
                 LogInteraction("llm_story_local_fallback_created", string.Empty, string.Empty, $"Story {fallbackIndex + 1}: {onlineFailure}");
@@ -10068,7 +10071,55 @@ namespace MemPalaceLLM
         {
             var leftText = Regex.Replace(left?.fullStory ?? string.Empty, @"\s+", " ").Trim();
             var rightText = Regex.Replace(right?.fullStory ?? string.Empty, @"\s+", " ").Trim();
-            return leftText.Length > 0 && string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase);
+            if (leftText.Length == 0 || rightText.Length == 0)
+            {
+                return false;
+            }
+
+            if (string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var leftFingerprint = BuildStoryDiversityFingerprint(leftText);
+            var rightFingerprint = BuildStoryDiversityFingerprint(rightText);
+            if (leftFingerprint.Count < 8 || rightFingerprint.Count < 8)
+            {
+                return false;
+            }
+
+            var intersection = new HashSet<string>(leftFingerprint, StringComparer.OrdinalIgnoreCase);
+            intersection.IntersectWith(rightFingerprint);
+            var union = new HashSet<string>(leftFingerprint, StringComparer.OrdinalIgnoreCase);
+            union.UnionWith(rightFingerprint);
+            return union.Count > 0 && intersection.Count / (float)union.Count >= 0.72f;
+        }
+
+        private static HashSet<string> BuildStoryDiversityFingerprint(string story)
+        {
+            var withoutTargets = Regex.Replace(
+                story ?? string.Empty,
+                @"(?<![\p{L}\p{N}_])[\p{L}\p{N}_'’-]+\s*\([^)]{1,80}\)",
+                " ");
+            withoutTargets = Regex.Replace(withoutTargets, @"\b[A-Z][a-z]{1,20}\b", " ");
+            var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "a", "an", "and", "as", "at", "because", "but", "by", "for", "from", "i", "in", "into",
+                "is", "it", "me", "my", "of", "on", "our", "so", "that", "the", "their", "then", "this",
+                "to", "we", "when", "where", "while", "with"
+            };
+            var fingerprint = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var matches = Regex.Matches(withoutTargets.ToLowerInvariant(), @"[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*");
+            for (var i = 0; i < matches.Count; i++)
+            {
+                var token = matches[i].Value;
+                if (token.Length >= 3 && !ignored.Contains(token))
+                {
+                    fingerprint.Add(token);
+                }
+            }
+
+            return fingerprint;
         }
 
         private StorySessionData BuildLocalFallbackStorySession(
@@ -10077,11 +10128,12 @@ namespace MemPalaceLLM
             string failureReason,
             int variantIndex)
         {
+            var archetype = SelectLocalFallbackArchetype(words, variantIndex);
             var story = new StorySessionData
             {
                 storySource = "local_story_testing_fallback",
                 storyProvider = "Local Fallback",
-                storyModel = "none",
+                storyModel = "archetype:" + archetype.id,
                 generatedAtUtc = DateTime.UtcNow.ToString("o")
             };
 
@@ -10095,7 +10147,7 @@ namespace MemPalaceLLM
                 var safeWord = string.IsNullOrWhiteSpace(word?.word) ? $"word_{i + 1}" : word.word.Trim();
                 var meaning = string.IsNullOrWhiteSpace(word?.meaning) ? "the target meaning" : word.meaning.Trim();
                 var anchorLabel = string.IsNullOrWhiteSpace(anchor?.label) ? $"anchor {i + 1}" : anchor.label.Trim();
-                var storyBeat = BuildLocalFallbackStoryBeat(i, meaning, safeWord, words.Count, variantIndex);
+                var storyBeat = BuildArchetypeLocalFallbackStoryBeat(i, meaning, safeWord, words.Count, archetype);
                 var segment = storyBeat;
 
                 if (fullStory.Length > 0)
@@ -10121,45 +10173,212 @@ namespace MemPalaceLLM
             return story;
         }
 
-        private static string BuildLocalFallbackStoryBeat(int index, string meaning, string word, int totalCount, int variantIndex)
+        private StorySessionData BuildDistinctLocalFallbackStorySession(
+            List<WordEntry> words,
+            List<AnchorDefinition> anchors,
+            string failureReason,
+            int variantSeed,
+            List<StorySessionData> priorStories)
+        {
+            StorySessionData fallback = null;
+            var archetypeCount = BuildLocalFallbackArchetypes().Length;
+            for (var offset = 0; offset < archetypeCount; offset++)
+            {
+                fallback = BuildLocalFallbackStorySession(
+                    words,
+                    anchors,
+                    failureReason,
+                    variantSeed + offset);
+                if (priorStories == null || !priorStories.Exists(prior => AreStoryCandidatesEquivalent(prior, fallback)))
+                {
+                    return fallback;
+                }
+            }
+
+            // Always preserve the three-choice contract. Reaching this branch means all
+            // six structurally different narrative dynamics matched an accepted story.
+            return fallback ?? BuildLocalFallbackStorySession(words, anchors, failureReason, variantSeed);
+        }
+
+        private sealed class LocalFallbackArchetype
+        {
+            public string id;
+            public string character;
+            public string openingTemplate;
+            public string[] developmentTemplates;
+            public string closingTemplate;
+        }
+
+        private static LocalFallbackArchetype SelectLocalFallbackArchetype(List<WordEntry> words, int variantIndex)
+        {
+            var frames = BuildLocalFallbackArchetypes();
+            var hash = 17;
+            if (words != null)
+            {
+                for (var i = 0; i < words.Count; i++)
+                {
+                    var key = (words[i]?.word ?? string.Empty) + "|" + (words[i]?.meaning ?? string.Empty);
+                    for (var j = 0; j < key.Length; j++)
+                    {
+                        hash = unchecked((hash * 31) + char.ToLowerInvariant(key[j]));
+                    }
+                }
+            }
+
+            var start = Math.Abs(hash % frames.Length);
+            return frames[(start + Mathf.Abs(variantIndex)) % frames.Length];
+        }
+
+        private static LocalFallbackArchetype[] BuildLocalFallbackArchetypes()
+        {
+            return new[]
+            {
+                CreateLocalFallbackArchetype(
+                    "search_with_reversal",
+                    "Ana",
+                    "I must recover our missing keepsake today, and a clue marked {target} gives Ana and me our first lead.",
+                    new[]
+                    {
+                        "The clue marked {target} leads Ana to an empty case, proving my first guess was wrong.",
+                        "A mark beside the clue labeled {target} matches another clue, and I finally know where to look.",
+                        "The clue marked {target} exposes my earlier lie, so I admit I moved the keepsake.",
+                        "Ana studies the clue labeled {target} and stays, choosing to test my new idea with me.",
+                        "The clue marked {target} identifies the correct box instead of the case we searched.",
+                        "Ana opens that box beside a clue labeled {target}, and I see the missing keepsake beneath it."
+                    },
+                    "I lift the clue marked {target}, recover our keepsake underneath, and regain Ana's trust."),
+                CreateLocalFallbackArchetype(
+                    "promise_under_pressure",
+                    "Leo",
+                    "I must finish our shared project today, and a prompt marked {target} starts Leo's final test of my promise.",
+                    new[]
+                    {
+                        "Leo follows the prompt marked {target}, but our saved work produces no result.",
+                        "I test the prompt labeled {target} and discover that my careless change erased our progress.",
+                        "The prompt marked {target} proves when I made the error, so I admit it to Leo.",
+                        "Leo keeps the prompt labeled {target} and chooses to rebuild the project with me instead of leaving.",
+                        "I follow the prompt marked {target}, and our corrected result gives Leo new confidence.",
+                        "Leo completes the test marked {target}, leaving only our final result unfinished."
+                    },
+                    "I complete the final prompt marked {target}, finishing our project and keeping my promise to Leo."),
+                CreateLocalFallbackArchetype(
+                    "misunderstanding",
+                    "Maya",
+                    "I must resolve my misunderstanding with Maya today, and a note marked {target} gives us the first missing fact.",
+                    new[]
+                    {
+                        "Maya compares the note marked {target} with my message and finds a missing line.",
+                        "The missing line points to a note labeled {target}, where I discover an older draft of my message.",
+                        "That draft has a note labeled {target} beside my error, so I stop blaming Maya and apologize.",
+                        "Maya reads the note labeled {target} and chooses to hear the rest of my explanation.",
+                        "I place the note labeled {target} beside both drafts, making the intended meaning clear to us.",
+                        "Maya checks the proof marked {target}, leaving only my honest answer unfinished."
+                    },
+                    "I write my answer beside the note labeled {target}, ending our misunderstanding and restoring Maya's trust."),
+                CreateLocalFallbackArchetype(
+                    "discovery_changes_meaning",
+                    "Noah",
+                    "I must restore our damaged memory box today, and a label marked {target} shows Noah which piece is missing.",
+                    new[]
+                    {
+                        "Noah follows the label marked {target} and finds a piece hidden under the lining.",
+                        "The piece marked {target} fits the gap, but it reveals a note beneath it.",
+                        "The note labeled {target} shows Noah protected the box, so I question my old belief.",
+                        "I read the label marked {target} and admit that I blamed Noah without knowing the truth.",
+                        "Noah turns the piece marked {target}, revealing where the last broken part belongs.",
+                        "We fit that part beside the label marked {target}, and the hidden message becomes complete."
+                    },
+                    "I close the restored box with the label marked {target} inside, understanding Noah's choice and repairing our bond."),
+                CreateLocalFallbackArchetype(
+                    "second_chance",
+                    "Lina",
+                    "I must complete yesterday's failed challenge with Lina, and a card marked {target} gives us a second chance.",
+                    new[]
+                    {
+                        "Lina turns the card marked {target} and discovers why our first attempt failed.",
+                        "The rule beside {target} contradicts my plan, forcing me to reconsider our approach.",
+                        "A warning marked {target} proves I ignored Lina's advice, so I admit my mistake.",
+                        "Lina accepts the card marked {target} and chooses one new plan that uses both our ideas.",
+                        "I test the move marked {target}, and its success returns Lina's confidence.",
+                        "Lina completes the stage marked {target}, leaving one final choice for me."
+                    },
+                    "I make the final choice marked {target}, completing our challenge and earning Lina's forgiveness."),
+                CreateLocalFallbackArchetype(
+                    "secret_revealed",
+                    "Omar",
+                    "I must solve our shared problem with Omar today, and a tag marked {target} reveals that I changed our plan.",
+                    new[]
+                    {
+                        "Omar checks the tag marked {target} and proves the change happened after my turn.",
+                        "The record beside the tag marked {target} matches my notes, making my secret impossible to hide.",
+                        "A mark labeled {target} proves I caused the problem, so I tell Omar the truth.",
+                        "Omar studies the record marked {target} and chooses honesty over blame, giving us one new chance.",
+                        "I follow the correction marked {target}, and our shared plan finally works again.",
+                        "Omar verifies the result with the tag marked {target}, leaving only my promise to complete."
+                    },
+                    "I sign the finished result beside the tag marked {target}, solving our problem and restoring Omar's trust."
+                )
+            };
+        }
+
+        private static LocalFallbackArchetype CreateLocalFallbackArchetype(
+            string id,
+            string character,
+            string openingTemplate,
+            string[] developmentTemplates,
+            string closingTemplate)
+        {
+            return new LocalFallbackArchetype
+            {
+                id = id,
+                character = character,
+                openingTemplate = openingTemplate,
+                developmentTemplates = developmentTemplates,
+                closingTemplate = closingTemplate
+            };
+        }
+
+        private static string BuildArchetypeLocalFallbackStoryBeat(
+            int index,
+            string meaning,
+            string word,
+            int totalCount,
+            LocalFallbackArchetype archetype)
         {
             var safeMeaning = string.IsNullOrWhiteSpace(meaning) ? "target meaning" : meaning.Trim();
             var safeWord = string.IsNullOrWhiteSpace(word) ? "word" : word.Trim();
-            var phrase = safeWord + " (" + safeMeaning + ")";
-            var variant = ((variantIndex % 3) + 3) % 3;
-            var supportingCharacter = GetLocalFallbackSupportingCharacter(variant);
-            var storyObject = GetLocalFallbackStoryObject(variant);
-            var endingPlace = GetLocalFallbackEndingPlace(variant);
-            var context = BuildLocalFallbackLinearContext(index, totalCount, supportingCharacter, storyObject);
-            var action = ConvertLocalFallbackActionToFirstPerson(
-                    BuildLocalFallbackAction(NormalizeLocalFallbackMeaning(safeMeaning), phrase),
-                    supportingCharacter,
-                    storyObject)
-                .Trim()
-                .TrimEnd('.', '!', '?');
+            var target = safeWord + " (" + safeMeaning + ")";
             var finalIndex = Mathf.Max(0, totalCount - 1);
-
+            string template;
+            var maximumWords = 20;
             if (totalCount <= 1)
             {
-                return "I must return " + supportingCharacter + "'s letter, so I use the " + phrase +
-                       " and deliver it.";
+                template = "I must solve our problem, and {target} gives " + archetype.character + " and me the answer.";
+                maximumWords = 24;
             }
-
-            if (index >= finalIndex)
+            else if (index <= 0)
             {
-                var closing = "At the " + endingPlace + " " + action +
-                              ", so " + supportingCharacter + " receives the " + storyObject + " and trusts me.";
-                return CompactLocalFallbackStoryBeatIfNeeded(
-                    closing,
-                    "I use the " + phrase + ", so " + supportingCharacter + " receives the " + storyObject + " and trusts me.",
-                    24);
+                template = archetype.openingTemplate;
+                maximumWords = 24;
+            }
+            else if (index >= finalIndex)
+            {
+                template = archetype.closingTemplate;
+                maximumWords = 24;
+            }
+            else
+            {
+                var stage = Mathf.Clamp(Mathf.CeilToInt(index * archetype.developmentTemplates.Length / (float)finalIndex), 1, archetype.developmentTemplates.Length);
+                template = archetype.developmentTemplates[stage - 1];
             }
 
-            var sentence = context + ", so " + action + ".";
-            var compactSentence = index <= 0
-                ? "I must return " + supportingCharacter + "'s " + storyObject + " today, using the " + phrase + "."
-                : supportingCharacter + " sees the " + phrase + ", so I choose honesty and continue.";
-            return CompactLocalFallbackStoryBeatIfNeeded(sentence, compactSentence, index <= 0 ? 24 : 20);
+            var sentence = template.Replace("{target}", target);
+            var compact = index <= 0
+                ? "I must solve our shared problem today, and a card marked " + target + " gives us the first fact."
+                : index >= finalIndex
+                    ? "I use the card marked " + target + " to finish our goal, and " + archetype.character + " trusts me again."
+                    : archetype.character + " checks a card marked " + target + ", and I act on the new fact it reveals.";
+            return CompactLocalFallbackStoryBeatIfNeeded(sentence, compact, maximumWords);
         }
 
         private static string CompactLocalFallbackStoryBeatIfNeeded(string preferred, string compact, int maximumWords)
@@ -10167,283 +10386,6 @@ namespace MemPalaceLLM
             return Regex.Matches(preferred ?? string.Empty, @"[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*").Count <= maximumWords
                 ? preferred
                 : compact;
-        }
-
-        private static string BuildLocalFallbackLinearContext(
-            int index,
-            int totalCount,
-            string supportingCharacter,
-            string storyObject)
-        {
-            var finalIndex = Mathf.Max(0, totalCount - 1);
-            if (index <= 0)
-            {
-                return "I must return " + supportingCharacter + "'s " + storyObject + " today";
-            }
-
-            if (index >= finalIndex)
-            {
-                return "One last problem blocks the community room";
-            }
-
-            // Spread a compact two-person arc across any target count. Short contexts leave
-            // enough room for the target action while keeping each middle sentence under 20 words.
-            var progress = index / (float)Mathf.Max(1, finalIndex);
-            var stage = Mathf.Clamp(Mathf.CeilToInt(progress * 6f), 1, 6);
-            switch (stage)
-            {
-                case 1:
-                    return supportingCharacter + " admits my mistake still hurts";
-                case 2:
-                    return "I find new damage and choose honesty";
-                case 3:
-                    return supportingCharacter + " hears my apology and stays";
-                case 4:
-                    return "We lose time, but our trust returns";
-                case 5:
-                    return supportingCharacter + " gives me one final chance";
-                default:
-                    return "The deadline arrives, but I continue";
-            }
-        }
-
-        private static string GetLocalFallbackSupportingCharacter(int variantIndex)
-        {
-            return variantIndex == 1 ? "Leo" : variantIndex == 2 ? "Maya" : "Ana";
-        }
-
-        private static string GetLocalFallbackStoryObject(int variantIndex)
-        {
-            return variantIndex == 1 ? "lost photograph" : variantIndex == 2 ? "borrowed notebook" : "birthday letter";
-        }
-
-        private static string GetLocalFallbackEndingPlace(int variantIndex)
-        {
-            return variantIndex == 1 ? "library" : variantIndex == 2 ? "school gate" : "station";
-        }
-
-        private static string ConvertLocalFallbackActionToFirstPerson(
-            string action,
-            string supportingCharacter,
-            string storyObject)
-        {
-            var rewritten = (action ?? string.Empty)
-                .Replace("birthday card", storyObject)
-                .Replace("Ana", supportingCharacter)
-                .Replace("your worried friend", supportingCharacter)
-                .Replace("your lost friend", supportingCharacter)
-                .Replace("your friend", supportingCharacter)
-                .Replace("a scared child", supportingCharacter)
-                .Replace("the child", supportingCharacter)
-                .Replace("a neighbor", supportingCharacter)
-                .Replace("the helper", supportingCharacter)
-                .Replace("the guard", supportingCharacter)
-                .Replace("he opens", supportingCharacter + " opens")
-                .Replace("them", supportingCharacter)
-                .Replace("lets you", "lets me")
-                .Replace("hears you", "hears me")
-                .Replace("follows you", "follows me")
-                .Replace("behind you", "behind me")
-                .Replace("your", "my");
-            return Regex.Replace(rewritten, @"\byou\b", "I", RegexOptions.IgnoreCase);
-        }
-
-        private static string BuildLocalFallbackAction(string normalizedMeaning, string phrase)
-        {
-            switch (normalizedMeaning)
-            {
-                case "backpack":
-                    return "you place the birthday card in the " + phrase + " and keep it safe.";
-                case "bridge":
-                    return "you cross the " + phrase + " with your friend and reach the far side.";
-                case "suitcase":
-                    return "you roll the " + phrase + " over the loose board and press it flat.";
-                case "coin":
-                    return "you slide the " + phrase + " into the narrow latch and lift it.";
-                case "spoon":
-                    return "you use the " + phrase + " to scrape mud from the sign.";
-                case "market":
-                    return "you pass through the covered " + phrase + " and avoid the flooded street.";
-                case "library":
-                    return "you enter the quiet " + phrase + " and follow its marked exit.";
-                case "window":
-                    return "you open the " + phrase + " and call your friend through it.";
-                case "rug":
-                    return "you roll the " + phrase + " over the wet floor and make a dry path.";
-                case "key":
-                    return "you turn the " + phrase + " and release the door.";
-                case "clock":
-                    return "you check the " + phrase + " and choose the shorter path.";
-                case "notebook":
-                    return "you open the " + phrase + " and find the safe room number.";
-                case "neighbor":
-                    return "Ana, my " + phrase + ", points to the covered entrance and follows me.";
-                case "path":
-                    return "you follow the marked " + phrase + " and avoid the deep water.";
-                case "bird":
-                    return "you follow the " + phrase + " as it flies toward the covered entrance.";
-                case "roof":
-                    return "you lead Ana beneath the " + phrase + " and keep the birthday card dry.";
-                case "star":
-                    return "you follow the " + phrase + " until you find the next door.";
-                case "mirror":
-                    return "you check the " + phrase + " and read the hidden number.";
-                case "castle":
-                    return "you enter the " + phrase + " and close the heavy door behind you.";
-                case "mask":
-                    return "you put on the " + phrase + " and breathe safely through the dust.";
-                case "candle":
-                    return "you light the " + phrase + " and see the stairs.";
-                case "drum":
-                    return "you beat the " + phrase + " and your friend hears you.";
-                case "cloud":
-                    return "the " + phrase + " covers the bright sun and lets you see the path.";
-                case "swing":
-                    return "you hold the " + phrase + " still and use its seat as a firm step.";
-                case "fence":
-                    return "you open the small gate in the " + phrase + " and clear the way.";
-                case "lock":
-                    return "you turn the " + phrase + " and pull the door open.";
-                case "umbrella":
-                    return "you raise the " + phrase + " over Ana and protect the birthday card.";
-                case "plug":
-                    return "you push the " + phrase + " into the outlet and the hall lights turn on.";
-                case "egg":
-                    return "you roll the " + phrase + " across the floor and discover which way slopes down.";
-                case "zipper":
-                    return "you close the " + phrase + " on the bag and keep the birthday card dry.";
-                case "knee":
-                    return "you brace your " + phrase + " with both hands and stand steadily.";
-                case "lightning":
-                    return "a " + phrase + " flash reveals the sign and you choose the correct door.";
-                case "wheel":
-                    return "you roll the " + phrase + " under the heavy board and move it aside.";
-                case "glue":
-                    return "you spread the " + phrase + " across the split sign and join its arrow.";
-                case "laughter":
-                    return "your " + phrase + " reaches your lost friend and guides them back.";
-                case "hunger":
-                    return "you ignore the " + phrase + " and help Ana carry the birthday card onward.";
-                case "achievement":
-                    return "you show the " + phrase + " badge and the helper opens the marked gate.";
-                case "hug":
-                    return "you give your worried friend a " + phrase + " and help them stand.";
-                case "help":
-                    return "you call for " + phrase + " and a neighbor clears the fallen board.";
-                case "noise":
-                    return "the " + phrase + " reveals a loose panel and you secure it.";
-                case "mud":
-                    return "you wipe the " + phrase + " from the arrow and recover the route.";
-                case "wait":
-                    return "you choose to " + phrase + " until the rushing water falls.";
-                case "search":
-                    return "you begin a " + phrase + " along the wall and find the door mark.";
-                case "shadow":
-                    return "you trace the " + phrase + " to the lamp and restore the light.";
-                case "footprint":
-                    return "you follow the wet " + phrase + " and catch up with your friend.";
-                case "crack":
-                    return "you press the " + phrase + " closed and stop water reaching the path.";
-                case "bubble":
-                    return "you blow a " + phrase + " through the gap and reveal the airflow.";
-                case "game":
-                    return "you turn the " + phrase + " into a signal and your friend copies it.";
-                case "forget":
-                    return "you refuse to " + phrase + " the marked turn and guide your friend correctly.";
-                case "bell":
-                    return "you ring the " + phrase + " and a guard comes to help.";
-                case "flashlight":
-                    return "you turn on the " + phrase + " and see each step.";
-                case "flower":
-                    return "you give the " + phrase + " to a scared child, and the child points to a side door.";
-                case "crown":
-                    return "you show the " + phrase + " to the guard, and he opens the gate.";
-                case "boat":
-                    return "you get in the " + phrase + " and cross the river.";
-                default:
-                    return "you place the " + phrase + " under the edge and push it open.";
-            }
-        }
-
-        private static string NormalizeLocalFallbackMeaning(string meaning)
-        {
-            var raw = (meaning ?? string.Empty).Trim().ToLowerInvariant();
-            var normalizedBuilder = new StringBuilder(raw.Length);
-            for (var i = 0; i < raw.Length; i++)
-            {
-                var ch = raw[i];
-                normalizedBuilder.Append(ch >= 'a' && ch <= 'z' ? ch : ' ');
-            }
-
-            var key = normalizedBuilder.ToString().Trim();
-            if (ContainsLocalFallbackKey(key, "flashlight") || ContainsLocalFallbackKey(key, "torch"))
-            {
-                return "flashlight";
-            }
-
-            if (ContainsLocalFallbackKey(key, "star"))
-            {
-                return "star";
-            }
-
-            if (ContainsLocalFallbackKey(key, "mirror"))
-            {
-                return "mirror";
-            }
-
-            if (ContainsLocalFallbackKey(key, "castle"))
-            {
-                return "castle";
-            }
-
-            if (ContainsLocalFallbackKey(key, "mask"))
-            {
-                return "mask";
-            }
-
-            if (ContainsLocalFallbackKey(key, "candle"))
-            {
-                return "candle";
-            }
-
-            if (ContainsLocalFallbackKey(key, "drum"))
-            {
-                return "drum";
-            }
-
-            if (ContainsLocalFallbackKey(key, "cloud"))
-            {
-                return "cloud";
-            }
-
-            if (ContainsLocalFallbackKey(key, "bell"))
-            {
-                return "bell";
-            }
-
-            if (ContainsLocalFallbackKey(key, "flower"))
-            {
-                return "flower";
-            }
-
-            if (ContainsLocalFallbackKey(key, "crown"))
-            {
-                return "crown";
-            }
-
-            if (ContainsLocalFallbackKey(key, "boat"))
-            {
-                return "boat";
-            }
-
-            return key;
-        }
-
-        private static bool ContainsLocalFallbackKey(string key, string token)
-        {
-            return !string.IsNullOrWhiteSpace(key) &&
-                   !string.IsNullOrWhiteSpace(token) &&
-                   key.IndexOf(token, StringComparison.Ordinal) >= 0;
         }
 
         private void DrawEmptyRoomStudyView()

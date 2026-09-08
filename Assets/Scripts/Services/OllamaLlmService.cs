@@ -246,6 +246,7 @@ namespace MemPalaceLLM
             public string supporting_character;
             public string relationship;
             public string emotional_stake;
+            public string narrative_archetype;
             public string turning_choice;
             public string final_outcome;
             public string emotional_payoff;
@@ -259,8 +260,11 @@ namespace MemPalaceLLM
             public string arc_role;
             public string story_function;
             public string need;
+            public string state_before;
             public string action;
             public string result;
+            public string state_after;
+            public string causal_link;
             public string goal_link;
             public string memory_cue;
         }
@@ -366,6 +370,7 @@ namespace MemPalaceLLM
             string model,
             List<WordEntry> words,
             int candidateRank,
+            IReadOnlyList<string> priorCandidateStories,
             Action<StorySessionData> onSuccess,
             Action<string> onError)
         {
@@ -387,10 +392,11 @@ namespace MemPalaceLLM
                 yield break;
             }
 
+            var candidateInstruction = BuildStoryCandidateInstruction(candidateRank, priorCandidateStories);
             var causalPlanRequest = new OllamaGenerateRequest
             {
                 model = model.Trim(),
-                prompt = BuildCausalStoryPlanPrompt(words) + BuildStoryCandidateInstruction(candidateRank),
+                prompt = BuildCausalStoryPlanPrompt(words) + candidateInstruction,
                 system = "Plan a complete character-driven micro-story with I as the first-person narrator and exactly one named supporting character. No other people may appear. Give it a personal stake, a choice-driven turn, and an emotional payoff, with exactly one sentence beat per target. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
                 format = "json",
                 stream = false,
@@ -421,7 +427,7 @@ namespace MemPalaceLLM
                 // The story writer and its repair pass still validate the actual participant-facing output, so
                 // use a complete structural plan here rather than abandoning the participant's session.
                 Debug.LogWarning("Online causal plan was incomplete; using a structural fallback. " + causalPlanError);
-                preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words);
+                preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words, candidateRank);
             }
 
             causalPlanJson = preparedCausalPlanJson;
@@ -429,7 +435,7 @@ namespace MemPalaceLLM
             var storyRequest = new OllamaGenerateRequest
             {
                 model = model.Trim(),
-                prompt = BuildStoryPrompt(words, causalPlanJson) + BuildStoryCandidateInstruction(candidateRank),
+                prompt = BuildStoryPrompt(words, causalPlanJson) + candidateInstruction,
                 system = "Write character-driven micro-stories for adult A2-B1 English learners with I as the first-person narrator and exactly one named supporting character. No other people may appear. Never write procedures or task logs. Produce exactly one sentence per target, with a personal stake, a choice-driven turn, and a practical plus emotional payoff. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
                 format = "json",
                 stream = false,
@@ -460,7 +466,7 @@ namespace MemPalaceLLM
                 var repairRequest = new OllamaGenerateRequest
                 {
                     model = model.Trim(),
-                    prompt = BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
+                    prompt = BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure) + candidateInstruction,
                     system = "Repair a rejected character-driven micro-story for adult A2-B1 English learners. Use I as the first-person narrator and exactly one named supporting character, with no other people. Replace procedural steps with human reactions, a meaningful choice, and a practical plus emotional payoff. Return exactly one sentence per target and exactly one valid JSON object. No markdown. No commentary.",
                     format = "json",
                     stream = false,
@@ -499,7 +505,40 @@ namespace MemPalaceLLM
                     if (!TryParseAndBuildUsableStoryResponse(repairedResponse, words, model.Trim(), out story, out var usableError) &&
                         !TryParseAndBuildUsableStoryResponse(storyResponse, words, model.Trim(), out story, out usableError))
                     {
-                        onError?.Invoke("Online story repair still failed validation: " + repairFailure + ". No structurally usable response remained: " + usableError);
+                        var recoveryRequest = new OllamaGenerateRequest
+                        {
+                            model = model.Trim(),
+                            prompt = BuildMinimalStoryRecoveryPrompt(words, firstFailure, repairFailure) + candidateInstruction,
+                            system = "Write a fresh, logically connected first-person micro-story. Plan state changes silently, then return one valid JSON object only. Do not reuse wording or the premise from rejected drafts.",
+                            format = "json",
+                            stream = false,
+                            options = new OllamaRequestOptions
+                            {
+                                temperature = 0.52f,
+                                num_predict = 1800
+                            }
+                        };
+                        string recoveryResponse = null;
+                        string recoveryRequestError = null;
+                        yield return SendOllamaJsonRequest(
+                            endpoint.Trim(),
+                            recoveryRequest,
+                            value => recoveryResponse = value,
+                            error => recoveryRequestError = error);
+
+                        var recoveryValidationError = string.Empty;
+                        if (!string.IsNullOrWhiteSpace(recoveryRequestError) ||
+                            (!TryParseAndBuildStoryResponse(recoveryResponse, words, model.Trim(), out story, out recoveryValidationError) &&
+                             !TryParseAndBuildUsableStoryResponse(recoveryResponse, words, model.Trim(), out story, out recoveryValidationError)))
+                        {
+                            onError?.Invoke("Online story repair failed (" + repairFailure + "). Fresh recovery also failed: " +
+                                            (string.IsNullOrWhiteSpace(recoveryRequestError) ? recoveryValidationError : recoveryRequestError) +
+                                            ". Earlier response was unusable: " + usableError);
+                            yield break;
+                        }
+
+                        story.storySource = "ollama_story_fresh_recovery";
+                        onSuccess?.Invoke(story);
                         yield break;
                     }
 
@@ -562,7 +601,7 @@ namespace MemPalaceLLM
             if (!TryPrepareCausalStoryPlan(causalPlanJson, words, out var preparedCausalPlanJson, out var causalPlanError))
             {
                 Debug.LogWarning("Gemini causal plan was incomplete; using a structural fallback. " + causalPlanError);
-                preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words);
+                preparedCausalPlanJson = BuildStructuralFallbackCausalPlan(words, 0);
             }
 
             causalPlanJson = preparedCausalPlanJson;
@@ -1076,17 +1115,45 @@ namespace MemPalaceLLM
             return true;
         }
 
-        private static string BuildStoryCandidateInstruction(int candidateRank)
+        private static string BuildStoryCandidateInstruction(
+            int candidateRank,
+            IReadOnlyList<string> priorCandidateStories)
         {
+            var builder = new StringBuilder();
             switch (Mathf.Clamp(candidateRank, 0, 2))
             {
                 case 1:
-                    return "\nCANDIDATE 2 OF 3: Write the second-best fully valid alternative. Use a different premise, target-action chain, character choice, and payoff from the most obvious first solution.\n";
+                    builder.AppendLine("CANDIDATE 2 OF 3: Write the second-best fully valid alternative.");
+                    break;
                 case 2:
-                    return "\nCANDIDATE 3 OF 3: Write the third-best fully valid alternative. Choose another distinct premise and development; do not repeat the likely first or second story.\n";
+                    builder.AppendLine("CANDIDATE 3 OF 3: Write the third-best fully valid alternative.");
+                    break;
                 default:
-                    return "\nCANDIDATE 1 OF 3: Write the strongest overall solution.\n";
+                    builder.AppendLine("CANDIDATE 1 OF 3: Write the strongest overall solution.");
+                    break;
             }
+
+            if (candidateRank > 0)
+            {
+                builder.AppendLine("Make this a genuinely different story, not the same template with changed names, objects, or places.");
+                builder.AppendLine("Change the central problem, setting, relationship tension, turning choice, target actions, and final image.");
+            }
+
+            if (priorCandidateStories != null && priorCandidateStories.Count > 0)
+            {
+                builder.AppendLine("PREVIOUS ACCEPTED STORIES — do not imitate their premise or sentence skeleton:");
+                for (var i = 0; i < priorCandidateStories.Count; i++)
+                {
+                    var story = Regex.Replace(priorCandidateStories[i] ?? string.Empty, @"\s+", " ").Trim();
+                    if (story.Length > 0)
+                    {
+                        builder.AppendLine("Previous " + (i + 1) + ": " + story);
+                    }
+                }
+            }
+
+            builder.AppendLine("DIVERSITY TEST: replacing only the supporting character, goal object, or location must not turn a previous story into this one.");
+            return "\n" + builder + "\n";
         }
 
         private static string BuildCausalStoryPlanPrompt(List<WordEntry> words)
@@ -1100,14 +1167,18 @@ namespace MemPalaceLLM
             builder.AppendLine("Choose one relationship between me and that supporting character. Give the supporting character a simple want or fear, and make the concrete goal matter personally to both of us.");
             builder.AppendLine("Build two connected arcs: an OUTER arc with one observable goal and an INNER arc where trust, courage, forgiveness, belonging, or care changes through a choice.");
             builder.AppendLine("The plan must be linear: item N creates the situation, feeling, discovery, or choice that item N+1 responds to. Do not make separate episodes, parallel actions, unrelated scenes, or an opening with no ending.");
+            builder.AppendLine("For every adjacent pair, write a concrete bridge: item N changes one fact, and item N+1 acts because of that exact changed fact. Repeating the goal or a character name is not a bridge.");
             builder.AppendLine("Choose ONE central person, place, object, or outcome that defines a small concrete goal with a clear finish. Targets may change practical progress, what a character knows, what a character decides, or the relationship.");
             builder.AppendLine("Vary the premise to fit the targets. Use an everyday repair, delivery, search, reunion, mistake, or helpful task when suitable; do not default to storms, floods, dangerous races, or reaching safety unless the target set truly supports it.");
             builder.AppendLine("The goal must not be a list of errands. Do not use shopping, packing several items, eating lunch, sightseeing, appreciating a view, attending unrelated events, or visiting multiple destinations as the story structure.");
-            builder.AppendLine("Return JSON exactly as: {\"opening_problem\":\"the concrete problem stated in sentence 1\",\"goal\":\"the observable outer success condition\",\"supporting_character\":\"the only other person's short name\",\"relationship\":\"who that person is to me\",\"emotional_stake\":\"what that person wants or fears and why the goal matters\",\"turning_choice\":\"the difficult but safe choice that changes the story\",\"final_outcome\":\"the visible result proving the outer goal succeeded\",\"emotional_payoff\":\"the small reaction or callback proving the relationship or feeling changed\",\"items\":[{\"word\":\"zapato\",\"arc_role\":\"opening|development|turn|resolution\",\"story_function\":\"hook|reaction|complication|pressure|choice|consequence|final_decision|payoff\",\"need\":\"specific prior situation, feeling, or discovery requiring this beat\",\"action\":\"physically possible event, reaction, or decision involving it\",\"result\":\"consequence that makes the next beat necessary\",\"goal_link\":\"how this beat changes the outer goal or inner arc\",\"memory_cue\":\"one distinctive concrete change caused by the target\"}]}");
+            builder.AppendLine("Return JSON exactly as: {\"opening_problem\":\"the concrete problem stated in sentence 1\",\"goal\":\"the observable outer success condition\",\"supporting_character\":\"the only other person's short name\",\"relationship\":\"who that person is to me\",\"emotional_stake\":\"what that person wants or fears and why the goal matters\",\"narrative_archetype\":\"search_with_reversal|promise_under_pressure|misunderstanding|discovery_changes_meaning|second_chance|secret_revealed|other\",\"turning_choice\":\"the difficult but safe choice that changes the story\",\"final_outcome\":\"the visible result proving the outer goal succeeded\",\"emotional_payoff\":\"the small reaction or callback proving the relationship or feeling changed\",\"items\":[{\"word\":\"zapato\",\"arc_role\":\"opening|development|turn|resolution\",\"story_function\":\"hook|reaction|complication|pressure|choice|consequence|final_decision|payoff\",\"need\":\"specific prior situation requiring this beat\",\"state_before\":\"one concrete fact that is true before the target event\",\"action\":\"physically possible target event, reaction, or decision\",\"result\":\"consequence that makes the next beat necessary\",\"state_after\":\"one concrete fact changed by this beat\",\"causal_link\":\"why this target event changes state_before into state_after\",\"goal_link\":\"how this beat changes the outer goal or inner arc\",\"memory_cue\":\"one distinctive concrete change caused by the target\"}]}");
             builder.AppendLine("Each item must have non-empty word, need, action, result, goal_link, and memory_cue fields.");
+            builder.AppendLine("STATE CONTRACT: state_before must equal need, state_after must equal result, and item N state_after must be copied into item N+1 state_before. causal_link must name the real mechanism, evidence, decision, or belief change.");
+            builder.AppendLine("Choose a narrative archetype that fits this target set. Archetypes are plot dynamics, not fixed topics; invent the concrete premise from the targets.");
             builder.AppendLine("ARC ROLES: item 1 is opening; the last item is resolution; choose one middle item as turn, where a revelation or meaningful character choice changes both the plan and the relationship; all other middle items are development.");
             builder.AppendLine("The opening need must use I, name the one supporting character, state the problem and goal, and explain why it matters. The first target must begin the story in the same beat.");
             builder.AppendLine("HARD LINK FORMAT: copy the complete result text of item N verbatim into the need field of item N+1. The strings must be exactly identical. The action in item N+1 must respond directly to that copied situation.");
+            builder.AppendLine("Never attach a generic feeling such as trust, hurt, apology, or hope to an unrelated target action with so. Explain what the target reveals, changes, blocks, proves, or enables.");
             builder.AppendLine("At least three beats must be human beats: a character reacts, asks, admits, chooses, helps, refuses, remembers, trusts, or changes feeling. Do not place more than two tool-use or task-operation beats in a row.");
             builder.AppendLine("The turn cannot be only bad weather, a stuck object, a missing tool, or another physical obstacle. A character must learn something or make a choice with a consequence.");
             builder.AppendLine("The last action must cause final_outcome and emotional_payoff. The ending must prove both that the outer goal is achieved and that the personal stake was answered.");
@@ -1190,6 +1261,11 @@ namespace MemPalaceLLM
                 plan.emotional_stake = "The result matters to the other character personally.";
             }
 
+            if (string.IsNullOrWhiteSpace(plan.narrative_archetype))
+            {
+                plan.narrative_archetype = "other";
+            }
+
             if (string.IsNullOrWhiteSpace(plan.turning_choice))
             {
                 plan.turning_choice = "I choose honesty and help Ana instead of only following the task.";
@@ -1226,6 +1302,11 @@ namespace MemPalaceLLM
                     item.memory_cue = item.result.Trim();
                 }
 
+                if (string.IsNullOrWhiteSpace(item.causal_link))
+                {
+                    item.causal_link = item.goal_link.Trim();
+                }
+
                 // Canonical roles make the total-development-total contract explicit even
                 // when a smaller planner omits or misspells its optional arc labels.
                 item.arc_role = GetCausalStoryArcRole(i, plan.items.Length);
@@ -1249,6 +1330,9 @@ namespace MemPalaceLLM
                         item.need = plan.items[i - 1].result.Trim();
                     }
                 }
+
+                item.state_before = item.need.Trim();
+                item.state_after = item.result.Trim();
             }
 
             if (usedWords.Count != expectedWords.Count)
@@ -1261,18 +1345,20 @@ namespace MemPalaceLLM
             return true;
         }
 
-        private static string BuildStructuralFallbackCausalPlan(List<WordEntry> words)
+        private static string BuildStructuralFallbackCausalPlan(List<WordEntry> words, int candidateRank)
         {
+            var frame = SelectStructuralFallbackFrame(words, candidateRank);
             var plan = new CausalStoryPlanEnvelope
             {
-                opening_problem = "I must return Ana's lost birthday letter before her train leaves because she thinks I forgot our promise.",
-                goal = "Ana receives her birthday letter before her train leaves.",
-                supporting_character = "Ana",
-                relationship = "Ana is my close friend and the only other person in the story.",
-                emotional_stake = "Ana wants proof that I remembered our promise.",
-                turning_choice = "I discover damage on the letter and choose to admit my mistake instead of hiding it.",
-                final_outcome = "Ana receives her birthday letter before her train leaves.",
-                emotional_payoff = "Ana smiles at me and trusts me again.",
+                opening_problem = frame.openingProblem,
+                goal = frame.goal,
+                supporting_character = frame.character,
+                relationship = frame.relationship,
+                emotional_stake = frame.emotionalStake,
+                narrative_archetype = frame.archetype,
+                turning_choice = frame.turningChoice,
+                final_outcome = frame.finalOutcome,
+                emotional_payoff = frame.emotionalPayoff,
                 items = new CausalStoryPlanItem[words.Count]
             };
 
@@ -1290,21 +1376,19 @@ namespace MemPalaceLLM
                 }
                 else if (i == 0)
                 {
-                    result = "Ana sees the first sign that I may have kept our promise.";
+                    result = frame.firstResult;
                 }
                 else if (i == Mathf.Max(1, (words.Count - 1) / 2))
                 {
-                    result = "I admit my mistake, and Ana chooses to give me one final chance.";
+                    result = frame.turnResult;
                 }
                 else if (i == words.Count - 2)
                 {
-                    result = "Ana trusts me with one final chance as her train is about to leave.";
+                    result = frame.finalDecisionResult;
                 }
                 else
                 {
-                    result = i < words.Count / 2
-                        ? "The new result changes Ana's hope and creates the next difficult choice."
-                        : "Ana responds to my honesty and moves one step closer to trusting me.";
+                    result = i < words.Count / 2 ? frame.risingResult : frame.consequenceResult;
                 }
 
                 plan.items[i] = new CausalStoryPlanItem
@@ -1313,17 +1397,96 @@ namespace MemPalaceLLM
                     arc_role = GetCausalStoryArcRole(i, words.Count),
                     story_function = GetCausalStoryFunction(i, words.Count),
                     need = priorResult,
-                    action = "Use " + BuildTargetStoryToken(meaning, word) + " in a plausible first-person event, reaction, or choice that changes both the goal and Ana's feelings.",
+                    state_before = priorResult,
+                    action = "Use " + BuildTargetStoryToken(meaning, word) + " in a plausible event, discovery, reaction, or choice that changes the current story state.",
                     result = result,
+                    state_after = result,
+                    causal_link = "State the real mechanism that makes this target event produce the result; never join unrelated clauses with so.",
                     goal_link = isLast
-                        ? "This completes the visit and answers Ana's fear."
-                        : "This changes practical progress or the trust between me and Ana.",
+                        ? "This explicitly completes the opening goal and answers the personal stake."
+                        : "This changes one concrete fact, belief, choice, or relationship state required by the next beat.",
                     memory_cue = "The action makes one clear, easy-to-picture change involving the " + meaning + "."
                 };
                 priorResult = result;
             }
 
             return JsonUtility.ToJson(plan);
+        }
+
+        private sealed class StructuralFallbackFrame
+        {
+            public string archetype;
+            public string character;
+            public string openingProblem;
+            public string goal;
+            public string relationship;
+            public string emotionalStake;
+            public string turningChoice;
+            public string finalOutcome;
+            public string emotionalPayoff;
+            public string firstResult;
+            public string risingResult;
+            public string turnResult;
+            public string consequenceResult;
+            public string finalDecisionResult;
+        }
+
+        private static StructuralFallbackFrame SelectStructuralFallbackFrame(List<WordEntry> words, int candidateRank)
+        {
+            var hash = 17;
+            if (words != null)
+            {
+                for (var i = 0; i < words.Count; i++)
+                {
+                    var key = (words[i]?.word ?? string.Empty) + "|" + (words[i]?.meaning ?? string.Empty);
+                    for (var j = 0; j < key.Length; j++)
+                    {
+                        hash = unchecked((hash * 31) + char.ToLowerInvariant(key[j]));
+                    }
+                }
+            }
+
+            var frameIndex = (Math.Abs(hash % 6) + Mathf.Clamp(candidateRank, 0, 2)) % 6;
+            switch (frameIndex)
+            {
+                case 1:
+                    return CreateStructuralFallbackFrame("promise_under_pressure", "Leo", "finish our shared project before today's deadline", "Leo fears I will abandon our promise");
+                case 2:
+                    return CreateStructuralFallbackFrame("misunderstanding", "Maya", "prove what really happened before our friendship breaks", "Maya believes I hid an important truth");
+                case 3:
+                    return CreateStructuralFallbackFrame("discovery_changes_meaning", "Noah", "restore our damaged keepsake and understand its hidden message", "Noah fears our shared memory is ruined");
+                case 4:
+                    return CreateStructuralFallbackFrame("second_chance", "Lina", "complete the attempt we failed together yesterday", "Lina needs to know I will not quit again");
+                case 5:
+                    return CreateStructuralFallbackFrame("secret_revealed", "Omar", "solve our shared problem before my mistake becomes permanent", "Omar wants honesty more than an easy success");
+                default:
+                    return CreateStructuralFallbackFrame("search_with_reversal", "Ana", "recover our missing keepsake before it is lost", "Ana thinks I stopped caring about our promise");
+            }
+        }
+
+        private static StructuralFallbackFrame CreateStructuralFallbackFrame(
+            string archetype,
+            string character,
+            string goal,
+            string emotionalStake)
+        {
+            return new StructuralFallbackFrame
+            {
+                archetype = archetype,
+                character = character,
+                openingProblem = "I must " + goal + " because " + emotionalStake + ".",
+                goal = "I must " + goal + ".",
+                relationship = character + " is the only other person and shares this goal with me.",
+                emotionalStake = emotionalStake + ".",
+                turningChoice = "New evidence proves my first belief was wrong, so I admit my mistake and choose a joint plan with " + character + ".",
+                finalOutcome = "We " + goal + ".",
+                emotionalPayoff = character + " responds with relief and renewed trust.",
+                firstResult = "The first target event changes one concrete fact and gives us a specific lead.",
+                risingResult = "That lead reveals evidence that corrects our earlier assumption and forces a new action.",
+                turnResult = "I admit what I misunderstood, and " + character + " chooses a new plan with me.",
+                consequenceResult = "Our joint choice works, leaving one clear obstacle between us and the goal.",
+                finalDecisionResult = character + " removes that obstacle and leaves the final proof for me to complete."
+            };
         }
 
         private static string GetCausalStoryArcRole(int index, int totalCount)
@@ -1423,6 +1586,10 @@ namespace MemPalaceLLM
             builder.AppendLine();
             builder.AppendLine("CAUSALITY TEST");
             builder.AppendLine("Do not connect unrelated actions with then, so, therefore, prompting, or causing. State the real mechanism: what changed physically, what a character learned, or why a new action became necessary.");
+            builder.AppendLine("Never use a repeated frame like CHARACTER FEELS SOMETHING, so I USE TARGET. Emotion is a result or cause only when the sentence states the missing fact between them.");
+            builder.AppendLine("Each sentence after the first must answer this question: Which exact fact from the previous sentence made this action happen now? If no short answer exists, rewrite both beats.");
+            builder.AppendLine("Within a sentence, replace so with because and read the logic backward. If the reason becomes absurd or unrelated, use two genuinely related clauses instead.");
+            builder.AppendLine("A target may reveal evidence, create a setback, change a belief, force a choice, or complete the goal. It may not be pasted onto a prewritten emotional arc.");
             builder.AppendLine("Imaginative use of a target is allowed, but it still needs a clear cause and effect. The reader must understand why that target action changes the next moment.");
             builder.AppendLine("Do not use meanwhile, elsewhere, later that day, suddenly, another problem, or scene jumps to move between targets.");
             builder.AppendLine("Bad: A relámpago (lightning) flashes outside. This only describes weather.");
@@ -1510,6 +1677,8 @@ namespace MemPalaceLLM
             builder.AppendLine("Do not append isolated repair sentences, dream imagery, scenery-only descriptions, room-tour instructions, anchors, or furniture assignments.");
             builder.AppendLine("Keep the causal order from the plan, but repair any implausible action or weak connection.");
             builder.AppendLine("Make the story strictly linear: every sentence must follow from the previous sentence and create the reason for the next sentence. No separate episodes or scene jumps.");
+            builder.AppendLine("Do not keep a generic emotional prefix and replace only the target action. Rewrite the whole sentence until its cause, target event, and result describe one indivisible beat.");
+            builder.AppendLine("Audit every so, because, therefore, and but. Keep the connector only when both clauses have a specific and believable logical relationship.");
             builder.AppendLine("The target's role may be normal or imaginative. If it cannot be handled directly, it must cause an immediate character decision or action in that same sentence, not a separate description.");
             builder.AppendLine("Use A2-B1 English, common words, and direct verbs. HARD LIMIT: middle sentences may contain at most 20 words; the opening and closing may contain at most 24 words.");
             builder.AppendLine("Use periods, at most one comma per sentence, and no semicolons, colons, or em dashes.");
@@ -1528,6 +1697,33 @@ namespace MemPalaceLLM
             builder.AppendLine();
             builder.AppendLine("Rejected response:");
             builder.AppendLine(rejectedResponse ?? string.Empty);
+            return builder.ToString();
+        }
+
+        private static string BuildMinimalStoryRecoveryPrompt(
+            List<WordEntry> words,
+            string firstFailure,
+            string repairFailure)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Start over. Do not patch either rejected draft.");
+            builder.AppendLine("Earlier failures: " + (firstFailure ?? "unknown") + " | " + (repairFailure ?? "unknown"));
+            builder.AppendLine("Choose one narrative dynamic that fits the targets: search with a reversal, promise under pressure, misunderstanding, discovery that changes meaning, second chance, or secret revealed.");
+            builder.AppendLine("The dynamic is not a fixed topic. Invent a concrete everyday premise from the supplied targets.");
+            builder.AppendLine("Silently build exactly " + words.Count + " state transitions: state_before -> target event -> state_after.");
+            builder.AppendLine("For every N, state_after N must be the concrete reason sentence N+1 happens. Generic progress, hope, trust, or another obstacle is not a causal bridge.");
+            builder.AppendLine("Write exactly " + words.Count + " sentences. Sentence 1 states I must or I need to achieve one observable goal with one named supporting character.");
+            builder.AppendLine("Each sentence contains exactly one target pair and one indivisible event. Middle sentences have at most 20 words; first and last have at most 24.");
+            builder.AppendLine("Use I as narrator, at most one supporting character, and no other people. Include one revelation or meaningful choice in the middle.");
+            builder.AppendLine("The last target event must visibly complete the opening goal and resolve the personal stake.");
+            builder.AppendLine("Never attach an emotional prefix to an unrelated action with so. Use so or because only when the reverse reading is literally believable.");
+            builder.AppendLine("Return only {\"fullStory\":\"...\",\"items\":[{\"word\":\"target\",\"storyOrder\":1}]} with every target listed once.");
+            builder.AppendLine("Targets:");
+            for (var i = 0; i < words.Count; i++)
+            {
+                builder.AppendLine((i + 1) + ". " + BuildTargetStoryToken(words[i]?.meaning, words[i]?.word));
+            }
+
             return builder.ToString();
         }
 
@@ -1623,6 +1819,12 @@ namespace MemPalaceLLM
             if (HasStorySentenceLengthProblems(envelope.fullStory, out var sentenceLengthError))
             {
                 error = sentenceLengthError;
+                return false;
+            }
+
+            if (HasMechanicalCausalScaffold(envelope.fullStory, out var causalScaffoldError))
+            {
+                error = causalScaffoldError;
                 return false;
             }
 
@@ -2260,6 +2462,33 @@ namespace MemPalaceLLM
             }
 
             return false;
+        }
+
+        private static bool HasMechanicalCausalScaffold(string fullStory, out string error)
+        {
+            error = string.Empty;
+            var sentences = SplitStorySentences(fullStory);
+            if (sentences.Count < 4)
+            {
+                return false;
+            }
+
+            var soConnectorCount = 0;
+            for (var i = 0; i < sentences.Count; i++)
+            {
+                if (Regex.IsMatch(sentences[i], @",\s*so\b", RegexOptions.IgnoreCase))
+                {
+                    soConnectorCount++;
+                }
+            }
+
+            if (soConnectorCount < Mathf.CeilToInt(sentences.Count * 0.7f))
+            {
+                return false;
+            }
+
+            error = "The story uses ', so' as a repeated sentence template instead of explaining different real links. Vary the sentence shapes and state the concrete cause for each action.";
+            return true;
         }
 
         private static bool LooksLikeProceduralWorkflow(
