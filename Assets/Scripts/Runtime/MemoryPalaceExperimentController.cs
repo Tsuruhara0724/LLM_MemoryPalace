@@ -2005,6 +2005,13 @@ namespace MemPalaceLLM
 
         private void DrawContextInstructionOverlay()
         {
+            // The editable room-builder HUD already presents the current objective and
+            // controls. Avoid layering the legacy IMGUI instruction card over that HUD.
+            if (stage == ExperimentStage.RoomBuilder && IsEditableSceneUiActive())
+            {
+                return;
+            }
+
             var alpha = GetContextInstructionAlpha();
             if (alpha <= 0.001f || string.IsNullOrWhiteSpace(contextInstructionKey))
             {
@@ -2384,12 +2391,14 @@ namespace MemPalaceLLM
 
         private string GetSimpleSetupNextStepLabel()
         {
-            return ConditionUsesSelfRoom() ? "Start: create familiar room" : "Start: explore example room";
+            return ConditionUsesSelfRoom() ? "Begin · Create familiar room  →" : "Begin · Explore example room  →";
         }
 
         private string GetSimpleSetupNextStepHint()
         {
-            return "PC room phase (10 min) → Spanish pre-test (5 min) → story phase (10 min) → furniture-word mapping (3 min) → audio preparation → HMD study (10 min).";
+            return ConditionUsesSelfRoom()
+                ? "10 min room creation  →  5 min pre-test  →  story  →  mapping  →  10 min HMD study"
+                : "10 min room exploration  →  5 min pre-test  →  story  →  mapping  →  10 min HMD study";
         }
 
         private void BeginSimpleSetupFlow()
@@ -12704,6 +12713,7 @@ namespace MemPalaceLLM
 
         private void ConfigureElevenLabsSpeech()
         {
+            var preferencesChanged = false;
             var normalizedLocalEndpoint = NormalizeLocalTtsEndpointForCurrentRuntime(localTtsEndpoint);
             if (!string.Equals(normalizedLocalEndpoint, localTtsEndpoint, StringComparison.OrdinalIgnoreCase))
             {
@@ -12711,8 +12721,7 @@ namespace MemPalaceLLM
                     $"MemPalaceTTS: using editor-local endpoint '{normalizedLocalEndpoint}' instead of " +
                     $"this PC's package/LAN endpoint '{localTtsEndpoint}'.");
                 localTtsEndpoint = normalizedLocalEndpoint;
-                PlayerPrefs.SetString("MemPalace.LocalTtsEndpoint", localTtsEndpoint);
-                PlayerPrefs.Save();
+                preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsEndpoint", localTtsEndpoint);
             }
 
             EnsureTextToSpeechService();
@@ -12727,67 +12736,61 @@ namespace MemPalaceLLM
                 localTtsExaggeration,
                 localTtsCfgWeight,
                 localTtsTemperature);
-            if (!string.IsNullOrWhiteSpace(elevenLabsApiKey) &&
-                !string.Equals(PlayerPrefs.GetString("MemPalace.ElevenLabsApiKey", string.Empty), elevenLabsApiKey, StringComparison.Ordinal))
+            if (!string.IsNullOrWhiteSpace(elevenLabsApiKey))
             {
-                PlayerPrefs.SetString("MemPalace.ElevenLabsApiKey", elevenLabsApiKey);
-                PlayerPrefs.Save();
+                preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.ElevenLabsApiKey", elevenLabsApiKey);
             }
 
-            var localPrefsChanged = false;
-            if (!string.IsNullOrWhiteSpace(localTtsEndpoint)
-                && !string.Equals(PlayerPrefs.GetString("MemPalace.LocalTtsEndpoint", string.Empty), localTtsEndpoint, StringComparison.Ordinal))
+            if (!string.IsNullOrWhiteSpace(localTtsEndpoint))
             {
-                PlayerPrefs.SetString("MemPalace.LocalTtsEndpoint", localTtsEndpoint);
-                localPrefsChanged = true;
+                preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsEndpoint", localTtsEndpoint);
             }
 
-            var localTtsEnabledValue = useLocalUnlimitedTts ? 1 : 0;
-            if (PlayerPrefs.GetInt("MemPalace.UseLocalTts", -1) != localTtsEnabledValue)
-            {
-                PlayerPrefs.SetInt("MemPalace.UseLocalTts", localTtsEnabledValue);
-                localPrefsChanged = true;
-            }
-
-            var savedLocalModel = localTtsModel ?? string.Empty;
-            if (!string.Equals(PlayerPrefs.GetString("MemPalace.LocalTtsModel", string.Empty), savedLocalModel, StringComparison.Ordinal))
-            {
-                PlayerPrefs.SetString("MemPalace.LocalTtsModel", savedLocalModel);
-                localPrefsChanged = true;
-            }
-
-            var savedLocalVoice = localTtsVoice ?? string.Empty;
-            if (!string.Equals(PlayerPrefs.GetString("MemPalace.LocalTtsVoice", string.Empty), savedLocalVoice, StringComparison.Ordinal))
-            {
-                PlayerPrefs.SetString("MemPalace.LocalTtsVoice", savedLocalVoice);
-                localPrefsChanged = true;
-            }
-
-            if (!Mathf.Approximately(PlayerPrefs.GetFloat("MemPalace.LocalTtsSpeed", -1f), localTtsSpeed))
-            {
-                PlayerPrefs.SetFloat("MemPalace.LocalTtsSpeed", localTtsSpeed);
-                localPrefsChanged = true;
-            }
-            if (!Mathf.Approximately(PlayerPrefs.GetFloat("MemPalace.LocalTtsExaggeration", -1f), localTtsExaggeration))
-            {
-                PlayerPrefs.SetFloat("MemPalace.LocalTtsExaggeration", localTtsExaggeration);
-                localPrefsChanged = true;
-            }
-            if (!Mathf.Approximately(PlayerPrefs.GetFloat("MemPalace.LocalTtsCfgWeight", -1f), localTtsCfgWeight))
-            {
-                PlayerPrefs.SetFloat("MemPalace.LocalTtsCfgWeight", localTtsCfgWeight);
-                localPrefsChanged = true;
-            }
-            if (!Mathf.Approximately(PlayerPrefs.GetFloat("MemPalace.LocalTtsTemperature", -1f), localTtsTemperature))
-            {
-                PlayerPrefs.SetFloat("MemPalace.LocalTtsTemperature", localTtsTemperature);
-                localPrefsChanged = true;
-            }
-
-            if (localPrefsChanged)
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.UseLocalTts", useLocalUnlimitedTts ? 1 : 0);
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsModel", localTtsModel ?? string.Empty);
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsVoice", localTtsVoice ?? string.Empty);
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsSpeed", localTtsSpeed);
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsExaggeration", localTtsExaggeration);
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsCfgWeight", localTtsCfgWeight);
+            preferencesChanged |= SetPlayerPreferenceIfChanged("MemPalace.LocalTtsTemperature", localTtsTemperature);
+            if (preferencesChanged)
             {
                 PlayerPrefs.Save();
             }
+        }
+
+        private static bool SetPlayerPreferenceIfChanged(string key, string value)
+        {
+            value ??= string.Empty;
+            if (string.Equals(PlayerPrefs.GetString(key, string.Empty), value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            PlayerPrefs.SetString(key, value);
+            return true;
+        }
+
+        private static bool SetPlayerPreferenceIfChanged(string key, int value)
+        {
+            if (PlayerPrefs.GetInt(key, int.MinValue) == value)
+            {
+                return false;
+            }
+
+            PlayerPrefs.SetInt(key, value);
+            return true;
+        }
+
+        private static bool SetPlayerPreferenceIfChanged(string key, float value)
+        {
+            if (Mathf.Approximately(PlayerPrefs.GetFloat(key, float.NaN), value))
+            {
+                return false;
+            }
+
+            PlayerPrefs.SetFloat(key, value);
+            return true;
         }
 
         private void EnsureTextToSpeechService()
@@ -12821,9 +12824,8 @@ namespace MemPalaceLLM
                 return;
             }
 
-            if (!string.Equals(PlayerPrefs.GetString("MemPalace.GeminiApiKey", string.Empty), geminiApiKey, StringComparison.Ordinal))
+            if (SetPlayerPreferenceIfChanged("MemPalace.GeminiApiKey", geminiApiKey))
             {
-                PlayerPrefs.SetString("MemPalace.GeminiApiKey", geminiApiKey);
                 PlayerPrefs.Save();
             }
         }

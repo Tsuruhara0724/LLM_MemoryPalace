@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace MemPalaceLLM
@@ -192,6 +194,8 @@ namespace MemPalaceLLM
                 BindEditableSceneUiEvents();
             }
 
+            HandleSceneUiKeyboardShortcuts();
+
             var hideForHeadset = IsVrParticipantViewActive();
             editableSceneUi.SetInterfaceVisible(!hideForHeadset);
             if (hideForHeadset)
@@ -204,6 +208,7 @@ namespace MemPalaceLLM
             editableSceneUi.SetText("Common_Title", GetSceneUiHeaderTitle());
             editableSceneUi.SetText("Common_Status", GetSceneUiHeaderSubtitle());
             editableSceneUi.SetText("Common_Stage", GetSceneUiHeaderBadge());
+            editableSceneUi.SetStageProgress(GetStageStepNumber() / 7f);
 
             switch (stage)
             {
@@ -249,9 +254,18 @@ namespace MemPalaceLLM
         {
             return stage switch
             {
-                ExperimentStage.Setup => "Memory Palace",
+                ExperimentStage.Setup => "Prepare the expedition",
                 ExperimentStage.RoomBuilder => "Create your memory room",
-                _ => "LLM Memory Palace Experiment Demo"
+                ExperimentStage.RoomFamiliarization => "Explore the room",
+                ExperimentStage.PreTest => "Vocabulary baseline",
+                ExperimentStage.Generation => "Choose a story route",
+                ExperimentStage.StoryAuthoring => "Write the story route",
+                ExperimentStage.SelfAuthoring => "Map words to landmarks",
+                ExperimentStage.Study => "Walk the memory route",
+                ExperimentStage.Recall => "Immediate recall",
+                ExperimentStage.Questionnaire => "Research questionnaire",
+                ExperimentStage.Result => "Session complete",
+                _ => "Memory Palace"
             };
         }
 
@@ -259,20 +273,47 @@ namespace MemPalaceLLM
         {
             return stage switch
             {
-                ExperimentStage.Setup => "Set up a vocabulary study session",
-                ExperimentStage.RoomBuilder => "Build a place that feels familiar and easy to remember.",
-                _ => "Flow: PC room phase -> Spanish pre-test -> Story -> Furniture mapping -> HMD study -> Immediate post-test -> Google Form later"
+                ExperimentStage.Setup => "Configure one controlled vocabulary-learning session.",
+                ExperimentStage.RoomBuilder => "Shape a familiar place, then add at least eight distinct landmarks.",
+                ExperimentStage.RoomFamiliarization => "Learn the prepared room before the vocabulary task begins.",
+                ExperimentStage.PreTest => "Spanish → English screening · no correctness feedback is shown.",
+                ExperimentStage.Generation => "Compare three complete stories and select one unchanged.",
+                ExperimentStage.StoryAuthoring => "Create one continuous story and connect every sentence to a target word.",
+                ExperimentStage.SelfAuthoring => "Give every target word one unique furniture landmark.",
+                ExperimentStage.Study => "Follow the guided route and encode each word–landmark association.",
+                ExperimentStage.Recall => "Complete the immediate post-test without returning to the study material.",
+                ExperimentStage.Questionnaire => "Record workload and experience measures for this session.",
+                ExperimentStage.Result => "Exports are ready for the research record.",
+                _ => string.Empty
             };
         }
 
         private string GetSceneUiHeaderBadge()
         {
-            return stage switch
+            return $"{GetStageStepNumber():00} / 07  ·  {GetStageDisplayName().ToUpperInvariant()}";
+        }
+
+        private void HandleSceneUiKeyboardShortcuts()
+        {
+            var keyboard = Keyboard.current;
+            var selected = EventSystem.current?.currentSelectedGameObject;
+            if (keyboard == null || selected == null ||
+                (!keyboard.enterKey.wasPressedThisFrame && !keyboard.numpadEnterKey.wasPressedThisFrame))
             {
-                ExperimentStage.Setup => "Step 1 / 7",
-                ExperimentStage.RoomBuilder => "Room builder",
-                _ => $"Step {GetStageStepNumber()} / 7 - {GetStageDisplayName()}"
-            };
+                return;
+            }
+
+            if (stage == ExperimentStage.PreTest &&
+                selected == editableSceneUi.Get<InputField>("PreTest_Answer")?.gameObject)
+            {
+                SubmitPreTestAnswer();
+            }
+            else if (stage == ExperimentStage.Recall &&
+                     selected == editableSceneUi.Get<InputField>("Recall_TypedAnswer")?.gameObject &&
+                     !awaitingRecognitionAdvance)
+            {
+                SubmitTypedPostTestAnswer();
+            }
         }
 
         private void RefreshSceneUiSetup()
@@ -307,10 +348,18 @@ namespace MemPalaceLLM
             editableSceneUi.SetText("Room_Title", GetGridBuilderStepTitle());
             editableSceneUi.SetText("Room_Instructions", GetGridBuilderStepInstruction());
             editableSceneUi.SetText("Room_BuildArea", GetSelfRoomBuildAreaSummary());
-            editableSceneUi.SetText("Room_Status", gridEditorStatus ?? string.Empty);
+            var placedTypeCount = GetPlacedGridFurnitureTypeCount();
+            var remainingTypeCount = Mathf.Max(0, MinimumGridFurnitureTypeCount - placedTypeCount);
+            editableSceneUi.SetText(
+                "Room_Status",
+                string.IsNullOrWhiteSpace(gridEditorStatus)
+                    ? remainingTypeCount > 0
+                        ? $"Next objective: place {remainingTypeCount} more distinct landmark{(remainingTypeCount == 1 ? string.Empty : "s")}."
+                        : "Landmark requirement complete. Review the room, then continue."
+                    : gridEditorStatus);
             editableSceneUi.SetText(
                 "Room_Count",
-                $"{GetPlacedGridFurnitureTypeCount()}/{MinimumGridFurnitureTypeCount} different items placed | " +
+                $"LANDMARKS  {placedTypeCount}/{MinimumGridFurnitureTypeCount}   ·   " +
                 $"{gridRoomLayout.floorCells.Count} floor tiles | {gridRoomLayout.manualWalls.Count} inside walls");
             editableSceneUi.SetInputText("Room_ArchiveName", roomArchiveName);
             editableSceneUi.SetInputText("Room_LoadName", roomArchiveLoadFileName);
@@ -356,7 +405,11 @@ namespace MemPalaceLLM
             var canComplete = HasMinimumGridFurnitureTypes(out _) && TryValidateSelfRoomBuildArea(out _);
             editableSceneUi.SetInteractable("Room_ModeSelect", HasMinimumGridFurnitureTypes(out _));
             editableSceneUi.SetInteractable("Room_Done", canComplete);
-            editableSceneUi.SetText("Room_DoneLabel", playSessionActive && ConditionUsesSelfRoom() ? "Done - Continue" : "Done building");
+            editableSceneUi.SetText(
+                "Room_DoneLabel",
+                canComplete
+                    ? playSessionActive && ConditionUsesSelfRoom() ? "Complete room  →" : "Save completed room"
+                    : remainingTypeCount > 0 ? $"Place {remainingTypeCount} more landmark{(remainingTypeCount == 1 ? string.Empty : "s")}" : "Finish the room outline");
         }
 
         private void RefreshSceneUiFamiliarization()
@@ -723,7 +776,11 @@ namespace MemPalaceLLM
             SetCanvasGroup("Overlay_Flash", flashOverlayAlpha, flashOverlayAlpha > 0.001f);
             SetCanvasGroup("Overlay_Teleport", teleportOverlayAlpha, teleportOverlayAlpha > 0.001f);
 
-            var contextAlpha = GetContextInstructionAlpha();
+            // The room-builder stage already exposes the same guidance through its
+            // persistent HUD and wizard panel, so the generic card would be redundant.
+            var contextAlpha = stage == ExperimentStage.RoomBuilder
+                ? 0f
+                : GetContextInstructionAlpha();
             SetCanvasGroup("Overlay_Context", contextAlpha, contextAlpha > 0.001f);
             editableSceneUi.SetText("Overlay_ContextTitle", contextInstructionTitle);
             editableSceneUi.SetText("Overlay_ContextBody", contextInstructionBody);

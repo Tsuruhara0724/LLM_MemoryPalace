@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -27,20 +28,25 @@ namespace MemPalaceLLM
         [SerializeField] private GameObject vrStudyWordImageHudTemplate;
         [SerializeField] private GameObject vrRecallPanelTemplate;
 
-        [Header("Original UI Theme (used only when baking again)")]
-        [SerializeField] private Color pageColor = new(0.10f, 0.12f, 0.17f, 0.94f);
-        [SerializeField] private Color cardColor = new(0.14f, 0.17f, 0.23f, 0.95f);
-        [SerializeField] private Color primaryColor = new(0.10f, 0.38f, 0.42f, 1f);
-        [SerializeField] private Color textColor = new(0.95f, 0.96f, 0.99f, 1f);
-        [SerializeField] private Color mutedTextColor = new(0.70f, 0.76f, 0.84f, 1f);
-        [SerializeField] private Color lightPageColor = new(0.94f, 0.94f, 0.91f, 0.98f);
-        [SerializeField] private Color lightSecondaryColor = new(0.88f, 0.89f, 0.85f, 1f);
-        [SerializeField] private Color lightInkColor = new(0.13f, 0.18f, 0.20f, 1f);
-        [SerializeField] private Color lightMutedTextColor = new(0.34f, 0.39f, 0.39f, 1f);
+        [Header("Research Expedition Theme (used when baking again)")]
+        [SerializeField] private Color pageColor = new(0.055f, 0.075f, 0.11f, 0.97f);
+        [SerializeField] private Color cardColor = new(0.09f, 0.12f, 0.17f, 0.97f);
+        [SerializeField] private Color primaryColor = new(0.06f, 0.47f, 0.48f, 1f);
+        [SerializeField] private Color textColor = new(0.95f, 0.97f, 0.98f, 1f);
+        [SerializeField] private Color mutedTextColor = new(0.68f, 0.75f, 0.81f, 1f);
+        [SerializeField] private Color lightPageColor = new(0.94f, 0.93f, 0.88f, 0.99f);
+        [SerializeField] private Color lightSecondaryColor = new(0.85f, 0.86f, 0.81f, 1f);
+        [SerializeField] private Color lightInkColor = new(0.07f, 0.12f, 0.14f, 1f);
+        [SerializeField] private Color lightMutedTextColor = new(0.30f, 0.36f, 0.37f, 1f);
+
+        [Header("Motion")]
+        [SerializeField, Range(0f, 0.5f)] private float stageFadeSeconds = 0.16f;
 
         private readonly Dictionary<string, GameObject> objectsByName = new(StringComparer.Ordinal);
         private bool initialized;
         private bool lightStageTheme = true;
+        private string visibleStageName = string.Empty;
+        private Coroutine stageFadeRoutine;
 
         public Canvas Canvas => canvas;
         public GameObject StageRoot => stageRoot;
@@ -146,23 +152,70 @@ namespace MemPalaceLLM
                 return;
             }
 
+            if (string.Equals(visibleStageName, panelName, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            visibleStageName = panelName;
+            GameObject visibleStage = null;
+
             for (var i = 0; i < stageRoot.transform.childCount; i++)
             {
                 var child = stageRoot.transform.GetChild(i).gameObject;
-                child.SetActive(string.Equals(child.name, panelName, StringComparison.Ordinal));
+                var visible = string.Equals(child.name, panelName, StringComparison.Ordinal);
+                child.SetActive(visible);
+                if (visible)
+                {
+                    visibleStage = child;
+                }
             }
+
+            if (visibleStage == null)
+            {
+                return;
+            }
+
+            var group = visibleStage.GetComponent<CanvasGroup>();
+            if (group == null)
+            {
+                group = visibleStage.AddComponent<CanvasGroup>();
+            }
+            if (!Application.isPlaying || stageFadeSeconds <= 0.001f)
+            {
+                group.alpha = 1f;
+                group.interactable = true;
+                group.blocksRaycasts = true;
+                return;
+            }
+
+            if (stageFadeRoutine != null)
+            {
+                StopCoroutine(stageFadeRoutine);
+            }
+            stageFadeRoutine = StartCoroutine(FadeInStage(group));
         }
 
         public void ApplyLegacyStageTheme(ExperimentStage stage)
         {
             lightStageTheme = stage == ExperimentStage.Setup || stage == ExperimentStage.RoomBuilder;
-            SetGraphicColor("Common_Header", lightStageTheme ? lightPageColor : pageColor);
-            SetGraphicColor(
-                "Common_StageBadge",
-                lightStageTheme ? lightSecondaryColor : new Color(0.17f, 0.35f, 0.58f, 0.95f));
-            SetTextColor("Common_Title", lightStageTheme ? lightInkColor : Color.white);
-            SetTextColor("Common_Status", lightStageTheme ? lightMutedTextColor : mutedTextColor);
-            SetTextColor("Common_Stage", lightStageTheme ? lightInkColor : Color.white);
+            // The dark instrument-like header gives every phase one stable visual anchor. The
+            // work surface can still switch between the light builder and dark study palettes.
+            SetGraphicColor("Common_Header", pageColor);
+            SetGraphicColor("Common_StageBadge", primaryColor);
+            SetTextColor("Common_Kicker", new Color(0.46f, 0.80f, 0.80f, 1f));
+            SetTextColor("Common_Title", Color.white);
+            SetTextColor("Common_Status", mutedTextColor);
+            SetTextColor("Common_Stage", Color.white);
+        }
+
+        public void SetStageProgress(float normalizedProgress)
+        {
+            var fill = Get<Image>("Common_ProgressFill");
+            if (fill != null)
+            {
+                fill.fillAmount = Mathf.Clamp01(normalizedProgress);
+            }
         }
 
         public void SetVisible(string objectName, bool visible)
@@ -236,6 +289,26 @@ namespace MemPalaceLLM
             {
                 text.color = color;
             }
+        }
+
+        private IEnumerator FadeInStage(CanvasGroup group)
+        {
+            group.alpha = 0f;
+            group.interactable = false;
+            group.blocksRaycasts = false;
+            var elapsed = 0f;
+            while (elapsed < stageFadeSeconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                var t = Mathf.Clamp01(elapsed / stageFadeSeconds);
+                group.alpha = 1f - (1f - t) * (1f - t);
+                yield return null;
+            }
+
+            group.alpha = 1f;
+            group.interactable = true;
+            group.blocksRaycasts = true;
+            stageFadeRoutine = null;
         }
 
         public void SetSliderValue(string objectName, float value)

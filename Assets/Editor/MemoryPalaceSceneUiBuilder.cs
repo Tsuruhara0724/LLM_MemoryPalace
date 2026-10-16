@@ -13,20 +13,23 @@ namespace MemPalaceLLM.Editor
 {
     public static class MemoryPalaceSceneUiBuilder
     {
-        // Mirror the two established IMGUI palettes instead of introducing a new design.
-        private static readonly Color Page = new(0.10f, 0.12f, 0.17f, 0.94f);
-        private static readonly Color Card = new(0.14f, 0.17f, 0.23f, 0.95f);
-        private static readonly Color Field = new(0.11f, 0.12f, 0.15f, 1f);
-        private static readonly Color Primary = new(0.10f, 0.38f, 0.42f, 1f);
-        private static readonly Color TextColor = new(0.95f, 0.96f, 0.99f, 1f);
-        private static readonly Color Muted = new(0.70f, 0.76f, 0.84f, 1f);
-        private static readonly Color Disabled = new(0.28f, 0.31f, 0.36f, 0.70f);
-        private static readonly Color LightPage = new(0.94f, 0.94f, 0.91f, 0.98f);
-        private static readonly Color LightCard = new(1f, 1f, 0.98f, 0.98f);
-        private static readonly Color LightInk = new(0.13f, 0.18f, 0.20f, 1f);
-        private static readonly Color LightMuted = new(0.34f, 0.39f, 0.39f, 1f);
-        private static readonly Color LightSecondary = new(0.88f, 0.89f, 0.85f, 1f);
-        private static readonly Color DarkButton = new(0.16f, 0.17f, 0.20f, 1f);
+        // A restrained "research expedition" palette: instrument-dark chrome, warm paper work
+        // surfaces, teal actions, and an amber waypoint accent. It stays sober enough for an
+        // experiment while giving the participant a clear sense of progression.
+        private static readonly Color Page = new(0.055f, 0.075f, 0.11f, 0.97f);
+        private static readonly Color Card = new(0.09f, 0.12f, 0.17f, 0.97f);
+        private static readonly Color Field = new(0.07f, 0.09f, 0.13f, 1f);
+        private static readonly Color Primary = new(0.06f, 0.47f, 0.48f, 1f);
+        private static readonly Color Accent = new(0.90f, 0.63f, 0.21f, 1f);
+        private static readonly Color TextColor = new(0.95f, 0.97f, 0.98f, 1f);
+        private static readonly Color Muted = new(0.68f, 0.75f, 0.81f, 1f);
+        private static readonly Color Disabled = new(0.25f, 0.29f, 0.34f, 0.62f);
+        private static readonly Color LightPage = new(0.94f, 0.93f, 0.88f, 0.99f);
+        private static readonly Color LightCard = new(0.985f, 0.98f, 0.95f, 1f);
+        private static readonly Color LightInk = new(0.07f, 0.12f, 0.14f, 1f);
+        private static readonly Color LightMuted = new(0.30f, 0.36f, 0.37f, 1f);
+        private static readonly Color LightSecondary = new(0.85f, 0.86f, 0.81f, 1f);
+        private static readonly Color DarkButton = new(0.13f, 0.17f, 0.22f, 1f);
         private static Font defaultFont;
         private static Sprite defaultUiSprite;
         private static int generatedNameIndex;
@@ -78,9 +81,10 @@ namespace MemPalaceLLM.Editor
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 20;
             var scaler = canvasObject.AddComponent<CanvasScaler>();
-            // IMGUI used screen-pixel rectangles; this preserves its original panel widths.
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
-            scaler.scaleFactor = 1f;
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1440f, 900f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
             canvasObject.AddComponent<GraphicRaycaster>();
             Stretch(canvasObject.GetComponent<RectTransform>());
 
@@ -250,36 +254,51 @@ namespace MemPalaceLLM.Editor
         private static void CreateHeader(Transform parent)
         {
             var header = CreatePanel(parent, "Common_Header", new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(16f, -72f), new Vector2(-16f, -14f), LightPage, true);
-            AddTextAbsolute(header, "Common_Title", "Memory Palace", 24, FontStyle.Bold,
-                new Vector2(18f, 4f), new Vector2(520f, 29f), TextAnchor.MiddleLeft, LightInk);
-            AddTextAbsolute(header, "Common_Status", "Set up a vocabulary study session", 14, FontStyle.Normal,
-                new Vector2(20f, 33f), new Vector2(1120f, 19f), TextAnchor.MiddleLeft, LightMuted);
+                new Vector2(16f, -78f), new Vector2(-16f, -10f), Page, true);
+            AddTextAbsolute(header, "Common_Kicker", "MEMORY PALACE  /  RESEARCH PROTOCOL", 10, FontStyle.Bold,
+                new Vector2(20f, 7f), new Vector2(560f, 14f), TextAnchor.MiddleLeft, new Color(0.46f, 0.80f, 0.80f, 1f));
+            AddTextAbsolute(header, "Common_Title", "Memory Palace", 23, FontStyle.Bold,
+                new Vector2(18f, 21f), new Vector2(600f, 28f), TextAnchor.MiddleLeft, TextColor);
+            AddTextAbsolute(header, "Common_Status", "Set up a vocabulary study session", 13, FontStyle.Normal,
+                new Vector2(20f, 49f), new Vector2(1120f, 17f), TextAnchor.MiddleLeft, Muted);
 
             var badge = CreatePanel(header, "Common_StageBadge", Vector2.one, Vector2.one,
-                new Vector2(-164f, -43f), new Vector2(-24f, -13f), LightSecondary, false);
-            AddTextAbsolute(badge, "Common_Stage", "Step 1 / 7", 14, FontStyle.Normal,
-                Vector2.zero, new Vector2(140f, 30f), TextAnchor.MiddleCenter, LightInk);
+                new Vector2(-250f, -48f), new Vector2(-24f, -14f), Primary, false);
+            AddTextAbsolute(badge, "Common_Stage", "01 / 07  ·  SETUP", 13, FontStyle.Bold,
+                Vector2.zero, new Vector2(226f, 34f), TextAnchor.MiddleCenter, TextColor);
+
+            var progressTrack = CreatePanel(header, "Common_ProgressTrack", new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(0f, 0f), new Vector2(0f, 4f), new Color(1f, 1f, 1f, 0.10f), false);
+            var progressFillObject = CreateObject("Common_ProgressFill", progressTrack);
+            var progressFill = progressFillObject.AddComponent<Image>();
+            progressFill.color = Accent;
+            progressFill.type = Image.Type.Filled;
+            progressFill.fillMethod = Image.FillMethod.Horizontal;
+            progressFill.fillOrigin = 0;
+            progressFill.fillAmount = 1f / 7f;
+            Stretch(progressFill.rectTransform);
         }
 
         private static void BuildSetup(Transform stageRoot)
         {
-            var content = CreateCenteredScrollStage(stageRoot, "Stage_Setup", 1080f);
+            var root = CreateStageRoot(stageRoot, "Stage_Setup");
+            var content = CreateScrollPanel(root.transform, "Stage_Setup_Page", new Vector2(0.5f, 0f), new Vector2(0.5f, 1f),
+                new Vector2(-540f, 124f), new Vector2(540f, 0f), LightPage);
             AddHeading(content, "Setup_Title", "Set up this session");
-            AddBody(content, "Setup_Intro", "Choose one condition in the 2 x 2 room-source x story-source design.");
+            AddBody(content, "Setup_Intro", "Choose one route in the 2 × 2 room-source × story-source protocol.");
             var top = AddGrid(content, "Setup_TopRow", 2, 492f, 296f, 302f);
             var session = AddVerticalGroup(top, "Setup_SessionCard", 296f, LightCard);
-            AddSectionLabel(session, "Session");
-            AddBody(session, "Setup_ParticipantLabel", "Participant ID");
+            AddSectionLabel(session, "Session identity");
+            AddBody(session, "Setup_ParticipantLabel", "Participant ID · stored with every research export");
             AddInput(session, "Setup_ParticipantInput", "P001", false, 50f);
 
             var condition = AddVerticalGroup(top, "Setup_ConditionCard", 296f, LightCard);
-            AddSectionLabel(condition, "Choose your study");
+            AddSectionLabel(condition, "Choose the study route");
             var conditionGrid = AddGrid(condition, "Setup_ConditionGrid", 2, 226f, 72f, 152f);
-            AddButton(conditionGrid, "Setup_Condition1", "1 - Self room\nSelf story", 70f);
-            AddButton(conditionGrid, "Setup_Condition2", "2 - Self room\nLLM story", 70f);
-            AddButton(conditionGrid, "Setup_Condition3", "3 - Example room\nSelf story", 70f);
-            AddButton(conditionGrid, "Setup_Condition4", "4 - Example room\nLLM story", 70f);
+            AddButton(conditionGrid, "Setup_Condition1", "01  BUILD ROOM\nWRITE STORY", 70f);
+            AddButton(conditionGrid, "Setup_Condition2", "02  BUILD ROOM\nCHOOSE AI STORY", 70f);
+            AddButton(conditionGrid, "Setup_Condition3", "03  EXPLORE ROOM\nWRITE STORY", 70f);
+            AddButton(conditionGrid, "Setup_Condition4", "04  EXPLORE ROOM\nCHOOSE AI STORY", 70f);
             AddBody(condition, "Setup_ConditionDescription", string.Empty, 58f);
 
             var middle = AddGrid(content, "Setup_MiddleRow", 2, 492f, 272f, 278f);
@@ -298,11 +317,14 @@ namespace MemPalaceLLM.Editor
             AddButton(saved, "Setup_StartSaved", "Start with saved room JSON", 50f);
             AddButton(room, "Setup_ReloadExample", "Reload example_room.json", 50f).gameObject.SetActive(false);
 
-            var next = AddVerticalGroup(content, "Setup_NextCard", 202f, LightCard);
-            AddSectionLabel(next, "Next");
-            AddBody(next, "Setup_NextHint", string.Empty, 64f);
-            AddButton(next, "Setup_Start", "Start", 52f, true, "Setup_StartLabel");
-            AddButton(next, "Setup_Researcher", "Researcher settings", 44f);
+            var actionBar = CreatePanel(root.transform, "Setup_ActionBar", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(-540f, 12f), new Vector2(540f, 112f), LightCard, true);
+            AddTextAbsolute(actionBar, "Setup_ActionKicker", "NEXT PHASE", 10, FontStyle.Bold,
+                new Vector2(20f, 10f), new Vector2(680f, 16f), TextAnchor.MiddleLeft, Primary);
+            AddTextAbsolute(actionBar, "Setup_NextHint", string.Empty, 13, FontStyle.Normal,
+                new Vector2(20f, 29f), new Vector2(700f, 48f), TextAnchor.UpperLeft, LightMuted);
+            AddButtonAbsolute(actionBar, "Setup_Start", "Start", new Vector2(-22f, 10f), new Vector2(280f, 48f), true, "Setup_StartLabel");
+            AddButtonAbsolute(actionBar, "Setup_Researcher", "Researcher settings", new Vector2(-22f, 66f), new Vector2(280f, 28f), true, null, false);
         }
 
         private static void BuildRoomBuilder(Transform stageRoot)
@@ -1464,9 +1486,10 @@ namespace MemPalaceLLM.Editor
             Vector2 offsetMin,
             Vector2 size,
             bool rightAnchored,
-            string labelName = null)
+            string labelName = null,
+            bool primary = true)
         {
-            var button = AddButton(parent, name, label, size.y, true, labelName);
+            var button = AddButton(parent, name, label, size.y, primary, labelName);
             Object.DestroyImmediate(button.GetComponent<LayoutElement>());
             var rect = button.GetComponent<RectTransform>();
             rect.anchorMin = rect.anchorMax = rightAnchored ? new Vector2(1f, 1f) : Vector2.up;
