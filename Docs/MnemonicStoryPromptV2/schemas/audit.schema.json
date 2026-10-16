@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memory-palace.local/schemas/mnemonic-story-audit-v2.json",
+  "title": "Mnemonic Story Audit v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "frameworkVersion",
+    "pass",
+    "scores",
+    "violations",
+    "summary"
+  ],
+  "properties": {
+    "frameworkVersion": {
+      "const": "MSF-2.0"
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "causalChain",
+        "targetNecessity",
+        "imageability",
+        "distinctiveness",
+        "readability",
+        "economy"
+      ],
+      "properties": {
+        "causalChain": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "targetNecessity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "imageability": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "distinctiveness": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "readability": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "economy": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "evidence",
+          "repairDirective"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "SCHEMA_INVALID",
+              "TARGET_MISSING",
+              "TARGET_DUPLICATE",
+              "MEANING_CHANGED",
+              "ORDER_MISMATCH",
+              "TARGET_DECORATIVE",
+              "BROKEN_CAUSAL_LINK",
+              "WEAK_IMAGE",
+              "IMAGE_COLLISION",
+              "LANGUAGE_TOO_HARD",
+              "TOO_LONG",
+              "ROOM_ANCHOR_LEAK",
+              "META_MNEMONIC_LANGUAGE"
+            ]
+          },
+          "targetWord": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "repairDirective": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 320
+    }
+  }
+}

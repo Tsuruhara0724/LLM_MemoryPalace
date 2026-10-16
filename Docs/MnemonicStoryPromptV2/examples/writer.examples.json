@@ -1,0 +1,110 @@
+{
+  "frameworkVersion": "MSF-2.0",
+  "purpose": "Approved style calibration only. Production target lists must not overlap these examples.",
+  "examples": [
+    {
+      "profile": "collaborative_rescue",
+      "targets": [
+        {
+          "word": "postal",
+          "meaning": "postcard"
+        },
+        {
+          "word": "bufanda",
+          "meaning": "scarf"
+        },
+        {
+          "word": "farol",
+          "meaning": "lantern"
+        },
+        {
+          "word": "tambor",
+          "meaning": "drum"
+        }
+      ],
+      "output": {
+        "frameworkVersion": "MSF-2.0",
+        "profile": "collaborative_rescue",
+        "fullStory": "You find a postal (postcard) caught under the pier and wipe off the wet sand. Its message asks you to tie a bright bufanda (scarf) where it can be seen. The wind lifts the scarf against an old farol (lantern), opening its loose cover and revealing a dry match. You light the lantern, then tap a tambor (drum) beneath its glow, and the clear rhythm guides your waiting friend back to the pier.",
+        "items": [
+          {
+            "word": "postal",
+            "meaning": "postcard",
+            "storyOrder": 1,
+            "storySegment": "You find a postal (postcard) caught under the pier and wipe off the wet sand."
+          },
+          {
+            "word": "bufanda",
+            "meaning": "scarf",
+            "storyOrder": 2,
+            "storySegment": "Its message asks you to tie a bright bufanda (scarf) where it can be seen."
+          },
+          {
+            "word": "farol",
+            "meaning": "lantern",
+            "storyOrder": 3,
+            "storySegment": "The wind lifts the scarf against an old farol (lantern), opening its loose cover and revealing a dry match."
+          },
+          {
+            "word": "tambor",
+            "meaning": "drum",
+            "storyOrder": 4,
+            "storySegment": "You light the lantern, then tap a tambor (drum) beneath its glow, and the clear rhythm guides your waiting friend back to the pier."
+          }
+        ]
+      }
+    },
+    {
+      "profile": "gentle_mystery",
+      "targets": [
+        {
+          "word": "pluma",
+          "meaning": "feather"
+        },
+        {
+          "word": "cesta",
+          "meaning": "basket"
+        },
+        {
+          "word": "mapa",
+          "meaning": "map"
+        },
+        {
+          "word": "cometa",
+          "meaning": "kite"
+        }
+      ],
+      "output": {
+        "frameworkVersion": "MSF-2.0",
+        "profile": "gentle_mystery",
+        "fullStory": "You find a blue pluma (feather) beside the path and notice a line of blue dust ahead. The dust leads to an empty cesta (basket), whose handle holds a folded note. You open the note into a mapa (map) marked with a windy hill. At the hill, a red cometa (kite) tugs above the grass, and its tail holds the missing picnic ticket.",
+        "items": [
+          {
+            "word": "pluma",
+            "meaning": "feather",
+            "storyOrder": 1,
+            "storySegment": "You find a blue pluma (feather) beside the path and notice a line of blue dust ahead."
+          },
+          {
+            "word": "cesta",
+            "meaning": "basket",
+            "storyOrder": 2,
+            "storySegment": "The dust leads to an empty cesta (basket), whose handle holds a folded note."
+          },
+          {
+            "word": "mapa",
+            "meaning": "map",
+            "storyOrder": 3,
+            "storySegment": "You open the note into a mapa (map) marked with a windy hill."
+          },
+          {
+            "word": "cometa",
+            "meaning": "kite",
+            "storyOrder": 4,
+            "storySegment": "At the hill, a red cometa (kite) tugs above the grass, and its tail holds the missing picnic ticket."
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memory-palace.local/schemas/mnemonic-story-plan-v2.json",
+  "title": "Mnemonic Story Blueprint Set v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "frameworkVersion",
+    "profile",
+    "plans"
+  ],
+  "properties": {
+    "frameworkVersion": {
+      "const": "MSF-2.0"
+    },
+    "profile": {
+      "enum": [
+        "collaborative_rescue",
+        "hands_on_repair",
+        "gentle_mystery"
+      ]
+    },
+    "plans": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/plan"
+      }
+    }
+  },
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planId",
+        "premise",
+        "beats",
+        "resolution"
+      ],
+      "properties": {
+        "planId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "premise": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "setting",
+            "goal",
+            "stakes",
+            "supportingCharacter"
+          ],
+          "properties": {
+            "setting": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "goal": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 140
+            },
+            "stakes": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "supportingCharacter": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            }
+          }
+        },
+        "beats": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/beat"
+          }
+        },
+        "resolution": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        }
+      }
+    },
+    "beat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "word",
+        "meaning",
+        "role",
+        "entryCue",
+        "action",
+        "visibleResult",
+        "nextNeed",
+        "imageTag"
+      ],
+      "properties": {
+        "word": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "role": {
+          "enum": [
+            "ENABLE",
+            "HINDER",
+            "REVEAL",
+            "TRANSFORM",
+            "VERIFY",
+            "RESOLVE"
+          ]
+        },
+        "entryCue": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "visibleResult": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "nextNeed": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "imageTag": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+){1,5}$",
+          "maxLength": 80
+        }
+      }
+    }
+  }
+}
