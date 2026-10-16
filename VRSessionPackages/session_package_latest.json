@@ -1,18 +1,18 @@
 ﻿{
     "packageVersion": "vr_session_package_v4_adaptive_pretest",
-    "exportedAtUtc": "2026-09-02T11:52:28.0805004Z",
-    "sessionId": "20260902_204654",
+    "exportedAtUtc": "2026-09-09T09:07:53.8442132Z",
+    "sessionId": "20260909_180154",
     "participantId": "P001",
     "sourcePcHost": "192.168.137.1",
     "condition": 1,
     "wordSetId": "formal_32_pool",
     "wordSetName": "Formal Screened 8-Word Set",
-    "roomPhaseDurationSeconds": 135.10220336914063,
-    "preTestDurationSeconds": 20.054595947265626,
-    "storyAuthoringDurationSeconds": 47.699951171875,
-    "furnitureAssignmentDurationSeconds": 130.22943115234376,
-    "preTestScreenedWordCount": 10,
-    "preTestRandomSeed": -1028454722,
+    "roomPhaseDurationSeconds": 3.4520883560180666,
+    "preTestDurationSeconds": 2.096041679382324,
+    "storyAuthoringDurationSeconds": 282.9560546875,
+    "furnitureAssignmentDurationSeconds": 70.34872436523438,
+    "preTestScreenedWordCount": 8,
+    "preTestRandomSeed": 1660757025,
     "hasRuntimeSettings": true,
     "enableVrStudyMode": true,
     "enableVoiceGuidance": true,
@@ -7069,13 +7069,13 @@
                 "modelKey": "wardrobe",
                 "position": {
                     "x": 1.0,
-                    "y": 1.0,
+                    "y": 0.8500000238418579,
                     "z": 7.5
                 },
                 "scale": {
-                    "x": 1.5299999713897706,
-                    "y": 2.0,
-                    "z": 0.699999988079071
+                    "x": 1.2999999523162842,
+                    "y": 1.7000000476837159,
+                    "z": 0.6000000238418579
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7084,10 +7084,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 1.649999976158142,
+                    "y": 1.4550000429153443,
                     "z": 0.0
                 },
-                "labelHeight": 1.9500000476837159,
+                "labelHeight": 1.725000023841858,
                 "modelParts": []
             },
             {
@@ -7098,13 +7098,13 @@
                 "modelKey": "desk",
                 "position": {
                     "x": -3.0,
-                    "y": 0.375,
+                    "y": 0.5249999761581421,
                     "z": 7.5
                 },
                 "scale": {
-                    "x": 1.2599999904632569,
-                    "y": 0.75,
-                    "z": 0.6200000047683716
+                    "x": 1.7599999904632569,
+                    "y": 1.0499999523162842,
+                    "z": 0.8700000047683716
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7113,10 +7113,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 0.8374999761581421,
+                    "y": 1.03249990940094,
                     "z": 0.0
                 },
-                "labelHeight": 1.0125000476837159,
+                "labelHeight": 1.2374999523162842,
                 "modelParts": []
             },
             {
@@ -7156,13 +7156,13 @@
                 "modelKey": "sofa",
                 "position": {
                     "x": 3.5,
-                    "y": 0.4000000059604645,
+                    "y": 0.5400000214576721,
                     "z": 3.0
                 },
                 "scale": {
-                    "x": 1.9800000190734864,
-                    "y": 0.800000011920929,
-                    "z": 0.9100000262260437
+                    "x": 2.6700000762939455,
+                    "y": 1.0800000429153443,
+                    "z": 1.2300000190734864
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7171,10 +7171,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 0.8700000047683716,
+                    "y": 1.0520000457763672,
                     "z": 0.0
                 },
-                "labelHeight": 1.0499999523162842,
+                "labelHeight": 1.2599999904632569,
                 "modelParts": []
             },
             {
@@ -7184,14 +7184,14 @@
                 "colorHex": "#252A32",
                 "modelKey": "television",
                 "position": {
-                    "x": 4.914999961853027,
+                    "x": 4.854999542236328,
                     "y": 1.350000023841858,
                     "z": 2.5
                 },
                 "scale": {
-                    "x": 1.2000000476837159,
-                    "y": 0.7099999785423279,
-                    "z": 0.11999999731779099
+                    "x": 2.4000000953674318,
+                    "y": 1.4199999570846558,
+                    "z": 0.23999999463558198
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7200,10 +7200,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 0.8114999532699585,
+                    "y": 1.272999882698059,
                     "z": 0.0
                 },
-                "labelHeight": 0.9824999570846558,
+                "labelHeight": 1.5149999856948853,
                 "modelParts": []
             },
             {
@@ -7272,13 +7272,13 @@
                 "modelKey": "lamp",
                 "position": {
                     "x": 3.5,
-                    "y": 0.7250000238418579,
+                    "y": 0.9049999713897705,
                     "z": 1.5
                 },
                 "scale": {
-                    "x": 0.3799999952316284,
-                    "y": 1.4500000476837159,
-                    "z": 0.3799999952316284
+                    "x": 0.47999998927116396,
+                    "y": 1.809999942779541,
+                    "z": 0.47999998927116396
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7287,10 +7287,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 1.2925000190734864,
+                    "y": 1.52649986743927,
                     "z": 0.0
                 },
-                "labelHeight": 1.537500023841858,
+                "labelHeight": 1.807499885559082,
                 "modelParts": []
             },
             {
@@ -7301,13 +7301,13 @@
                 "modelKey": "plant",
                 "position": {
                     "x": -7.5,
-                    "y": 0.550000011920929,
+                    "y": 0.7450000047683716,
                     "z": 5.5
                 },
                 "scale": {
-                    "x": 0.5899999737739563,
-                    "y": 1.100000023841858,
-                    "z": 0.6100000143051148
+                    "x": 0.800000011920929,
+                    "y": 1.4900000095367432,
+                    "z": 0.8199999928474426
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7316,10 +7316,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 1.0649999380111695,
+                    "y": 1.3184999227523804,
                     "z": 0.0
                 },
-                "labelHeight": 1.274999976158142,
+                "labelHeight": 1.5674999952316285,
                 "modelParts": []
             },
             {
@@ -7330,13 +7330,13 @@
                 "modelKey": "toilet",
                 "position": {
                     "x": -7.5,
-                    "y": 0.5249999761581421,
+                    "y": 0.7900000214576721,
                     "z": 3.5
                 },
                 "scale": {
-                    "x": 0.4699999988079071,
-                    "y": 1.0499999523162842,
-                    "z": 0.8299999833106995
+                    "x": 0.7099999785423279,
+                    "y": 1.5800000429153443,
+                    "z": 1.25
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7345,10 +7345,10 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 1.03249990940094,
+                    "y": 1.3769999742507935,
                     "z": 0.0
                 },
-                "labelHeight": 1.2374999523162842,
+                "labelHeight": 1.6349999904632569,
                 "modelParts": []
             },
             {
@@ -7387,14 +7387,14 @@
                 "colorHex": "#DDE7EF",
                 "modelKey": "bathtub",
                 "position": {
-                    "x": -5.0,
-                    "y": 0.29499998688697817,
+                    "x": -6.0,
+                    "y": 0.5149999856948853,
                     "z": -0.5
                 },
                 "scale": {
-                    "x": 1.7000000476837159,
-                    "y": 0.5899999737739563,
-                    "z": 0.7699999809265137
+                    "x": 2.9800000190734865,
+                    "y": 1.0299999713897706,
+                    "z": 1.350000023841858
                 },
                 "rotationEuler": {
                     "x": 0.0,
@@ -7403,137 +7403,137 @@
                 },
                 "mnemonicOffset": {
                     "x": 0.0,
-                    "y": 0.7334999442100525,
+                    "y": 1.0194998979568482,
                     "z": 0.0
                 },
-                "labelHeight": 0.8924999833106995,
+                "labelHeight": 1.222499966621399,
                 "modelParts": []
             }
         ]
     },
     "storySession": {
-        "fullStory": "You and Maya need to reach the cabin before dark, so you start your búsqueda (search) by following the overgrown path ahead. The path leads to a broken bridge, and you spot a flat-roofed storage shed nearby; you climb onto its techo (roof) to see the terrain beyond. From up there, you notice a torn backpack caught on a post below—Maya retrieves it and finds a cremallera (zipper) still working on one pocket. Inside the pocket is a map showing a shortcut, but it crosses a ravine; you and Maya use the old juego (game) of balancing on fallen logs to test which ones will hold your weight. You find one solid log and roll a rueda (wheel) from the shed to act as a pulley; threading a rope through it lets you both lower yourselves safely down. Reaching the ravine floor feels like a logro (achievement), but the path ahead is blocked by a landslide. You mix pegamento (glue) you find in the shed with bark to seal cracks in a wooden board, then use it as a bridge across the slippery lodo (mud). You step across carefully, Maya follows, and together you reach the cabin as the light fades.",
+        "fullStory": "Your child is missing and you hear a loud ruido (noise) from above the house, so you run outside and look up to see your trapped on the techo (roof). You climb up to reach your, but you is stuck too far away on the edge. You carry a columpio (swing) up to the roof and hang it near your so you can grab it, but when you tries to move toward it, your jacket cremallera (zipper) catches on the swing chain and holds your frozen. You begin a quick búsqueda (search) across the roof and find a small knife to carefully cut the fabric free from the zipper. You light a vela (candle) to see the tangled threads better and work until the cremallera releases completely. Your daughter is still frightened and won't reach for the swing, so you blow a burbuja (bubble) toward your to calm your down. You watches it float and relax enough to grab the swing and swing back to you, where you give your a tight abrazo (hug) and carry your safely down.",
         "storySource": "claude_story",
         "storyProvider": "Claude Haiku",
         "storyModel": "claude-haiku-4-5-20251001",
-        "generatedAtUtc": "2026-09-02T11:50:01.4820380Z",
+        "generatedAtUtc": "2026-09-09T09:02:42.5606472Z",
         "orderedItems": [
             {
-                "word": "búsqueda",
-                "meaning": "search",
+                "word": "ruido",
+                "meaning": "noise",
                 "anchorId": "sofa_8",
                 "anchorLabel": "Sofa",
                 "anchorType": "sofa",
                 "storyOrder": 1,
-                "storySegment": "You and Maya need to reach the cabin before dark, so you start your búsqueda (search) by following the overgrown path ahead.",
-                "imageResourcePath": "WordImages/búsqueda",
-                "imageFilePath": "Resources/WordImages/búsqueda",
+                "storySegment": "You and your friend must reach a safe gate before nightfall, so you place the ruido (noise) under the edge and push it open.",
+                "imageResourcePath": "WordImages/ruido",
+                "imageFilePath": "Resources/WordImages/ruido",
                 "imageLoaded": true
             },
             {
                 "word": "techo",
                 "meaning": "roof",
-                "anchorId": "window_11",
-                "anchorLabel": "Window",
-                "anchorType": "window",
+                "anchorId": "lamp_12",
+                "anchorLabel": "Lamp",
+                "anchorType": "lamp",
                 "storyOrder": 2,
-                "storySegment": "The path leads to a broken bridge, and you spot a flat-roofed storage shed nearby; you climb onto its techo (roof) to see the terrain beyond.",
+                "storySegment": "That first action gets you into a narrow hall, but you cannot see well, so you place the techo (roof) under the edge and push it open.",
                 "imageResourcePath": "WordImages/techo",
                 "imageFilePath": "Resources/WordImages/techo",
                 "imageLoaded": true
             },
             {
+                "word": "columpio",
+                "meaning": "swing",
+                "anchorId": "bathtub_17",
+                "anchorLabel": "Bathtub",
+                "anchorType": "bathtub",
+                "storyOrder": 3,
+                "storySegment": "You carry a columpio (swing) up to the roof.",
+                "imageResourcePath": "WordImages/columpio",
+                "imageFilePath": "Resources/WordImages/columpio",
+                "imageLoaded": true
+            },
+            {
                 "word": "cremallera",
                 "meaning": "zipper",
-                "anchorId": "toilet_14",
-                "anchorLabel": "Toilet",
-                "anchorType": "toilet",
-                "storyOrder": 3,
-                "storySegment": "From up there, you notice a torn backpack caught on a post below—Maya retrieves it and finds a cremallera (zipper) still working on one pocket.",
+                "anchorId": "bed_2",
+                "anchorLabel": "Bed",
+                "anchorType": "bed",
+                "storyOrder": 4,
+                "storySegment": "You notice the cremallera (zipper) catches on the swing chain and holds her frozen.",
                 "imageResourcePath": "WordImages/cremallera",
                 "imageFilePath": "Resources/WordImages/cremallera",
                 "imageLoaded": true
             },
             {
-                "word": "juego",
-                "meaning": "game",
-                "anchorId": "chair_5",
-                "anchorLabel": "Chair",
-                "anchorType": "chair",
-                "storyOrder": 4,
-                "storySegment": "Inside the pocket is a map showing a shortcut, but it crosses a ravine; you and Maya use the old juego (game) of balancing on fallen logs to test which ones will hold your weight.",
-                "imageResourcePath": "WordImages/juego",
-                "imageFilePath": "Resources/WordImages/juego",
-                "imageLoaded": true
-            },
-            {
-                "word": "rueda",
-                "meaning": "wheel",
-                "anchorId": "bookshelf_16",
-                "anchorLabel": "Bookshelf",
-                "anchorType": "bookshelf",
-                "storyOrder": 5,
-                "storySegment": "You find one solid log and roll a rueda (wheel) from the shed to act as a pulley; threading a rope through it lets you both lower yourselves safely down.",
-                "imageResourcePath": "WordImages/rueda",
-                "imageFilePath": "Resources/WordImages/rueda",
-                "imageLoaded": true
-            },
-            {
-                "word": "logro",
-                "meaning": "achievement",
-                "anchorId": "bathtub_17",
-                "anchorLabel": "Bathtub",
-                "anchorType": "bathtub",
-                "storyOrder": 6,
-                "storySegment": "Reaching the ravine floor feels like a logro (achievement), but the path ahead is blocked by a landslide.",
-                "imageResourcePath": "WordImages/logro",
-                "imageFilePath": "Resources/WordImages/logro",
-                "imageLoaded": true
-            },
-            {
-                "word": "pegamento",
-                "meaning": "glue",
-                "anchorId": "air_conditioner_10",
-                "anchorLabel": "Air Conditioner",
-                "anchorType": "air_conditioner",
-                "storyOrder": 7,
-                "storySegment": "You mix pegamento (glue) you find in the shed.",
-                "imageResourcePath": "WordImages/pegamento",
-                "imageFilePath": "Resources/WordImages/pegamento",
-                "imageLoaded": true
-            },
-            {
-                "word": "lodo",
-                "meaning": "mud",
+                "word": "búsqueda",
+                "meaning": "search",
                 "anchorId": "door_1",
                 "anchorLabel": "Door",
                 "anchorType": "door",
+                "storyOrder": 5,
+                "storySegment": "You begin a quick búsqueda (search) across the roof and find a small knife to carefully cut the fabric free from the zipper.",
+                "imageResourcePath": "WordImages/búsqueda",
+                "imageFilePath": "Resources/WordImages/búsqueda",
+                "imageLoaded": true
+            },
+            {
+                "word": "vela",
+                "meaning": "candle",
+                "anchorId": "toilet_14",
+                "anchorLabel": "Toilet",
+                "anchorType": "toilet",
+                "storyOrder": 6,
+                "storySegment": "You light a vela (candle) to see the tangled threads better and work until the cremallera releases completely.",
+                "imageResourcePath": "WordImages/vela",
+                "imageFilePath": "Resources/WordImages/vela",
+                "imageLoaded": true
+            },
+            {
+                "word": "burbuja",
+                "meaning": "bubble",
+                "anchorId": "plant_13",
+                "anchorLabel": "Plant",
+                "anchorType": "plant",
+                "storyOrder": 7,
+                "storySegment": "Your daughter is still frightened and won't reach for the swing, so you blow a burbuja (bubble) toward her to calm her down.",
+                "imageResourcePath": "WordImages/burbuja",
+                "imageFilePath": "Resources/WordImages/burbuja",
+                "imageLoaded": true
+            },
+            {
+                "word": "abrazo",
+                "meaning": "hug",
+                "anchorId": "air_conditioner_10",
+                "anchorLabel": "Air Conditioner",
+                "anchorType": "air_conditioner",
                 "storyOrder": 8,
-                "storySegment": "At the last door, one more barrier keeps you outside, so you place the lodo (mud) under the edge and push it open.",
-                "imageResourcePath": "WordImages/lodo",
-                "imageFilePath": "Resources/WordImages/lodo",
+                "storySegment": "She watches it float and relax enough to grab the swing and swing back to you, where you give her a tight abrazo (hug) and carry her safely down.",
+                "imageResourcePath": "WordImages/abrazo",
+                "imageFilePath": "Resources/WordImages/abrazo",
                 "imageLoaded": true
             }
         ]
     },
     "mnemonicItems": [
         {
-            "word": "búsqueda",
-            "meaning": "search",
+            "word": "ruido",
+            "meaning": "noise",
             "anchorId": "sofa_8",
             "anchorLabel": "Sofa",
             "anchorType": "sofa",
             "mnemonicSource": "claude_story",
-            "visualCue": "You and Maya need to reach the cabin before dark, so you start your búsqueda (search) by following the overgrown path ahead.",
-            "mainCueObject": "search",
-            "associationPrompt": "search (búsqueda)",
-            "mnemonic": "You and Maya need to reach the cabin before dark, so you start your búsqueda (search) by following the overgrown path ahead.",
+            "visualCue": "You and your friend must reach a safe gate before nightfall, so you place the ruido (noise) under the edge and push it open.",
+            "mainCueObject": "noise",
+            "associationPrompt": "noise (ruido)",
+            "mnemonic": "You and your friend must reach a safe gate before nightfall, so you place the ruido (noise) under the edge and push it open.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "You and Maya need to reach the cabin before dark, so you start your búsqueda (search) by following the overgrown path ahead.",
+            "storyCue": "You and your friend must reach a safe gate before nightfall, so you place the ruido (noise) under the edge and push it open.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7550,28 +7550,28 @@
             "selectedImagePrompt": "",
             "selectedImageCandidateIndex": -1,
             "imageSelectionReason": "Local word image.",
-            "imageCuePath": "Resources/WordImages/búsqueda",
+            "imageCuePath": "Resources/WordImages/ruido",
             "objectShape": "quad",
-            "colorHex": "#7EC8E3",
+            "colorHex": "#E9C46A",
             "visualObjects": []
         },
         {
             "word": "techo",
             "meaning": "roof",
-            "anchorId": "window_11",
-            "anchorLabel": "Window",
-            "anchorType": "window",
+            "anchorId": "lamp_12",
+            "anchorLabel": "Lamp",
+            "anchorType": "lamp",
             "mnemonicSource": "claude_story",
-            "visualCue": "The path leads to a broken bridge, and you spot a flat-roofed storage shed nearby; you climb onto its techo (roof) to see the terrain beyond.",
+            "visualCue": "That first action gets you into a narrow hall, but you cannot see well, so you place the techo (roof) under the edge and push it open.",
             "mainCueObject": "roof",
             "associationPrompt": "roof (techo)",
-            "mnemonic": "The path leads to a broken bridge, and you spot a flat-roofed storage shed nearby; you climb onto its techo (roof) to see the terrain beyond.",
+            "mnemonic": "That first action gets you into a narrow hall, but you cannot see well, so you place the techo (roof) under the edge and push it open.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "The path leads to a broken bridge, and you spot a flat-roofed storage shed nearby; you climb onto its techo (roof) to see the terrain beyond.",
+            "storyCue": "That first action gets you into a narrow hall, but you cannot see well, so you place the techo (roof) under the edge and push it open.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7590,26 +7590,64 @@
             "imageSelectionReason": "Local word image.",
             "imageCuePath": "Resources/WordImages/techo",
             "objectShape": "quad",
-            "colorHex": "#F4A261",
+            "colorHex": "#7EC8E3",
             "visualObjects": []
         },
         {
-            "word": "cremallera",
-            "meaning": "zipper",
-            "anchorId": "toilet_14",
-            "anchorLabel": "Toilet",
-            "anchorType": "toilet",
+            "word": "columpio",
+            "meaning": "swing",
+            "anchorId": "bathtub_17",
+            "anchorLabel": "Bathtub",
+            "anchorType": "bathtub",
             "mnemonicSource": "claude_story",
-            "visualCue": "From up there, you notice a torn backpack caught on a post below—Maya retrieves it and finds a cremallera (zipper) still working on one pocket.",
-            "mainCueObject": "zipper",
-            "associationPrompt": "zipper (cremallera)",
-            "mnemonic": "From up there, you notice a torn backpack caught on a post below—Maya retrieves it and finds a cremallera (zipper) still working on one pocket.",
+            "visualCue": "You carry a columpio (swing) up to the roof.",
+            "mainCueObject": "swing",
+            "associationPrompt": "swing (columpio)",
+            "mnemonic": "You carry a columpio (swing) up to the roof.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "From up there, you notice a torn backpack caught on a post below—Maya retrieves it and finds a cremallera (zipper) still working on one pocket.",
+            "storyCue": "You carry a columpio (swing) up to the roof.",
+            "imagePrompt": "",
+            "imagePromptCandidates": [],
+            "cueBlueprint": {
+                "targetMeaning": "",
+                "visualSceneCore": "",
+                "mainObject": "",
+                "anchorRelation": "",
+                "relativeSize": "",
+                "mainActionOrState": "",
+                "visibleObjects": [],
+                "mnemonicHookNote": "",
+                "mnemonicMode": ""
+            },
+            "selectedImagePrompt": "",
+            "selectedImageCandidateIndex": -1,
+            "imageSelectionReason": "Local word image.",
+            "imageCuePath": "Resources/WordImages/columpio",
+            "objectShape": "quad",
+            "colorHex": "#CCD5AE",
+            "visualObjects": []
+        },
+        {
+            "word": "cremallera",
+            "meaning": "zipper",
+            "anchorId": "bed_2",
+            "anchorLabel": "Bed",
+            "anchorType": "bed",
+            "mnemonicSource": "claude_story",
+            "visualCue": "You notice the cremallera (zipper) catches on the swing chain and holds her frozen.",
+            "mainCueObject": "zipper",
+            "associationPrompt": "zipper (cremallera)",
+            "mnemonic": "You notice the cremallera (zipper) catches on the swing chain and holds her frozen.",
+            "mnemonicMode": "STORY_ONLY",
+            "hookAccepted": false,
+            "hookScore": 0,
+            "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
+            "mnemonicHook": "",
+            "storyCue": "You notice the cremallera (zipper) catches on the swing chain and holds her frozen.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7632,22 +7670,22 @@
             "visualObjects": []
         },
         {
-            "word": "juego",
-            "meaning": "game",
-            "anchorId": "chair_5",
-            "anchorLabel": "Chair",
-            "anchorType": "chair",
+            "word": "búsqueda",
+            "meaning": "search",
+            "anchorId": "door_1",
+            "anchorLabel": "Door",
+            "anchorType": "door",
             "mnemonicSource": "claude_story",
-            "visualCue": "Inside the pocket is a map showing a shortcut, but it crosses a ravine; you and Maya use the old juego (game) of balancing on fallen logs to test which ones will hold your weight.",
-            "mainCueObject": "game",
-            "associationPrompt": "game (juego)",
-            "mnemonic": "Inside the pocket is a map showing a shortcut, but it crosses a ravine; you and Maya use the old juego (game) of balancing on fallen logs to test which ones will hold your weight.",
+            "visualCue": "You begin a quick búsqueda (search) across the roof and find a small knife to carefully cut the fabric free from the zipper.",
+            "mainCueObject": "search",
+            "associationPrompt": "search (búsqueda)",
+            "mnemonic": "You begin a quick búsqueda (search) across the roof and find a small knife to carefully cut the fabric free from the zipper.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "Inside the pocket is a map showing a shortcut, but it crosses a ravine; you and Maya use the old juego (game) of balancing on fallen logs to test which ones will hold your weight.",
+            "storyCue": "You begin a quick búsqueda (search) across the roof and find a small knife to carefully cut the fabric free from the zipper.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7664,28 +7702,28 @@
             "selectedImagePrompt": "",
             "selectedImageCandidateIndex": -1,
             "imageSelectionReason": "Local word image.",
-            "imageCuePath": "Resources/WordImages/juego",
+            "imageCuePath": "Resources/WordImages/búsqueda",
             "objectShape": "quad",
             "colorHex": "#A8DADC",
             "visualObjects": []
         },
         {
-            "word": "rueda",
-            "meaning": "wheel",
-            "anchorId": "bookshelf_16",
-            "anchorLabel": "Bookshelf",
-            "anchorType": "bookshelf",
+            "word": "vela",
+            "meaning": "candle",
+            "anchorId": "toilet_14",
+            "anchorLabel": "Toilet",
+            "anchorType": "toilet",
             "mnemonicSource": "claude_story",
-            "visualCue": "You find one solid log and roll a rueda (wheel) from the shed to act as a pulley; threading a rope through it lets you both lower yourselves safely down.",
-            "mainCueObject": "wheel",
-            "associationPrompt": "wheel (rueda)",
-            "mnemonic": "You find one solid log and roll a rueda (wheel) from the shed to act as a pulley; threading a rope through it lets you both lower yourselves safely down.",
+            "visualCue": "You light a vela (candle) to see the tangled threads better and work until the cremallera releases completely.",
+            "mainCueObject": "candle",
+            "associationPrompt": "candle (vela)",
+            "mnemonic": "You light a vela (candle) to see the tangled threads better and work until the cremallera releases completely.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "You find one solid log and roll a rueda (wheel) from the shed to act as a pulley; threading a rope through it lets you both lower yourselves safely down.",
+            "storyCue": "You light a vela (candle) to see the tangled threads better and work until the cremallera releases completely.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7702,28 +7740,28 @@
             "selectedImagePrompt": "",
             "selectedImageCandidateIndex": -1,
             "imageSelectionReason": "Local word image.",
-            "imageCuePath": "Resources/WordImages/rueda",
+            "imageCuePath": "Resources/WordImages/vela",
             "objectShape": "quad",
-            "colorHex": "#2A9D8F",
+            "colorHex": "#F4A261",
             "visualObjects": []
         },
         {
-            "word": "logro",
-            "meaning": "achievement",
-            "anchorId": "bathtub_17",
-            "anchorLabel": "Bathtub",
-            "anchorType": "bathtub",
+            "word": "burbuja",
+            "meaning": "bubble",
+            "anchorId": "plant_13",
+            "anchorLabel": "Plant",
+            "anchorType": "plant",
             "mnemonicSource": "claude_story",
-            "visualCue": "Reaching the ravine floor feels like a logro (achievement), but the path ahead is blocked by a landslide.",
-            "mainCueObject": "achievement",
-            "associationPrompt": "achievement (logro)",
-            "mnemonic": "Reaching the ravine floor feels like a logro (achievement), but the path ahead is blocked by a landslide.",
+            "visualCue": "Your daughter is still frightened and won't reach for the swing, so you blow a burbuja (bubble) toward her to calm her down.",
+            "mainCueObject": "bubble",
+            "associationPrompt": "bubble (burbuja)",
+            "mnemonic": "Your daughter is still frightened and won't reach for the swing, so you blow a burbuja (bubble) toward her to calm her down.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "Reaching the ravine floor feels like a logro (achievement), but the path ahead is blocked by a landslide.",
+            "storyCue": "Your daughter is still frightened and won't reach for the swing, so you blow a burbuja (bubble) toward her to calm her down.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7740,28 +7778,28 @@
             "selectedImagePrompt": "",
             "selectedImageCandidateIndex": -1,
             "imageSelectionReason": "Local word image.",
-            "imageCuePath": "Resources/WordImages/logro",
+            "imageCuePath": "Resources/WordImages/burbuja",
             "objectShape": "quad",
             "colorHex": "#FFD166",
             "visualObjects": []
         },
         {
-            "word": "pegamento",
-            "meaning": "glue",
+            "word": "abrazo",
+            "meaning": "hug",
             "anchorId": "air_conditioner_10",
             "anchorLabel": "Air Conditioner",
             "anchorType": "air_conditioner",
             "mnemonicSource": "claude_story",
-            "visualCue": "You mix pegamento (glue) you find in the shed.",
-            "mainCueObject": "glue",
-            "associationPrompt": "glue (pegamento)",
-            "mnemonic": "You mix pegamento (glue) you find in the shed.",
+            "visualCue": "She watches it float and relax enough to grab the swing and swing back to you, where you give her a tight abrazo (hug) and carry her safely down.",
+            "mainCueObject": "hug",
+            "associationPrompt": "hug (abrazo)",
+            "mnemonic": "She watches it float and relax enough to grab the swing and swing back to you, where you give her a tight abrazo (hug) and carry her safely down.",
             "mnemonicMode": "STORY_ONLY",
             "hookAccepted": false,
             "hookScore": 0,
             "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
             "mnemonicHook": "",
-            "storyCue": "You mix pegamento (glue) you find in the shed.",
+            "storyCue": "She watches it float and relax enough to grab the swing and swing back to you, where you give her a tight abrazo (hug) and carry her safely down.",
             "imagePrompt": "",
             "imagePromptCandidates": [],
             "cueBlueprint": {
@@ -7778,47 +7816,9 @@
             "selectedImagePrompt": "",
             "selectedImageCandidateIndex": -1,
             "imageSelectionReason": "Local word image.",
-            "imageCuePath": "Resources/WordImages/pegamento",
+            "imageCuePath": "Resources/WordImages/abrazo",
             "objectShape": "quad",
-            "colorHex": "#E9C46A",
-            "visualObjects": []
-        },
-        {
-            "word": "lodo",
-            "meaning": "mud",
-            "anchorId": "door_1",
-            "anchorLabel": "Door",
-            "anchorType": "door",
-            "mnemonicSource": "claude_story",
-            "visualCue": "At the last door, one more barrier keeps you outside, so you place the lodo (mud) under the edge and push it open.",
-            "mainCueObject": "mud",
-            "associationPrompt": "mud (lodo)",
-            "mnemonic": "At the last door, one more barrier keeps you outside, so you place the lodo (mud) under the edge and push it open.",
-            "mnemonicMode": "STORY_ONLY",
-            "hookAccepted": false,
-            "hookScore": 0,
-            "hookReason": "Story-only redesign: no separate mnemonic hook is generated.",
-            "mnemonicHook": "",
-            "storyCue": "At the last door, one more barrier keeps you outside, so you place the lodo (mud) under the edge and push it open.",
-            "imagePrompt": "",
-            "imagePromptCandidates": [],
-            "cueBlueprint": {
-                "targetMeaning": "",
-                "visualSceneCore": "",
-                "mainObject": "",
-                "anchorRelation": "",
-                "relativeSize": "",
-                "mainActionOrState": "",
-                "visibleObjects": [],
-                "mnemonicHookNote": "",
-                "mnemonicMode": ""
-            },
-            "selectedImagePrompt": "",
-            "selectedImageCandidateIndex": -1,
-            "imageSelectionReason": "Local word image.",
-            "imageCuePath": "Resources/WordImages/lodo",
-            "objectShape": "quad",
-            "colorHex": "#CCD5AE",
+            "colorHex": "#2A9D8F",
             "visualObjects": []
         }
     ]
