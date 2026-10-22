@@ -274,7 +274,7 @@ namespace MemPalaceLLM
             return stage switch
             {
                 ExperimentStage.Setup => "Configure one controlled vocabulary-learning session.",
-                ExperimentStage.RoomBuilder => "Shape a familiar place, then add at least eight distinct landmarks.",
+                ExperimentStage.RoomBuilder => $"Shape a familiar place, then add at least {MinimumGridFurnitureTypeCount} distinct landmarks.",
                 ExperimentStage.RoomFamiliarization => "Learn the prepared room before the vocabulary task begins.",
                 ExperimentStage.PreTest => "Spanish → English screening · no correctness feedback is shown.",
                 ExperimentStage.Generation => "Compare three complete stories and select one unchanged.",

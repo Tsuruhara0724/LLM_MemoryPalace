@@ -21719,7 +21719,7 @@ MonoBehaviour:
   m_HandleRect: {fileID: 813079671}
   m_Direction: 2
   m_Value: 1
-  m_Size: 1
+  m_Size: 0.8756551
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:
@@ -26093,8 +26093,8 @@ MonoBehaviour:
   m_Script: {fileID: 1232446654}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MemPalaceLLM.MemoryPalaceSentenceAssignmentRow
-  sentenceLabel: {fileID: 919780258}
-  wordDropdown: {fileID: 670537798}
+  sentenceLabel: {fileID: 0}
+  wordDropdown: {fileID: 0}
 --- !u!114 &855084460
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -28362,11 +28362,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83a7fbf9680f46b4ea6a8d5041f61ea5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  vrComfortVignetteMode: 1
+  vrPeripheralClearRadius: 0.45
+  vrPeripheralTransitionWidth: 0.35
+  vrPeripheralBlurRadius: 3.5
+  vrPeripheralDarkness: 1
   selfRoomPhysicalLengthMeters: 2
   selfRoomPhysicalWidthMeters: 1.5
   selfRoomVirtualMetersPerPhysicalMeter: 7.5
   showSelfRoomBuildAreaBoundary: 1
   vrPhysicalWalkingGain: 1
+  vrJoystickMoveSpeed: 1.5
+  vrViewHeightOffset: -1
   useEditableSceneUi: 1
   editableSceneUi: {fileID: 556889036}
 --- !u!4 &932477112

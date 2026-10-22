@@ -46,20 +46,17 @@ namespace MemPalaceLLM
         private const float GridRoomCellSize = 1.0f;
         private const float GridRoomFloorThickness = 0.06f;
         private const float GridRoomWallThickness = 0.1f;
-        private const int MinimumGridFurnitureTypeCount = 8;
+        private const int MinimumGridFurnitureTypeCount = 9;
         private const float VrPointerDistance = 8f;
         private const float VrActionCooldownSeconds = 0.35f;
         private const string VrRuntimeRevision = "VR-FIX-0817-UI11";
         private const float VrInitializationRetrySeconds = 2.0f;
         private const float VrSnapTurnDegrees = 30f;
-        private const float VrJoystickMoveSpeed = 1.00f;
         private const float VrTrackingOriginJumpDistance = 0.65f;
         private const float VrDefaultSeatedEyeHeight = 1.10f;
         private const float VrMinimumEyeHeight = 0.90f;
         private const float VrMaximumEyeHeight = 1.65f;
 
-        // Height Offset
-        private const float VrViewHeightOffset = -0.15f;
         private const float VrStartButtonDwellSeconds = 0.85f;
         private const float VrStartButtonHoverGraceSeconds = 0.20f;
         private const float VrSnapshotPreviewHoldSeconds = 1.5f;
@@ -130,6 +127,17 @@ namespace MemPalaceLLM
         [Tooltip("Horizontal virtual displacement produced by one meter of real tracked walking. This is independent of the yellow construction boundary.")]
         [SerializeField, Range(1.0f, 12.0f)]
         private float vrPhysicalWalkingGain = 1.0f;
+
+        [Tooltip("Joystick translation speed in virtual meters per second at full stick deflection. Independent of physical walking gain and desktop keyboard movement.")]
+        [InspectorName("VR Joystick Move Speed (m/s)")]
+        [SerializeField, Range(0.1f, 5.0f)]
+        private float vrJoystickMoveSpeed = 1.0f;
+
+        [Header("VR View Height (Temporary Tuning)")]
+        [Tooltip("Temporary tuning control, in meters. Negative lowers the view; positive raises it. Applies on VR entry and live in Play Mode by shifting the entire tracking rig, preserving head/controller tracking. Stop Play and save the Scene to retain the chosen value.")]
+        [InspectorName("VR View Height Offset (m)")]
+        [SerializeField, Range(-1.0f, 1.0f)]
+        private float vrViewHeightOffset = -0.35f;
 
         [Header("Editable Scene UI")]
         [Tooltip("Use the UGUI hierarchy stored in the Scene. Disable this to restore the legacy code-drawn operator UI immediately.")]
@@ -300,6 +308,7 @@ namespace MemPalaceLLM
         private Light runtimeLight;
         private Transform roomRoot;
         private Transform vrRigRoot;
+        private float appliedVrViewHeightOffset;
         private InputTrackedPoseDriver vrTrackedPoseDriver;
         private InputAction vrHmdPositionAction;
         private InputAction vrHmdRotationAction;
@@ -878,6 +887,7 @@ namespace MemPalaceLLM
         {
             EnsureSceneScaffold();
             RefreshSelfRoomBuildAreaIfNeeded();
+            UpdateVrViewHeightOffset();
             MaintainXrTrackingSafety();
             EnsureTextToSpeechService();
             textToSpeech?.Tick();
@@ -972,6 +982,7 @@ namespace MemPalaceLLM
 
         private void OnDestroy()
         {
+            ReleaseVrPeripheralBlur();
             DismissVrSnapshotPreviewImmediately();
             DisposeVrTrackingActions();
             ClearStudyFurnitureGazeHighlight();
@@ -5165,6 +5176,7 @@ namespace MemPalaceLLM
             selfRoomVirtualMetersPerPhysicalMeter = NormalizeSelfRoomVirtualScale(
                 selfRoomVirtualMetersPerPhysicalMeter);
             vrPhysicalWalkingGain = NormalizeVrPhysicalWalkingGain(vrPhysicalWalkingGain);
+            vrJoystickMoveSpeed = NormalizeVrJoystickMoveSpeed(vrJoystickMoveSpeed);
             var changed = !Mathf.Approximately(
                               observedSelfRoomPhysicalLengthMeters,
                               selfRoomPhysicalLengthMeters)
@@ -5236,6 +5248,16 @@ namespace MemPalaceLLM
             }
 
             return Mathf.Clamp(value, 1.0f, 12.0f);
+        }
+
+        private static float NormalizeVrJoystickMoveSpeed(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+            {
+                return 1.0f;
+            }
+
+            return Mathf.Clamp(value, 0.1f, 5.0f);
         }
 
         private void GetSelfRoomBuildAreaCellCounts(out int lengthCells, out int widthCells)
@@ -19227,6 +19249,7 @@ namespace MemPalaceLLM
                 vrComfortVignetteRoot = null;
             }
             vrComfortVignetteGroup = null;
+            ReleaseVrPeripheralBlur();
             if (vrComfortVignetteTexture != null)
             {
                 Destroy(vrComfortVignetteTexture);
@@ -23925,7 +23948,7 @@ namespace MemPalaceLLM
             var right = runtimeCamera.transform.right;
             right.y = 0f;
             var move = forward.normalized * axis.y + right.normalized * axis.x;
-            MoveVrRigWithCollision(move * (VrJoystickMoveSpeed * Time.unscaledDeltaTime));
+            MoveVrRigWithCollision(move * (vrJoystickMoveSpeed * Time.unscaledDeltaTime));
         }
 
         private void UpdateVrFurnitureFocusMode()
@@ -24554,6 +24577,7 @@ namespace MemPalaceLLM
             var desiredCameraPosition = cameraPose.position;
             var trackedEyeHeight = headLocalPosition.y;
             desiredCameraPosition.y = ResolveVrEntryEyeHeight(trackedEyeHeight);
+            appliedVrViewHeightOffset = NormalizeVrViewHeightOffset(vrViewHeightOffset);
             var desiredYaw = cameraPose.rotation.eulerAngles.y;
             var currentHeadYaw = headLocalRotation.eulerAngles.y;
             vrRigRoot.rotation = Quaternion.Euler(0f, desiredYaw - currentHeadYaw, 0f);
@@ -24581,22 +24605,44 @@ namespace MemPalaceLLM
             return true;
         }
 
-        private static float ResolveVrEntryEyeHeight(float trackedEyeHeight)
+        private float ResolveVrEntryEyeHeight(float trackedEyeHeight)
         {
+            var offset = NormalizeVrViewHeightOffset(vrViewHeightOffset);
             // With a Floor tracking origin, Quest reports the participant's real eye height.
-            // Keep its relative tracking while applying the configured downward view offset.
+            // Keep its relative tracking while applying the configured view offset.
             if (!float.IsNaN(trackedEyeHeight) &&
                 !float.IsInfinity(trackedEyeHeight) &&
                 trackedEyeHeight >= 0.65f &&
                 trackedEyeHeight <= 2.25f)
             {
                 return Mathf.Clamp(trackedEyeHeight, VrMinimumEyeHeight, VrMaximumEyeHeight) +
-                       VrViewHeightOffset;
+                       offset;
             }
 
             // Device-origin runtimes often report a near-zero local Y. Use a deliberately
             // low seated fallback instead of the previous fixed 1.55 m standing height.
-            return VrDefaultSeatedEyeHeight + VrViewHeightOffset;
+            return VrDefaultSeatedEyeHeight + offset;
+        }
+
+        private static float NormalizeVrViewHeightOffset(float value)
+        {
+            return float.IsNaN(value) || float.IsInfinity(value)
+                ? -0.35f
+                : Mathf.Clamp(value, -1.0f, 1.0f);
+        }
+
+        private void UpdateVrViewHeightOffset()
+        {
+            vrViewHeightOffset = NormalizeVrViewHeightOffset(vrViewHeightOffset);
+            if (vrRigRoot == null || Mathf.Approximately(vrViewHeightOffset, appliedVrViewHeightOffset))
+            {
+                return;
+            }
+
+            // Apply only the setting delta, not an absolute eye height: crouching,
+            // native head/controller poses and previous locomotion must remain intact.
+            vrRigRoot.position += Vector3.up * (vrViewHeightOffset - appliedVrViewHeightOffset);
+            appliedVrViewHeightOffset = vrViewHeightOffset;
         }
 
         private void EnsureVrTrackedPoseDriver()
@@ -25192,6 +25238,11 @@ namespace MemPalaceLLM
         private void UpdateVrComfortVignette(bool isMoving)
         {
             if (vrComfortVignetteGroup == null)
+            {
+                return;
+            }
+
+            if (UpdateVrPeripheralBlur(isMoving))
             {
                 return;
             }
