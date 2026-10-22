@@ -2,10 +2,12 @@
 
 Last verified: 2026-07-20
 
+Story-generation policy and integration notes updated: 2026-10-22 (other sections retain their own verification dates).
+
 ## 1. Current development state
 
-- Active branch: `codex/story-only-memory-palace`
-- Current commit before this feature batch: `c82c307` (`Add unlimited local TTS support`)
+- Active branch: `codex/quality-pass-20261016`
+- Committed baseline before the MSF-2.1 prompt-only edits: `bb6f3e9` (`Add mnemonic story prompt framework v2`)
 - Unity version: `6000.3.12f1`
 - Current design label: `LLM Story + User Furniture Assignment vs Participant Story + User Furniture Assignment vs Furnished Room Baseline`
 - The redesign is active through `IsStoryOnlyRedesignEnabled() => true` in both the controller and LLM service.
@@ -72,7 +74,7 @@ Responsibilities:
 
 - `MemoryPalaceBootstrap`: creates the experiment controller after scene load.
 - `MemoryPalaceExperimentController`: Setup UI, room builder, background/participant story flow, PC furniture-word assignment, study room, Desktop/VR interaction, snapshots, recognition tests, questionnaire, and export.
-- `OllamaLlmService.GenerateStory`: retains the established prompt/parsing pipeline and routes runtime requests to the front-end-selected Claude Haiku or GPT_Luna backend.
+- `OllamaLlmService.GenerateStory`: retains the established planning/parsing pipeline and routes runtime requests to the front-end-selected Claude Haiku or GPT_Luna backend; `MnemonicStoryPrompts` supplies the MSF-2.1 prompt policy.
 - `WordImageCatalog`: loads `Resources/WordImages/{word}` and falls back to `_placeholder`.
 - `ElevenLabsTextToSpeechService`: loads prepared Spanish word clips from `Resources/WordAudio/{word}`. For dynamic English guides and stories it uses the PC-local Azure Speech proxy's OpenAI-compatible WAV endpoint. The Azure key is never sent to Unity or Quest. It preserves route callbacks and replay controls across prepared and generated audio.
 - `ExperimentModels`: story, word-image, response, questionnaire, and export models.
@@ -97,6 +99,8 @@ Selectable online backends:
 - Optional desktop overrides use the standard `ANTHROPIC_*` or `OPENAI_*` environment variables
 - The same causal-plan, constrained repair, parsing, and validation pipeline is retained.
 
+As of 2026-10-22, runtime prompt policy is **MSF-2.1**: semantic fidelity first, exact word–meaning–event binding, distinctive episodes, and plausible event-to-event cues. Verbs/states/abstract concepts need meaningful participation, not physical-tool indispensability. Target lists are serialized JSON inside per-request delimited data blocks. The new policy is adapted to the existing runtime contract below; Docs templates are not loaded at runtime. Four-plan/profile ranking and independent Audit remain design assets, not active runtime stages. Temperatures, token limits, model selection and 160–210 word budget for eight targets are unchanged.
+
 The model returns:
 
 ```json
@@ -112,7 +116,7 @@ Rules and guards:
 
 - One concrete premise, consistent setting, and satisfying ending.
 - Not a room tour, packing list, shopping list, scavenger hunt, or row of isolated object scenes.
-- Every selected word must appear as exact `English meaning (Spanish word)` text.
+- Every selected word must appear as exact `Spanish word (English meaning)` text, close to the event expressing its meaning and without breaking natural English grammar.
 - The LLM may choose the most natural narrative order.
 - The active story generation path no longer receives automatic furniture anchors; assigned furniture and anchor names must not leak into the story.
 - Repeated mentions do not create extra route items.
@@ -122,6 +126,8 @@ Rules and guards:
 - Fragmented-object-scene heuristics can reject low-coherence output.
 
 Minor plan-link paraphrases are canonicalized rather than rejected. If the first final story fails parsing/quality checks or omits a target annotation, the same provider receives one constrained rewrite request. A remaining failure returns to Setup with an explicit error; the runtime does not open an empty Preview or append isolated dream-like repair sentences.
+
+Canonicalized link strings and local parsing checks do not prove semantic continuity. Writer self-checks are prompt instructions, not a separate semantic auditor. The full design templates retain `frameworkVersion: MSF-2.0` for schema compatibility despite the MSF-2.1 content label. No new learning-effect experiment, RQ change or experiment-condition change is introduced by this revision.
 
 Legacy per-word mnemonic generation, cue-blueprint generation, Stable Diffusion cue generation, and A-D image reranking remain disabled. The current text-generation backend is selected from the participant-facing Claude Haiku / GPT_Luna control.
 

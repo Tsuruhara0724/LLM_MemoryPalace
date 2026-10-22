@@ -380,7 +380,7 @@ namespace MemPalaceLLM
             {
                 model = model.Trim(),
                 prompt = BuildCausalStoryPlanPrompt(words),
-                system = "You are a strict causal story planner. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
+                system = MnemonicStoryPrompts.PlannerSystem,
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
@@ -419,7 +419,7 @@ namespace MemPalaceLLM
             {
                 model = model.Trim(),
                 prompt = BuildStoryPrompt(words, causalPlanJson),
-                system = "You are a strict causal fiction editor and JSON API. Audit the supplied plan, repair any physically impossible link, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                system = MnemonicStoryPrompts.WriterSystem,
                 format = "json",
                 stream = false,
                 options = new OllamaRequestOptions
@@ -450,7 +450,7 @@ namespace MemPalaceLLM
                 {
                     model = model.Trim(),
                     prompt = BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
-                    system = "You repair a rejected causal micro-story. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                    system = MnemonicStoryPrompts.RepairSystem,
                     format = "json",
                     stream = false,
                     options = new OllamaRequestOptions
@@ -518,7 +518,7 @@ namespace MemPalaceLLM
                 apiKey.Trim(),
                 model.Trim(),
                 BuildCausalStoryPlanPrompt(words),
-                "You are a strict causal story planner. Return exactly one valid JSON object and nothing else. No prose outside JSON. No markdown.",
+                MnemonicStoryPrompts.PlannerSystem,
                 0.28f,
                 1600,
                 value => causalPlanJson = value,
@@ -544,7 +544,7 @@ namespace MemPalaceLLM
                 apiKey.Trim(),
                 model.Trim(),
                 BuildStoryPrompt(words, causalPlanJson),
-                "You are a strict causal fiction editor and JSON API. Audit the supplied plan, repair any physically impossible link, then return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                MnemonicStoryPrompts.WriterSystem,
                 0.48f,
                 2000,
                 value => storyResponse = value,
@@ -566,7 +566,7 @@ namespace MemPalaceLLM
                     apiKey.Trim(),
                     model.Trim(),
                     BuildStoryRepairPrompt(words, causalPlanJson, storyResponse, firstFailure),
-                    "You repair a rejected causal micro-story. Return exactly one valid JSON object and nothing else. No markdown. No commentary.",
+                    MnemonicStoryPrompts.RepairSystem,
                     0.38f,
                     2200,
                     value => repairedResponse = value,
@@ -1025,33 +1025,7 @@ namespace MemPalaceLLM
 
         private static string BuildCausalStoryPlanPrompt(List<WordEntry> words)
         {
-            var builder = new StringBuilder();
-            builder.AppendLine("Build a physically plausible causal event plan for one short everyday story.");
-            builder.AppendLine("Use every target exactly once. Choose the order that makes the strongest causal chain.");
-            builder.AppendLine("The plan must be linear: item N creates the exact situation that item N+1 responds to. Do not make a set of separate episodes, parallel actions, or unrelated scenes.");
-            builder.AppendLine("Choose ONE target as the central destination, person, place, or object that defines the story's urgent goal. Every other target must help, hinder, protect, repair, unlock, signal, transport, or otherwise change progress toward that same goal.");
-            builder.AppendLine("The goal must not be a list of errands. Do not use shopping, packing several items, eating lunch, sightseeing, appreciating a view, attending unrelated events, or visiting multiple destinations as the story structure.");
-            builder.AppendLine("Return JSON exactly as: {\"goal\":\"one concrete urgent goal\",\"items\":[{\"word\":\"zapato\",\"need\":\"specific prior obstacle requiring it\",\"action\":\"intentional physically possible action with it\",\"result\":\"visible result that makes the next item necessary\",\"goal_link\":\"how this beat changes progress toward the single goal\"}]}");
-            builder.AppendLine("Each item must have non-empty word, need, action, result, and goal_link fields.");
-            builder.AppendLine("HARD LINK FORMAT: copy the complete result text of item N verbatim into the need field of item N+1. The strings must be exactly identical. The action in item N+1 must respond directly to that copied situation. The last result must solve the goal.");
-            builder.AppendLine("A target may be used in a normal way or in an imaginative way, but the result must still be clear and must logically cause the next need.");
-            builder.AppendLine("Reject magic, coincidence, dream logic, symbolic actions, impossible tool use, distant scenery, reflections that reveal unknown facts, and objects appearing without a source.");
-            builder.AppendLine("Do not claim that an inaccessible shop supplies an item, that throwing one object summons another, or that a blunt object cuts or unlocks something without a believable mechanism.");
-            builder.AppendLine("Prefer familiar actions that ordinary people could perform. Keep one route toward one destination and at least two active characters.");
-            builder.AppendLine("Use simple everyday English in goal, need, action, result, and goal_link. Prefer short common words and direct verbs. Avoid poetic, rare, or literary words.");
-            builder.AppendLine("Do not introduce important non-target props such as a bowl, lunch, bottle, rope, ticket, key, or borrowed book unless absolutely unavoidable for a small connecting action. The target objects must perform the important jobs.");
-            builder.AppendLine("Silently simulate the chain from beginning to end before returning JSON. Repair any step whose result would not really follow from its action.");
-            builder.AppendLine();
-            builder.AppendLine("Targets:");
-            for (var i = 0; i < words.Count; i++)
-            {
-                builder.Append(i + 1)
-                    .Append(". word=").Append(words[i].word)
-                    .Append("; meaning=").Append(words[i].meaning)
-                    .AppendLine();
-            }
-
-            return builder.ToString();
+            return MnemonicStoryPrompts.BuildPlan(words);
         }
 
         private static bool TryPrepareCausalStoryPlan(
@@ -1137,30 +1111,30 @@ namespace MemPalaceLLM
         {
             var plan = new CausalStoryPlanEnvelope
             {
-                goal = "Reach a safe place before dark.",
+                goal = "Finish one simple everyday task with a clear result.",
                 items = new CausalStoryPlanItem[words.Count]
             };
 
-            var priorResult = "The group needs to reach a safe place before dark.";
+            var priorResult = "Choose one everyday task that fits all supplied target meanings.";
             for (var i = 0; i < words.Count; i++)
             {
                 var entry = words[i];
                 var word = string.IsNullOrWhiteSpace(entry?.word) ? "target" : entry.word.Trim();
-                var meaning = string.IsNullOrWhiteSpace(entry?.meaning) ? "object" : entry.meaning.Trim();
+                var meaning = string.IsNullOrWhiteSpace(entry?.meaning) ? "supplied meaning" : entry.meaning.Trim();
                 var isLast = i == words.Count - 1;
                 var result = isLast
-                    ? "The group reaches the safe place before dark."
-                    : "The group can take the next step toward the safe place.";
+                    ? "Resolve the chosen everyday goal through the final meaning-faithful event."
+                    : "Ground a natural consequence or continuing situation that cues the next event.";
 
                 plan.items[i] = new CausalStoryPlanItem
                 {
                     word = word,
                     need = priorResult,
-                    action = "Use the " + meaning + " (" + word + ") in a practical way to move forward.",
+                    action = "Plan one distinct event expressing " + meaning + "; do not force an action or state to become a tool.",
                     result = result,
                     goal_link = isLast
-                        ? "This completes the journey to safety."
-                        : "This creates the next step toward safety."
+                        ? "Complete the same simple task."
+                        : "Keep this episode meaningfully connected to the same task."
                 };
                 priorResult = result;
             }
@@ -1175,77 +1149,7 @@ namespace MemPalaceLLM
 
         private static string BuildStoryPrompt(List<WordEntry> words, string causalPlanJson)
         {
-            var builder = new StringBuilder();
-            builder.AppendLine("Write one warm, plot-driven English micro-story using exactly the " + words.Count + " target Spanish words below.");
-            builder.AppendLine("The story is about what characters DO, not what a scene looks or sounds like.");
-            builder.AppendLine("First audit the supplied causal plan. Fix any impossible action or missing mechanism while preserving its goal and target-word order. Then write the story from the repaired plan.");
-            builder.AppendLine("Every sentence must visibly change progress toward the SAME goal. Do not let a character suddenly shop, eat, admire scenery, adjust clothing, or start another errand unless that action is indispensable to solving the original problem.");
-            builder.AppendLine("Do not introduce major non-target props to do the useful work. Make the supplied target words carry the plot.");
-            builder.AppendLine("SUPPLIED CAUSAL PLAN:");
-            builder.AppendLine(causalPlanJson);
-            builder.AppendLine();
-            builder.AppendLine("NON-NEGOTIABLE STORY SHAPE");
-            builder.AppendLine("1. Give you and one other active character one ordinary, concrete problem to solve together.");
-            builder.AppendLine("2. Keep one setting, one goal, and one continuous chain of events from the opening problem to its resolution.");
-            builder.AppendLine("2a. The story must be strictly linear. Each sentence must start from the situation created by the previous sentence and must create the situation needed by the next sentence.");
-            builder.AppendLine("2b. The first sentence must be a real opening: it must state the main goal or urgent need before or while using the first target word. Do not start in the middle with a guard, gate, ceremony, reward, or final obstacle unless the goal has already been stated in that same sentence.");
-            builder.AppendLine("3. Write roughly one sentence per target word and normally introduce exactly one new target pair in each sentence.");
-            builder.AppendLine("3a. No sentence may contain more than one target token. If two targets interact, write two consecutive sentences, one token per sentence.");
-            builder.AppendLine("4. Every target sentence must contain all three parts: a reason the character needs the target, an intentional physical action involving it, and an immediate visible result.");
-            builder.AppendLine("5. That visible result must create the reason for the next sentence. The final target action must solve the original problem.");
-            builder.AppendLine();
-            builder.AppendLine("ACTION TEST FOR EVERY TARGET");
-            builder.AppendLine("The target must be the direct subject or object of a concrete action verb. A character should carry, open, close, wear, strike, repair, turn, pour, cut, block, signal with, climb, move, or otherwise physically act on it.");
-            builder.AppendLine("At least 80 percent of the sentences must show a character intentionally acting, reacting, deciding, helping, preventing, or correcting something.");
-            builder.AppendLine("A target FAILS if it merely looms, glows, shines, hangs, sits, waits, stands, appears, reflects, echoes, fades, decorates the setting, or is visible in the distance.");
-            builder.AppendLine("A target also FAILS if it appears only inside an as-clause, where-clause, background description, comparison, shadow, reflection, costume, procession, display, or list.");
-            builder.AppendLine("Never bundle several target words into scenery or an improvised tableau. Each must perform its own necessary job in the plot.");
-            builder.AppendLine();
-            builder.AppendLine("CAUSALITY TEST");
-            builder.AppendLine("Do not connect unrelated actions with then, so, therefore, prompting, or causing. State the real mechanism: what changed physically, what a character learned, or why a new action became necessary.");
-            builder.AppendLine("Imaginative use of a target is allowed, but it still needs a clear cause and effect. The reader must understand why that target action changes the next moment.");
-            builder.AppendLine("Do not use meanwhile, elsewhere, later that day, suddenly, another problem, or scene jumps to move between targets.");
-            builder.AppendLine("Bad: The drum echoes in the distance where a flower seller waits. Both targets are scenery.");
-            builder.AppendLine("Good: The loose gate traps Ana, so you beat the drum to call the flower seller; the seller cuts a tough flower stem and uses it to lift the jammed latch.");
-            builder.AppendLine("Silently delete each target sentence. If the sentences before and after still connect, rewrite that target sentence because it is not doing narrative work.");
-            builder.AppendLine();
-            builder.AppendLine("STYLE AND TONE");
-            builder.AppendLine("Use active voice, concrete verbs, character choices, small setbacks, and a satisfying practical resolution.");
-            builder.AppendLine("Use simple learner-friendly English, about A2-B1 level. Prefer short sentences and common words. If two words can express the same idea, choose the simpler word.");
-            builder.AppendLine("Avoid poetic or difficult words such as shrouded, treacherous, illuminate, amplify, fashioned, dense, and swirling. Use simple words like covered, hard, light, made, thick, and moving instead.");
-            builder.AppendLine("Do not use generic filler such as next problem, keep moving, the story, the plot, or the route. Name the concrete problem and the visible result.");
-            builder.AppendLine("Use no more than one short atmospheric clause in the entire story. Do not describe distant scenery or ambient sounds unless a character immediately acts on them.");
-            builder.AppendLine("Keep the tone bright, everyday, and emotionally safe. No horror, dream logic, uncanny living objects, supernatural transformations, or unrelated parade, dance, spectacle, or celebration.");
-            builder.AppendLine("Write in second person: the main character is always you. Do not name the main character or use he, she, his, or her for the main character.");
-            builder.AppendLine("Do not mention the memory room, furniture anchors, route instructions, walking directions, mnemonics, or image generation.");
-            builder.AppendLine("Aim for about 160-210 words for eight targets, scaling proportionally for other counts.");
-            builder.AppendLine();
-            builder.AppendLine("WORD FORMAT");
-            builder.AppendLine("Every target must appear once as SpanishWord (EnglishMeaning), for example zapato (shoe).");
-            builder.AppendLine("Do not add a label before a sentence. Bad: zapato (shoe): You picked it up. Good: You picked up the zapato (shoe) to block the door.");
-            builder.AppendLine("Never put two target tokens in the same sentence.");
-            builder.AppendLine("Avoid repeating target pairs. If an earlier object must be referenced again, use a pronoun or ordinary synonym without repeating the Spanish word.");
-            builder.AppendLine("Return JSON exactly in this minimal shape:");
-            builder.AppendLine("{\"fullStory\":\"one continuous story paragraph with no route instructions\",\"items\":[{\"word\":\"zapato\",\"storyOrder\":1}]}");
-            builder.AppendLine("Do not include storySegment or any other long text inside items.");
-            builder.AppendLine("Do not use quotation marks inside fullStory.");
-            builder.AppendLine("items is only the route index: include exactly one item for each target word, with no duplicated or missing target words.");
-            builder.AppendLine("storyOrder must start at 1 and follow your chosen order. Do not add extra items for repeated later mentions.");
-            builder.AppendLine("fullStory must be one continuous paragraph with no route instructions, no furniture names, and no assigned location names.");
-            builder.AppendLine();
-            builder.AppendLine("Selected target words:");
-            for (int i = 0; i < words.Count; i++)
-            {
-                var word = words[i];
-                builder.Append(i + 1)
-                    .Append(". Spanish word: ")
-                    .Append(word.word)
-                    .Append("; English meaning: ")
-                    .Append(word.meaning)
-                    .AppendLine(".");
-            }
-
-            return builder.ToString();
+            return MnemonicStoryPrompts.BuildStory(words, causalPlanJson);
         }
 
         private static string BuildStoryRepairPrompt(
@@ -1254,31 +1158,7 @@ namespace MemPalaceLLM
             string rejectedResponse,
             string validationError)
         {
-            var builder = new StringBuilder();
-            builder.AppendLine("Rewrite the rejected response into one coherent, warm, action-driven causal story.");
-            builder.AppendLine("Validation failure: " + (validationError ?? "unknown validation error"));
-            builder.AppendLine("Return exactly: {\"fullStory\":\"...\",\"items\":[{\"word\":\"target\",\"storyOrder\":1}]}.");
-            builder.AppendLine("Every selected target must appear naturally in the fullStory exactly once as SpanishWord (EnglishMeaning), and each must perform an action that changes progress toward the same goal.");
-            builder.AppendLine("No sentence may contain more than one target token; split any multi-target sentence into separate consecutive sentences.");
-            builder.AppendLine("Do not append isolated repair sentences, dream imagery, scenery-only descriptions, room-tour instructions, anchors, or furniture assignments.");
-            builder.AppendLine("Keep the causal order from the plan, but repair any implausible action or weak connection.");
-            builder.AppendLine("Make the story strictly linear: every sentence must follow from the previous sentence and create the reason for the next sentence. No separate episodes or scene jumps.");
-            builder.AppendLine("The target's role may be normal or imaginative, but it must produce a concrete result that changes the next moment.");
-            builder.AppendLine("Use simple learner-friendly English, about A2-B1 level. Prefer short sentences, common words, and direct verbs. Replace difficult or poetic words with simpler words.");
-            builder.AppendLine("Do not use generic filler such as next problem, keep moving, the story, the plot, or the route. Name the concrete problem and the visible result.");
-            builder.AppendLine();
-            builder.AppendLine("Selected targets:");
-            for (var i = 0; i < words.Count; i++)
-            {
-                builder.Append(i + 1).Append(". ").Append(words[i].word).Append(" (").Append(words[i].meaning).AppendLine(")");
-            }
-            builder.AppendLine();
-            builder.AppendLine("Causal plan:");
-            builder.AppendLine(causalPlanJson ?? string.Empty);
-            builder.AppendLine();
-            builder.AppendLine("Rejected response:");
-            builder.AppendLine(rejectedResponse ?? string.Empty);
-            return builder.ToString();
+            return MnemonicStoryPrompts.BuildRepair(words, causalPlanJson, rejectedResponse, validationError);
         }
 
         private static bool TryParseAndBuildStoryResponse(
@@ -2193,9 +2073,11 @@ namespace MemPalaceLLM
             if (occurrences.Count <= 1)
             {
                 var singleSegment = ReplaceOtherTargetTokensWithMeanings(normalized, sourceWord, allWords);
+                // A complete single-target sentence is not invalid merely because its
+                // opening expresses the goal without the legacy must/need keyword list.
+                // Replacing it here would discard the generated meaning-faithful event.
                 if (!ContainsMeaningWordPair(singleSegment, sourceWord.meaning, sourceWord.word) ||
-                    IsWeakStorySegment(singleSegment) ||
-                    IsWeakOpeningStorySegment(singleSegment, routeIndex))
+                    IsWeakStorySegment(singleSegment))
                 {
                     singleSegment = BuildFallbackSingleTargetStorySegment(sourceWord, routeIndex, routeCount);
                 }
