@@ -1,5 +1,7 @@
 # Memory Palace Experiment Runbook
 
+> Historical runbook; furniture minimums, providers and timing may be outdated. Use [the developer guide](Docs/DEVELOPER_GUIDE.md) for the current implementation.
+
 Last verified: 2026-07-31
 
 The active protocol is the four-condition 2 × 2 design described in

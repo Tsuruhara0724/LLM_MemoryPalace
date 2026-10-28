@@ -1,5 +1,7 @@
 # Formal Material Workflow
 
+> Historical reference, not the current participant protocol. For current conditions, timing, providers and materials, use [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) and [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md).
+
 Last verified: 2026-08-30
 
 The old 12 x 10 mnemonic catalog and 480-image anchor-pair catalog are not used by the active continuous-story design.

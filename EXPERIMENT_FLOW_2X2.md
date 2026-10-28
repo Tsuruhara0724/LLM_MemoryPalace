@@ -1,8 +1,10 @@
 # Current 2 × 2 Experimental Flow
 
+> Historical design reference. Some timing, export and provider details no longer match runtime. Use [the developer guide](Docs/DEVELOPER_GUIDE.md) for the current implementation.
+
 Updated: 2026-07-31
 
-This file is the authoritative runtime flow for the Unity experiment. The factors are:
+This file records an earlier 2 × 2 design for the Unity experiment. The factors were:
 
 - Room source: participant-created familiar room vs fixed default room
 - Story source: participant-written story vs selected LLM-generated story

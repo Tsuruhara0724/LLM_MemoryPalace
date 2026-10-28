@@ -154,11 +154,6 @@ namespace MemPalaceLLM
         private bool observedShowSelfRoomBuildAreaBoundary;
         private Vector2 selfRoomBuildAreaVirtualCenter;
 
-        private static bool IsStoryOnlyRedesignEnabled()
-        {
-            return true;
-        }
-
         private enum BuilderToolMode
         {
             Select,
@@ -575,10 +570,6 @@ namespace MemPalaceLLM
         private float localTtsTemperature = 0.55f;
         private string remoteSessionPackageUrl = DefaultRemoteSessionPackageUrl;
         private bool autoFetchRemoteSessionOnAndroid = true;
-        private bool showAbstractMnemonicProps = false;
-        private bool preferPreGeneratedMnemonics = true;
-        private bool allowLiveLlmForMissingPreGenerated = false;
-        private bool useLocalFallbackForMissingPreGenerated = true;
         private bool usePreGeneratedImageCueCatalog = true;
         private bool allowRuntimeImageCueGenerationForMissing = false;
         private bool randomizeMnemonicAnchors = false;
@@ -636,7 +627,6 @@ namespace MemPalaceLLM
         private Coroutine preStudyVoiceCoroutine;
         private Coroutine imageCueCatalogBuilderCoroutine;
         private bool usedLiveLlmForCurrentSession;
-        private bool usedPreGeneratedForCurrentSession;
         private bool usedLocalFallbackForCurrentSession;
         private int preGeneratedMnemonicHitCount;
         private int liveGeneratedMnemonicCount;
@@ -695,7 +685,6 @@ namespace MemPalaceLLM
         private float storyAuthoringStartTime;
         private float storyAuthoringDurationSeconds;
         private bool allPhotoShowcaseActive;
-        private bool allPhotoShowcaseCompleted;
         private bool allPhotoShowcaseEntered;
         private float allPhotoShowcaseStartTime;
         private float allPhotoShowcaseDurationSeconds;
@@ -8398,7 +8387,6 @@ namespace MemPalaceLLM
             isGenerating = false;
             usedLiveLlmForCurrentSession = !string.IsNullOrWhiteSpace(currentStory?.storyProvider)
                                            && !string.Equals(currentStory.storyProvider, "Remote Package", StringComparison.OrdinalIgnoreCase);
-            usedPreGeneratedForCurrentSession = false;
             usedLocalFallbackForCurrentSession = false;
             liveGeneratedMnemonicCount = currentItems.Count;
             localFallbackMnemonicCount = 0;
@@ -9800,7 +9788,6 @@ namespace MemPalaceLLM
             var words = activeWordSet?.words ?? new List<WordEntry>();
             generationError = string.Empty;
             usedLiveLlmForCurrentSession = false;
-            usedPreGeneratedForCurrentSession = false;
             usedLocalFallbackForCurrentSession = false;
             preGeneratedMnemonicHitCount = 0;
             liveGeneratedMnemonicCount = 0;
@@ -13600,7 +13587,6 @@ namespace MemPalaceLLM
 
             allPhotoShowcaseDurationSeconds += Mathf.Max(0f, Time.unscaledTime - allPhotoShowcaseStartTime);
             allPhotoShowcaseActive = false;
-            allPhotoShowcaseCompleted = true;
             LogInteraction(
                 "all_photo_showcase_finished",
                 string.Empty,
@@ -13616,7 +13602,6 @@ namespace MemPalaceLLM
                 return;
             }
 
-            allPhotoShowcaseCompleted = true;
             LogInteraction("all_photo_showcase_skipped", string.Empty, string.Empty, "Participant skipped the optional all-picture display.");
             BeginSnapshotTest(true);
         }
@@ -14620,194 +14605,8 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (IsStoryOnlyRedesignEnabled())
-            {
-                statusMessage = "Mnemonic regeneration is disabled in the story-only redesign.";
-                yield break;
-            }
-
-            if (regeneratingMnemonicWords.Contains(item.word))
-            {
-                yield break;
-            }
-
-            var itemIndex = GetCurrentItemIndex(item);
-            if (itemIndex < 0)
-            {
-                statusMessage = "Cannot regenerate mnemonic: selected item was not found in the current list.";
-                yield break;
-            }
-
-            regeneratingMnemonicWords.Add(item.word);
-            var liveProviderLabel = GetSelectedLiveMnemonicProviderLabel();
-            var liveSourceTag = GetSelectedLiveMnemonicSourceTag();
-            var liveModelLabel = GetSelectedLiveMnemonicModelLabel();
-            statusMessage = $"Regenerating cue package for {item.word} with {liveProviderLabel}...";
-            generationError = string.Empty;
-
-            var service = CreateLlmService();
-            MnemonicItemData replacement = null;
-            string error = null;
-            var word = new WordEntry
-            {
-                word = item.word,
-                meaning = item.meaning
-            };
-
-            if (!IsSelectedLlmConfigured())
-            {
-                regeneratingMnemonicWords.Remove(item.word);
-                statusMessage = "Cannot regenerate mnemonic: the online generation service is unavailable.";
-                yield break;
-            }
-
-            yield return StartCoroutine(service.RegenerateMnemonicItem(
-                GetSelectedLlmEndpoint(),
-                GetSelectedLiveMnemonicModelLabel(),
-                word,
-                itemIndex,
-                currentItems.Count,
-                item.anchorId,
-                item.anchorLabel,
-                item.visualCue,
-                item.mnemonic,
-                item.imagePrompt,
-                rejectionReason,
-                result => replacement = result,
-                err => error = err));
-
-            regeneratingMnemonicWords.Remove(item.word);
-
-            if (!string.IsNullOrWhiteSpace(error))
-            {
-                generationError = error;
-                statusMessage = $"Failed to regenerate cue package for {item.word}.";
-                LogInteraction("regenerate_mnemonic_failed", item.word, item.anchorId, error);
-                yield break;
-            }
-
-            if (replacement == null)
-            {
-                statusMessage = $"{liveProviderLabel} returned no replacement mnemonic for {item.word}.";
-                yield break;
-            }
-
-            ReplaceMnemonicItemFields(item, replacement);
-            ApplyAnchorConsistency(item);
-            if (ApplyMeaningFirstMnemonicGuardrails(item))
-            {
-                ApplyAnchorConsistency(item);
-            }
-
-            ClearGeneratedImageCueForWord(item.word);
-            ClearMemorySnapshotForWord(item.word);
-            imageCueValidationFailures.Remove(item.word);
-            imageGenerationStatus = string.Empty;
-            usedLiveLlmForCurrentSession = true;
-            liveMnemonicProviderLabelForCurrentSession = liveProviderLabel;
-            liveMnemonicModelForCurrentSession = liveModelLabel;
-            liveMnemonicSourceForCurrentSession = liveSourceTag;
-            item.mnemonicSource = string.IsNullOrWhiteSpace(item.mnemonicSource) ? liveSourceTag : item.mnemonicSource;
-            statusMessage = $"Regenerated cue package for {item.word}. Generate the image cue again.";
-            LogInteraction("regenerate_mnemonic", item.word, item.anchorId, "Replaced weak cue scene. Reason: " + rejectionReason);
-        }
-
-        private int GetCurrentItemIndex(MnemonicItemData item)
-        {
-            if (item == null)
-            {
-                return -1;
-            }
-
-            for (int i = 0; i < currentItems.Count; i++)
-            {
-                if (ReferenceEquals(currentItems[i], item)
-                    || string.Equals(currentItems[i].word, item.word, StringComparison.Ordinal))
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-        }
-
-        private void ReplaceMnemonicItemFields(MnemonicItemData target, MnemonicItemData replacement)
-        {
-            if (target == null || replacement == null)
-            {
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(replacement.anchorId))
-            {
-                target.anchorId = replacement.anchorId;
-            }
-
-            if (!string.IsNullOrWhiteSpace(replacement.anchorLabel))
-            {
-                target.anchorLabel = replacement.anchorLabel;
-            }
-
-            target.anchorType = string.IsNullOrWhiteSpace(replacement.anchorType)
-                ? PreGeneratedMnemonicCatalog.NormalizeAnchorType(target.anchorId, target.anchorLabel)
-                : replacement.anchorType;
-
-            if (!string.IsNullOrWhiteSpace(replacement.mnemonicSource))
-            {
-                target.mnemonicSource = replacement.mnemonicSource;
-            }
-
-            if (!string.IsNullOrWhiteSpace(replacement.visualCue))
-            {
-                target.visualCue = replacement.visualCue;
-            }
-
-            target.associationPrompt = string.IsNullOrWhiteSpace(replacement.associationPrompt)
-                ? FirstNonEmptyPrompt(replacement.imagePrompt, replacement.visualCue, target.associationPrompt)
-                : replacement.associationPrompt;
-
-            if (!string.IsNullOrWhiteSpace(replacement.mainCueObject))
-            {
-                target.mainCueObject = replacement.mainCueObject;
-            }
-
-            if (!string.IsNullOrWhiteSpace(replacement.mnemonic))
-            {
-                target.mnemonic = replacement.mnemonic;
-            }
-
-            if (!string.IsNullOrWhiteSpace(replacement.mnemonicMode))
-            {
-                target.mnemonicMode = replacement.mnemonicMode;
-            }
-
-            target.hookAccepted = replacement.hookAccepted;
-            target.hookScore = replacement.hookScore;
-            target.hookReason = replacement.hookReason;
-            target.mnemonicHook = replacement.mnemonicHook;
-
-            target.storyCue = replacement.storyCue ?? string.Empty;
-
-            if (!string.IsNullOrWhiteSpace(replacement.imagePrompt))
-            {
-                target.imagePrompt = replacement.imagePrompt;
-            }
-
-            if (string.IsNullOrWhiteSpace(target.imagePrompt))
-            {
-                target.imagePrompt = BuildMnemonicImagePrompt(target);
-            }
-
-            target.objectShape = string.IsNullOrWhiteSpace(replacement.objectShape) ? target.objectShape : replacement.objectShape;
-            target.colorHex = string.IsNullOrWhiteSpace(replacement.colorHex) ? target.colorHex : replacement.colorHex;
-            target.visualObjects = replacement.visualObjects ?? new List<VisualObjectSpec>();
-            target.imagePromptCandidates = replacement.imagePromptCandidates == null
-                ? new List<string>()
-                : new List<string>(replacement.imagePromptCandidates);
-            target.selectedImagePrompt = string.Empty;
-            target.selectedImageCandidateIndex = -1;
-            target.imageSelectionReason = string.Empty;
-            target.imageCuePath = string.Empty;
+            statusMessage = "Mnemonic regeneration is disabled in the story-only redesign.";
+            yield break;
         }
 
         private string GetMnemonicRegenerationReason(MnemonicItemData item)
@@ -15237,113 +15036,8 @@ namespace MemPalaceLLM
                 yield break;
             }
 
-            if (IsStoryOnlyRedesignEnabled())
-            {
-                imageGenerationStatus = "Runtime image generation is disabled in the story-only redesign. Add a local image under Assets/Resources/WordImages instead.";
-                yield break;
-            }
-
-            if (generatingImageCueWords.Contains(item.word))
-            {
-                yield break;
-            }
-
-            if (string.IsNullOrWhiteSpace(imageGenerationEndpoint))
-            {
-                imageGenerationStatus = "Image endpoint is empty. Use a local txt2img endpoint such as Stable Diffusion WebUI with --api.";
-                yield break;
-            }
-
-            generatingImageCueWords.Add(item.word);
-            imageCueValidationFailures.Remove(item.word);
-            if (string.IsNullOrWhiteSpace(ollamaBaseUrl) || string.IsNullOrWhiteSpace(imageCueValidationModel))
-            {
-                generatingImageCueWords.Remove(item.word);
-                imageGenerationStatus = "Image cue validation requires an Ollama endpoint and an image-capable validation model.";
-                imageCueValidationFailures[item.word] = imageGenerationStatus;
-                yield break;
-            }
-
-            ClearGeneratedImageCueForWord(item.word);
-
-            var crossVariantGuidance = string.Empty;
-            for (int variantIndex = 0; variantIndex < BufferedImageCueResultCount; variantIndex++)
-            {
-                ImageCueCandidateResult bestResult = null;
-                string fatalError = null;
-                yield return GenerateBestImageCueVariantRoutine(
-                    item,
-                    variantIndex,
-                    BufferedImageCueResultCount,
-                    crossVariantGuidance,
-                    false,
-                    result => bestResult = result,
-                    error => fatalError = error);
-
-                if (bestResult != null)
-                {
-                    AddImageCueCandidateResult(item, bestResult);
-                    LogInteraction(
-                        "generate_single_pass_image_cue",
-                        item.word,
-                        item.anchorId,
-                        $"Generated result {bestResult.label} from prompt {bestResult.candidateIndex}; score={bestResult.score}. {bestResult.reason}");
-                    crossVariantGuidance = BuildImageCueEvolutionGuidance(bestResult);
-                    if (!string.IsNullOrWhiteSpace(crossVariantGuidance))
-                    {
-                        LogInteraction(
-                            "evolve_image_prompt_guidance",
-                            item.word,
-                            item.anchorId,
-                            $"Next image set will use feedback from {bestResult.label}; score={bestResult.score}. {crossVariantGuidance}");
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(fatalError))
-                {
-                    if (!imageCueCandidateResults.TryGetValue(item.word, out var partialResults)
-                        || partialResults == null
-                        || partialResults.Count == 0)
-                    {
-                        generatingImageCueWords.Remove(item.word);
-                        imageGenerationStatus = fatalError;
-                        imageCueValidationFailures[item.word] = fatalError;
-                        yield break;
-                    }
-
-                    imageGenerationStatus = $"Stopped after preparing {partialResults.Count} image cue result(s) for {item.word}: {fatalError}";
-                    break;
-                }
-
-                var readyCount = imageCueCandidateResults.TryGetValue(item.word, out var currentResults) && currentResults != null
-                    ? currentResults.Count
-                    : 0;
-                imageGenerationStatus = variantIndex == 0
-                    ? $"Selected image set A for {item.word}. Preparing B, C, and D with feedback from previous sets..."
-                    : $"Prepared {readyCount}/{BufferedImageCueResultCount} scored image set(s) for {item.word}.";
-            }
-
-            generatingImageCueWords.Remove(item.word);
-            if (!imageCueCandidateResults.TryGetValue(item.word, out var generatedResults) || generatedResults == null || generatedResults.Count == 0)
-            {
-                imageGenerationStatus = $"Image generation finished for {item.word}, but no image cue result could be kept.";
-                yield break;
-            }
-
-            var displayedIndex = GetDisplayedImageCueCandidateIndex(item.word);
-            if (displayedIndex < 0)
-            {
-                TryDisplayImageCueCandidate(item, 0, false);
-                displayedIndex = 0;
-            }
-
-            imageGenerationStatus = $"Prepared {generatedResults.Count}/{BufferedImageCueResultCount} scored image cue result(s) for {item.word}. Use the arrow buttons for human review/selection; Regenerate starts a fresh full set.";
-            var displayedResult = displayedIndex >= 0 && displayedIndex < generatedResults.Count ? generatedResults[displayedIndex] : null;
-            LogInteraction(
-                "generate_image_cue_result_pool",
-                item.word,
-                item.anchorId,
-                $"Prepared {generatedResults.Count} single-pass image cue result(s). Displayed: {(displayedResult == null ? "none" : BuildImageCueCandidateDisplaySummary(item, displayedResult, displayedIndex, generatedResults.Count))}");
+            imageGenerationStatus = "Runtime image generation is disabled in the story-only redesign. Add a local image under Assets/Resources/WordImages instead.";
+            yield break;
         }
 
         private IEnumerator GenerateBestImageCueVariantRoutine(
@@ -19020,7 +18714,6 @@ namespace MemPalaceLLM
             storyAuthoringStartTime = 0f;
             storyAuthoringDurationSeconds = 0f;
             allPhotoShowcaseActive = false;
-            allPhotoShowcaseCompleted = false;
             allPhotoShowcaseEntered = false;
             allPhotoShowcaseStartTime = 0f;
             allPhotoShowcaseDurationSeconds = 0f;
@@ -19029,7 +18722,6 @@ namespace MemPalaceLLM
             voiceRouteInitialPassCompleted = false;
             isCapturingSnapshot = false;
             usedLiveLlmForCurrentSession = false;
-            usedPreGeneratedForCurrentSession = false;
             usedLocalFallbackForCurrentSession = false;
             preGeneratedMnemonicHitCount = 0;
             liveGeneratedMnemonicCount = 0;
@@ -20204,25 +19896,6 @@ namespace MemPalaceLLM
                 item.selectedImageCandidateIndex = -1;
                 item.imageSelectionReason = string.Empty;
             }
-        }
-
-        private void ClearMemorySnapshotForWord(string word)
-        {
-            if (string.IsNullOrWhiteSpace(word))
-            {
-                return;
-            }
-
-            if (memorySnapshots.TryGetValue(word, out var snapshot) && snapshot != null)
-            {
-                Destroy(snapshot);
-            }
-
-            memorySnapshots.Remove(word);
-            memorySnapshotPaths.Remove(word);
-            memorizedWords.Remove(word);
-            recognitionQueue.Remove(word);
-            recognitionOptions.Remove(word);
         }
 
         private void BuildRoomBuilderPreview()
@@ -22725,7 +22398,7 @@ namespace MemPalaceLLM
             }
 
             var prefab = Resources.Load<GameObject>($"FurniturePrefabs/{modelKey}");
-            if (prefab == null)
+            if (!FurniturePrefabAvailability.IsUsable(prefab, out _))
             {
                 return false;
             }

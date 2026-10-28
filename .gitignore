@@ -33,7 +33,7 @@ ExperimentExports/
 GeneratedRooms/
 
 # Local build/debug artifacts
-.codex_tmp/
+.*_tmp/
 .utmp/
 .local-tts/
 __pycache__/
@@ -47,7 +47,9 @@ Assets/_Recovery.meta
 # Local compile output and participant-specific VR transfer packages
 ExperimentModels.dll
 VRSessionPackages/session_package_*.json
-!VRSessionPackages/session_package_latest.json
+
+# Local asset import installers (not runtime dependencies)
+/*.unitypackage
 
 # Local Claude credentials (included in local Quest builds; never commit)
 Assets/Resources/AnthropicLocalConfig.json
