@@ -1,0 +1,130 @@
+VR Learning Guide — English / Japanese
+Date: 2026-10-23 (Asia/Tokyo)
+Method: Built-in image generation, followed by two targeted diagram corrections.
+Final image: VR_Learning_Guide_EN_JA.png
+Purpose: Printable participant instruction illustration. This is not a Unity screenshot.
+
+Verified against the current project:
+- Left stick moves; right stick snap-turns after translation stops.
+- Either index trigger starts learning.
+- A (right) or X (left) captures the selected learning target's scene snapshot.
+- During the waiting-for-advance phase, either trigger proceeds to the next story segment.
+- The right controller supplies the UI pointer; point at a screen button and use the trigger.
+- In review, Finish learning requires completion of the route and snapshots for all learning targets.
+- No runtime code, scene, or study data was changed to produce this guide.
+
+Code source:
+Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs
+HandleVrLocomotion, HandleVrPointer, HandleVrPanelButtonPress, UpdateVrHudReviewActionButton.
+
+Hardware button naming reference:
+https://developers.meta.com/vr/documentation/native/pc/dg-input-touch-buttons/
+https://developers.meta.com/vr/documentation/native/pc/native-touch-plus-controllers/
+
+INITIAL GENERATION PROMPT
+Use case: infographic-diagram.
+Asset type: a printable bilingual participant instruction poster for a Unity VR memory-palace research experiment.
+Create ONE polished, readable ENGLISH + JAPANESE instructional image. Portrait A4-like layout, high resolution, near-white background, dark charcoal text, restrained blue/teal functional accents. Clean academic handout, not marketing, not playful cartoon. Large crisp sans-serif typography with properly rendered Japanese. Accurate schematic illustrations of a pair of white Quest-style VR controllers, a headset wearer, furniture, and a camera. A diagram, NOT a screenshot of the actual app. Do not add branding or watermarks.
+
+CONTROLLER ACCURACY:
+The left controller has X/Y face buttons and a thumbstick. The right controller has A/B face buttons and a thumbstick. Highlight A and X, not B or Y. Illustrate index-finger triggers separately with a small side-view inset so they cannot be confused with thumbsticks, face buttons, or side grips. Use clear leader lines terminating exactly on the correct controls. Do not invent a button mapping. Keep trigger and A/X callouts visually distinct. Right controller's laser is used to point at UI. Both controllers' index triggers are accepted for confirmation. Grip is not needed in this guide.
+
+ACTUAL VERIFIED PROJECT CONTROLS:
+- To start learning, briefly press either index trigger.
+- Left thumbstick = forward/back/strafe movement.
+- Right thumbstick left/right = 30-degree snap turns, ONLY after stopping translation; do not show pressing down on a stick.
+- Look at furniture by physically turning head; keep the target furniture centred and stay still to see its word/image and hear narration.
+- A on RIGHT or X on LEFT = capture the current selected furniture's scene snapshot. Show the word/image first and keep its furniture centred. Each LEARNING TARGET needs a snapshot (not every furniture object in the room).
+- When the story finishes and the next prompt appears, either trigger = next; this is not a universal skip-during-speech command.
+- To operate screen buttons, point the RIGHT controller laser at the desired button and briefly squeeze either trigger. The guide can consistently recommend the right trigger for this UI interaction to avoid ambiguity.
+- Replay voice and Finish learning are screen buttons, NOT dedicated physical buttons.
+- Finish learning becomes available in review after the route is complete and all learning-target snapshots have been saved.
+Avoid any claim that B/Y resets, pauses or captures. No teleportation control.
+
+LAYOUT:
+Header with title, then a short start strip.
+Upper main area: two LARGE controller illustrations labelled left and right with three clear numbered callouts: left stick move; right stick turn; A/X capture. A side-view index trigger inset and a tiny right-controller laser-to-UI drawing show confirmation.
+Lower area: a four-step illustrated horizontal or 2x2 process: find furniture, listen, capture, continue. Tiny headset-with-centred-furniture example makes head gaze distinct from hand laser.
+Bottom: two illustrated screen buttons Replay voice and Finish learning with a single instruction for clicking them. Short completion condition and one safety footer. Plenty of whitespace. Do not make a giant dense paragraph or unnecessary explanatory labels.
+
+TEXT TO RENDER VERBATIM (English line followed by Japanese line; captions may be split across lines, but do not change their meaning):
+TITLE:
+"VR Learning Guide"
+"VR学習 操作ガイド"
+
+START STRIP:
+"START → Press either trigger"
+"開始 → 左右どちらかのトリガー"
+
+CONTROLLER LABELS:
+"LEFT / 左手"
+"RIGHT / 右手"
+
+MOVE CALLOUT:
+"1  MOVE / 移動"
+"Left stick / 左スティック"
+
+TURN CALLOUT:
+"2  TURN / 向きを変える"
+"Right stick ← → / 右スティック ← →"
+"Stop moving first."
+"移動を止めてから。"
+
+CAPTURE CALLOUT:
+"3  CAPTURE / 撮影"
+"A (right) or X (left)"
+"A（右手）または X（左手）"
+
+TRIGGER INSET:
+"TRIGGER / トリガー"
+"Index finger / 人差し指"
+
+LEARNING FLOW:
+"FIND / 家具を探す"
+"Centre the target furniture in view."
+"対象の家具を視野の中央に入れる。"
+
+"LISTEN / 聞く"
+"Stay still and listen to the story."
+"静止してストーリーを聞く。"
+
+"CAPTURE / 撮影する"
+"Keep furniture centred, then press A / X."
+"家具を中央に入れたまま A / X。"
+
+"NEXT / 次へ"
+"When prompted, press either trigger."
+"案内が出たら左右どちらかのトリガー。"
+
+SCREEN BUTTONS:
+"Replay voice"
+"音声を再生"
+"Finish learning"
+"学習を終了"
+"Point with the right controller + press its trigger."
+"右手のレーザーでボタンを指し、トリガーを押す。"
+
+COMPLETION NOTE:
+"Complete the route and save every target snapshot to finish."
+"ルートを終え、学習対象をすべて撮影すると終了できます。"
+
+SAFETY FOOTER:
+"Feel dizzy? Stop and tell the researcher."
+"気分が悪くなったら中止し、実験担当者に知らせてください。"
+
+Do not print the technical verified-controls prose or these layout instructions; print ONLY the exact poster copy supplied above plus the real A/B/X/Y controller face labels. Every caption needs to be large enough to read on a printed A4 handout. Prioritize accurate control mapping, unambiguous arrows, correct Japanese, and legibility.
+
+TARGETED EDIT 1 — RIGHT CAPTURE LEADER
+Edit this existing bilingual VR learning instruction poster with ONE precise correction only. Preserve all typography, all English/Japanese text, layout, colors, controller geometry, illustrations, and image dimensions.
+
+The central "3 CAPTURE / 撮影 — A (right) or X (left)" callout has two blue leader lines. Its LEFT leader correctly terminates on X; leave that unchanged. Its RIGHT leader currently incorrectly terminates on the B button. MOVE ONLY THE RIGHT CAPTURE LEADER LINE and its terminal dot so it terminates exactly on the A button below B on the RIGHT controller, which is already outlined with a blue glow. Draw the leader routed to the highlighted A key and not to the B key. The B key must have no blue dot, no capture leader, and no capture highlight. The A and X keys are the ONLY face keys associated with capture.
+
+Do not change the right thumbstick's separate TURN leader or any other part of the poster. Do not crop, add text, or redesign anything.
+
+TARGETED EDIT 2 — LEFT FACE BUTTON LAYOUT
+Make one precise hardware-layout correction to this existing bilingual VR instruction poster. Preserve ALL text outside the LEFT controller face, layout, colors, right controller, right-controller capture-A leader, trigger inset, all lower illustrations and captions, dimensions, and everything else.
+
+Correct ONLY the LEFT controller's two face button labels and its capture indication to match the real controller: Y is the UPPER face button and X is the LOWER face button. In this image the upper left-side face button next to the stick is incorrectly labeled X and the lower/right-side face button is labeled Y. Change that upper button's X to Y, change that lower button's Y to X. Move the blue glowing capture circle and the terminal dot/leader from the upper button to the newly labelled LOWER X button. Route the central "3 CAPTURE" box's LEFT leader clearly to that lower X. No highlight or leader should terminate at Y. Keep the left thumbstick's separate MOVE leader unchanged. Keep the right capture leader correctly pointing at A, never B.
+
+This is a very small localized repair, not a redesign. No other changes.
+

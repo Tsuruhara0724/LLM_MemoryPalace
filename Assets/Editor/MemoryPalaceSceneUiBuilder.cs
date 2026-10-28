@@ -456,7 +456,7 @@ namespace MemPalaceLLM.Editor
         {
             var content = CreateFullWidthScrollStage(stageRoot, "Stage_StoryAuthoring");
             AddHeading(content, "Story_Title", "Write your story");
-            AddBody(content, "Story_Intro", "Write one complete English story using every English target word. Then split it and classify every sentence.", 58f);
+            AddBody(content, "Story_Intro", "Write in English; common inflected forms are accepted. Split and confirm each sentence's target. Spanish labels are added automatically for study, not to your input.", 58f);
             AddText(content, "Story_Timer", string.Empty, 14, FontStyle.Normal, Muted, 34f);
             AddSectionLabel(content, "English target words");
             AddText(content, "Story_TargetWords", string.Empty, 18, FontStyle.Bold, Primary, 90f);

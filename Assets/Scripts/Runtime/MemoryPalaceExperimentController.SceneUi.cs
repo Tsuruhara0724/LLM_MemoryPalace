@@ -486,6 +486,7 @@ namespace MemPalaceLLM
 
         private void RefreshSceneUiStoryAuthoring()
         {
+            editableSceneUi.SetText("Story_Intro", "Write in English; common inflected forms are accepted. Split and confirm each sentence's target. Spanish labels are added automatically for study, not to your input.");
             var elapsed = Time.unscaledTime - storyAuthoringStartTime;
             editableSceneUi.SetText(
                 "Story_Timer",
@@ -519,7 +520,7 @@ namespace MemPalaceLLM
                     preview.Append(" (Spanish: ");
                     preview.Append(word.word);
                     preview.Append(")\n");
-                    preview.AppendLine(string.IsNullOrWhiteSpace(segment) ? "No sentence assigned yet." : segment);
+                    preview.AppendLine(string.IsNullOrWhiteSpace(segment) ? "No sentence assigned yet." : ParticipantStoryEnglish.AnnotateFirst(segment, word));
                     preview.AppendLine();
                 }
             }

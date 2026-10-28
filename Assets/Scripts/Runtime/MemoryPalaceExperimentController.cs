@@ -860,6 +860,7 @@ namespace MemPalaceLLM
             DestroyOrphanedVrObject("VRRecallWorldUI", vrWorldUiRoot != null ? vrWorldUiRoot.gameObject : null, camera);
             DestroyOrphanedVrObject("VRStudyPersistentHUD", vrStudyHudRoot, camera);
             DestroyOrphanedVrObject("VRStudyWordImageHUD", vrStudyWordImageHudRoot, camera);
+            DestroyOrphanedVrObject("VRFocusedStudyHUD", vrFocusedStudyHud, camera);
             DestroyOrphanedVrObject("VRComfortVignette", vrComfortVignetteRoot, camera);
             DestroyOrphanedVrObject("VRWalkingFeet", vrWalkingFeetRoot != null ? vrWalkingFeetRoot.gameObject : null, camera);
             DestroyOrphanedVrObject("VRSnapshotPreview", vrSnapshotPreviewRoot, camera);
@@ -886,6 +887,8 @@ namespace MemPalaceLLM
         private void Update()
         {
             EnsureSceneScaffold();
+            if (vrFocusedStudyItem != null && !IsVrStudyFocusActive())
+                EndVrStudyFocus("Left the interactive VR story-learning stage.");
             RefreshSelfRoomBuildAreaIfNeeded();
             UpdateVrViewHeightOffset();
             MaintainXrTrackingSafety();
@@ -982,6 +985,7 @@ namespace MemPalaceLLM
 
         private void OnDestroy()
         {
+            ClearVrStudyFocusRuntime();
             ReleaseVrPeripheralBlur();
             DismissVrSnapshotPreviewImmediately();
             DisposeVrTrackingActions();
@@ -1975,14 +1979,18 @@ namespace MemPalaceLLM
                     case VoiceRoutePhase.WaitingForTargetView:
                         key = "study_find_" + routeKeySuffix;
                         title = "Find " + routeItem.anchorLabel;
-                        body = "Bring the furniture into the centre of view and hold your gaze steady.";
+                        body = UsesVrClickToStudy()
+                            ? "Approach the highlighted furniture, point at it and press the trigger to learn."
+                            : "Bring the furniture into the centre of view and hold your gaze steady.";
                         return true;
                     case VoiceRoutePhase.PlayingStorySegment:
                     case VoiceRoutePhase.PlayingWordPronunciationFirst:
                     case VoiceRoutePhase.PlayingWordPronunciationSecond:
                         key = "study_listen_" + routeKeySuffix;
                         title = "Word image ready";
-                        body = "Keep the furniture and fixed word image in view while listening.";
+                        body = UsesVrClickToStudy()
+                            ? "Movement is paused. Listen to the word and story; A/X saves this furniture view."
+                            : "Keep the furniture and fixed word image in view while listening.";
                         return true;
                     case VoiceRoutePhase.WaitingForStoryAdvance:
                         key = "study_continue_" + routeKeySuffix;
@@ -1996,7 +2004,9 @@ namespace MemPalaceLLM
             {
                 key = "study_select_" + savedSnapshotCount;
                 title = "Choose furniture";
-                body = "Bring a furniture anchor into the centre of view and hold your gaze steady.";
+                body = UsesVrClickToStudy()
+                    ? "Approach a highlighted furniture model and click it with the controller trigger."
+                    : "Bring a furniture anchor into the centre of view and hold your gaze steady.";
                 return true;
             }
 
@@ -3742,8 +3752,8 @@ namespace MemPalaceLLM
             {
                 GridEditorMode.Floor => "Paint the footprint first. You can freely add or erase tiles.",
                 GridEditorMode.Wall => "Optional: divide the room by clicking tile edges.",
-                GridEditorMode.Furniture => "Choose an item, move the green preview, click to place, and press R to rotate.",
-                _ => "Click furniture to move it. Rotate, delete, or press Done when the room feels familiar."
+                GridEditorMode.Furniture => "Choose an item, click to place, and press R to rotate. To remove an item, click it and press B. Ctrl+Z undoes edits.",
+                _ => "Click furniture to move it. Press B to delete the selected item, or press Done when the room feels familiar."
             };
         }
 
@@ -3753,8 +3763,8 @@ namespace MemPalaceLLM
             {
                 GridEditorMode.Floor => "Left-drag: add tiles   |   Right-click: erase",
                 GridEditorMode.Wall => "Left-click: add wall   |   Right-click: remove wall",
-                GridEditorMode.Furniture => "Left-click: place   |   R: rotate item   |   one item of each type",
-                _ => "Click: pick up item   |   R: rotate item   |   Delete: remove"
+                GridEditorMode.Furniture => "Click: place / pick up item   |   R: rotate   |   B / Delete: remove selected   |   Ctrl+Z: undo",
+                _ => "Click: pick up item   |   R: rotate   |   B / Delete: remove selected   |   Ctrl+Z: undo"
             };
             return action + "\n1-4: change step   |   WASD: move   |   Q: zoom out   |   E: zoom in   |   Hold middle mouse: rotate view   |   Wheel: zoom   |   Esc: cancel or deselect";
         }
@@ -5147,9 +5157,7 @@ namespace MemPalaceLLM
             var label = GetGridFurnitureDefinition(gridRoomLayout.furniture[selectedGridFurnitureInstanceIndex].definitionId)?.displayName ?? "Furniture";
             PushGridRoomUndo();
             gridRoomLayout.furniture.RemoveAt(selectedGridFurnitureInstanceIndex);
-            selectedGridFurnitureInstanceIndex = gridRoomLayout.furniture.Count > 0
-                ? Mathf.Clamp(selectedGridFurnitureInstanceIndex, 0, gridRoomLayout.furniture.Count - 1)
-                : -1;
+            selectedGridFurnitureInstanceIndex = -1;
             movingGridFurnitureInstanceIndex = -1;
             hoveredGridFurnitureInstanceIndex = -1;
             gridFurniturePreview = new GridFurniturePlacementPreview();
@@ -8012,6 +8020,8 @@ namespace MemPalaceLLM
             var story = new StorySessionData
             {
                 fullStory = currentStory?.fullStory ?? string.Empty,
+                originalParticipantStory = currentStory?.originalParticipantStory,
+                storyTextFormatVersion = currentStory?.storyTextFormatVersion,
                 storySource = currentStory?.storySource ?? "pc_session_package",
                 storyProvider = currentStory?.storyProvider ?? "PC",
                 storyModel = currentStory?.storyModel ?? "pc",
@@ -8934,11 +8944,11 @@ namespace MemPalaceLLM
                     var storyTargetWord = GetParticipantStoryTargetWord(word);
                     var segment = BuildParticipantStorySegmentForWord(i);
                     GUILayout.Label($"{storyTargetWord}  (Spanish target: {word.word})", smallTitleStyle);
-                    GUILayout.Label(string.IsNullOrWhiteSpace(segment) ? "No sentence assigned yet." : segment, string.IsNullOrWhiteSpace(segment) ? mutedStyle : guideStyle);
+                    GUILayout.Label(string.IsNullOrWhiteSpace(segment) ? "No sentence assigned yet." : ParticipantStoryEnglish.AnnotateFirst(segment, word), string.IsNullOrWhiteSpace(segment) ? mutedStyle : guideStyle);
                     if (!string.IsNullOrWhiteSpace(segment) &&
                         !ContainsParticipantStoryTargetWord(segment, word))
                     {
-                        GUILayout.Label($"At least one assigned sentence should include the English word '{storyTargetWord}'.", mutedStyle);
+                        GUILayout.Label($"Include '{storyTargetWord}' or a recognized English inflection in an assigned sentence.", mutedStyle);
                     }
                     GUILayout.Space(4f);
                 }
@@ -9185,64 +9195,7 @@ namespace MemPalaceLLM
 
         private static bool ContainsParticipantStoryTargetWord(string text, WordEntry word)
         {
-            var englishTarget = GetParticipantStoryTargetWord(word);
-            if (ContainsStoryTargetWord(text, englishTarget))
-            {
-                return true;
-            }
-
-            // Let participants write natural English plurals (for example birds or boxes)
-            // without weakening the word-boundary check used for automatic classification.
-            if (englishTarget.IndexOf(' ') >= 0)
-            {
-                return false;
-            }
-
-            var lower = englishTarget.ToLowerInvariant();
-            string plural;
-            if (lower.Length > 1 && lower.EndsWith("y", StringComparison.Ordinal) &&
-                "aeiou".IndexOf(lower[lower.Length - 2]) < 0)
-            {
-                plural = englishTarget.Substring(0, englishTarget.Length - 1) + "ies";
-            }
-            else if (lower.EndsWith("s", StringComparison.Ordinal) ||
-                     lower.EndsWith("x", StringComparison.Ordinal) ||
-                     lower.EndsWith("z", StringComparison.Ordinal) ||
-                     lower.EndsWith("ch", StringComparison.Ordinal) ||
-                     lower.EndsWith("sh", StringComparison.Ordinal))
-            {
-                plural = englishTarget + "es";
-            }
-            else
-            {
-                plural = englishTarget + "s";
-            }
-
-            return ContainsStoryTargetWord(text, plural);
-        }
-
-        private static bool ContainsStoryTargetWord(string text, string word)
-        {
-            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(word))
-            {
-                return false;
-            }
-
-            var index = text.IndexOf(word, StringComparison.OrdinalIgnoreCase);
-            while (index >= 0)
-            {
-                var beforeIsBoundary = index == 0 || !char.IsLetterOrDigit(text[index - 1]);
-                var afterIndex = index + word.Length;
-                var afterIsBoundary = afterIndex >= text.Length || !char.IsLetterOrDigit(text[afterIndex]);
-                if (beforeIsBoundary && afterIsBoundary)
-                {
-                    return true;
-                }
-
-                index = text.IndexOf(word, index + 1, StringComparison.OrdinalIgnoreCase);
-            }
-
-            return false;
+            return ParticipantStoryEnglish.TryFindTarget(text, word?.meaning, out _, out _);
         }
 
         private int CountParticipantAssignedSentences()
@@ -9268,23 +9221,8 @@ namespace MemPalaceLLM
             }
 
             EnsureParticipantStorySentenceAssignmentShape();
-            var builder = new StringBuilder();
-            for (var i = 0; i < participantStorySentences.Count; i++)
-            {
-                if (participantStorySentenceWordIndexes[i] != wordIndex)
-                {
-                    continue;
-                }
-
-                if (builder.Length > 0)
-                {
-                    builder.Append(' ');
-                }
-
-                builder.Append(participantStorySentences[i].Trim());
-            }
-
-            return builder.ToString().Trim();
+            return ParticipantStoryEnglish.JoinAssignedSentences(
+                participantStorySentences, participantStorySentenceWordIndexes, wordIndex);
         }
 
         private int GetFirstAssignedParticipantSentenceIndex(int wordIndex)
@@ -9354,7 +9292,7 @@ namespace MemPalaceLLM
 
                 if (!ContainsParticipantStoryTargetWord(segment, word))
                 {
-                    error = $"The assigned sentence(s) must include the English target word '{storyTargetWord}'.";
+                    error = $"The assigned sentence(s) must include '{storyTargetWord}' or a recognized English inflection. Spanish typing is not required.";
                     return false;
                 }
 
@@ -9384,38 +9322,23 @@ namespace MemPalaceLLM
 
         private void FinalizeParticipantStory()
         {
-            if (!TryBuildParticipantStorySegments(out var wordOrder, out var orderedSegments, out var error))
+            if (!TryBuildParticipantStorySegments(out var wordOrder, out _, out var error))
             {
                 statusMessage = error;
                 return;
             }
 
             storyAuthoringDurationSeconds = Time.unscaledTime - storyAuthoringStartTime;
-            currentStory = new StorySessionData
-            {
-                fullStory = participantFullStoryText.Trim(),
-                storySource = "participant_written_story",
-                storyProvider = "Participant",
-                storyModel = "none",
-                generatedAtUtc = DateTime.UtcNow.ToString("o"),
-                orderedItems = new List<WordImageItemData>()
-            };
+            currentStory = ParticipantStoryEnglish.BuildStudyStory(participantFullStoryText,
+                participantStorySentences, participantStorySentenceWordIndexes, activeWordSet.words, wordOrder);
             currentItems = new List<MnemonicItemData>();
             participantStorySegments.Clear();
             for (var i = 0; i < wordOrder.Count; i++)
             {
                 var wordIndex = wordOrder[i];
                 var word = activeWordSet.words[wordIndex];
-                var segment = orderedSegments[i].Trim();
+                var segment = currentStory.orderedItems[i].storySegment;
                 participantStorySegments.Add(segment);
-                currentStory.orderedItems.Add(new WordImageItemData
-                {
-                    word = word.word,
-                    meaning = word.meaning,
-                    storyOrder = i + 1,
-                    storySegment = segment,
-                    imageResourcePath = WordImageCatalog.BuildResourcePath(word.word)
-                });
                 currentItems.Add(new MnemonicItemData
                 {
                     word = word.word,
@@ -12695,6 +12618,7 @@ namespace MemPalaceLLM
 
         private void StartVoiceRoute()
         {
+            EndVrStudyFocus("Voice route restarted; find and click its first furniture.");
             ConfigureElevenLabsSpeech();
             textToSpeech?.Stop();
             narratedStoryWords.Clear();
@@ -13188,6 +13112,7 @@ namespace MemPalaceLLM
             var item = GetCurrentVoiceRouteItem();
             if (item == null || selectedStudyItem == null ||
                 !string.Equals(item.word, selectedStudyItem.word, StringComparison.OrdinalIgnoreCase) ||
+                (UsesVrClickToStudy() && !IsVrStudyFocusItem(item)) ||
                 ShouldHideSelectedStudyItem())
             {
                 return;
@@ -13329,6 +13254,9 @@ namespace MemPalaceLLM
 
         private void AdvanceVoiceRouteAfterStorySegment(bool stopCurrentSpeech)
         {
+            // A clicked VR learning card stays open until its narration has actually finished.
+            if (IsVrStudyFocusActive() &&
+                (voiceRoutePhase != VoiceRoutePhase.WaitingForStoryAdvance || isCapturingSnapshot)) return;
             if (voiceRoutePhase != VoiceRoutePhase.PlayingStorySegment &&
                 voiceRoutePhase != VoiceRoutePhase.WaitingForStoryAdvance)
             {
@@ -13348,6 +13276,7 @@ namespace MemPalaceLLM
                 LogInteraction("voice_story_manual_advance", item.word, item.anchorId, "Clicked the story textbox arrow to continue.");
             }
 
+            EndVrStudyFocus("Current word completed; find and click the next furniture.");
             currentVoiceSubtitle = string.Empty;
             selectedStudyItem = null;
             studyDetailScroll = Vector2.zero;
@@ -13380,6 +13309,7 @@ namespace MemPalaceLLM
 
         private void CompleteVoiceRoute()
         {
+            EndVrStudyFocus("Voice route complete; free room review unlocked.");
             textToSpeech?.Stop();
             expectedVoiceUtteranceId = string.Empty;
             currentVoiceSubtitle = string.Empty;
@@ -13396,6 +13326,7 @@ namespace MemPalaceLLM
                 return;
             }
 
+            EndVrStudyFocus("Participant selected a route segment to revisit.");
             ConfigureElevenLabsSpeech();
             textToSpeech?.Stop();
             voiceRouteIndex = Mathf.Clamp(segmentIndex, 0, currentItems.Count - 1);
@@ -13471,6 +13402,7 @@ namespace MemPalaceLLM
 
         private void PauseVoiceRoute(string message)
         {
+            EndVrStudyFocus(message);
             textToSpeech?.Stop();
             expectedVoiceUtteranceId = string.Empty;
             currentVoiceSubtitle = string.Empty;
@@ -13483,6 +13415,7 @@ namespace MemPalaceLLM
 
         private void StopVoiceRoute(string message, bool resetProgress)
         {
+            EndVrStudyFocus(message);
             textToSpeech?.Stop();
             expectedVoiceUtteranceId = string.Empty;
             currentVoiceSubtitle = string.Empty;
@@ -19173,6 +19106,7 @@ namespace MemPalaceLLM
 
         private void ClearVrStudyRuntime()
         {
+            ClearVrStudyFocusRuntime();
             DismissVrSnapshotPreviewImmediately();
             DismissVrSnapshotFlashImmediately();
             if (vrStudyHudRoot != null)
@@ -23741,6 +23675,7 @@ namespace MemPalaceLLM
                 UpdateVrComfortVignette(false);
                 UpdateVrWalkingFeet(false);
                 vrFurnitureFocusModeActive = false;
+                UpdateVrStudyFocusHud();
                 return;
             }
 
@@ -23757,6 +23692,7 @@ namespace MemPalaceLLM
             UpdateVrFurnitureFocusMode();
             UpdateVrPersistentStudyHud();
             HandleVrPointer();
+            UpdateVrStudyFocusHud();
             if (stage == ExperimentStage.Recall || stage == ExperimentStage.Result)
             {
                 UpdateVrRecallPanelText();
@@ -23850,7 +23786,9 @@ namespace MemPalaceLLM
                 return;
             }
 
-            if (physicalDelta.sqrMagnitude < 0.0000001f)
+            // During learning retain native 1:1 head tracking, without amplified walking.
+            // Previous tracking samples were already updated above, so unlocking cannot accumulate a jump.
+            if (IsVrStudyFocusActive() || physicalDelta.sqrMagnitude < 0.0000001f)
             {
                 return;
             }
@@ -23906,6 +23844,14 @@ namespace MemPalaceLLM
                 hasTurnAxis = rightHand.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out turnAxis);
             }
 
+            if (ShouldBlockVrStudyNavigation(axis, turnAxis))
+            {
+                vrControllerMoveInputActive = false;
+                vrMovementActiveThisFrame = false;
+                UpdateVrComfortVignette(false);
+                return;
+            }
+
             var hasTranslationInput = hasMoveAxis && axis.sqrMagnitude >= 0.04f;
             vrControllerMoveInputActive = hasTranslationInput;
             var translationInProgress = vrMovementActiveThisFrame || hasTranslationInput;
@@ -23953,6 +23899,11 @@ namespace MemPalaceLLM
 
         private void UpdateVrFurnitureFocusMode()
         {
+            if (UsesVrClickToStudy())
+            {
+                vrFurnitureFocusModeActive = IsVrStudyFocusActive();
+                return;
+            }
             vrFurnitureFocusModeActive = stage == ExperimentStage.Study &&
                                          !studyAwaitingParticipantStart &&
                                          vrFurnitureImageFocusVisible &&
@@ -24151,14 +24102,20 @@ namespace MemPalaceLLM
             var ray = BuildVrPointerRay(out var hasControllerRay);
             var itemHitPoint = ray.origin + ray.direction * VrPointerDistance;
             StudyInteractable pointedInteractable = null;
-            if (stage == ExperimentStage.Study || stage == ExperimentStage.SelfAuthoring)
+            MnemonicItemData pointedFurniture = null;
+            if (UsesVrClickToStudy())
+            {
+                pointedFurniture = FindVrStudyFurniture(ray, VrPointerDistance, out itemHitPoint);
+            }
+            else if (stage == ExperimentStage.Study || stage == ExperimentStage.SelfAuthoring)
             {
                 pointedInteractable = FindStudyInteractable(ray, VrPointerDistance, out itemHitPoint);
             }
+            var pointedItem = pointedFurniture ?? pointedInteractable?.Data;
             var pointedButton = FindVrPanelButton(ray, VrPointerDistance, out var buttonHitPoint);
             var pointedProgress = FindVrAudioProgress(ray, VrPointerDistance, out var progressHitPoint);
 
-            var itemDistance = pointedInteractable != null ? Vector3.Distance(ray.origin, itemHitPoint) : float.PositiveInfinity;
+            var itemDistance = pointedItem != null ? Vector3.Distance(ray.origin, itemHitPoint) : float.PositiveInfinity;
             var buttonDistance = pointedButton != null ? Vector3.Distance(ray.origin, buttonHitPoint) : float.PositiveInfinity;
             var progressDistance = pointedProgress != null ? Vector3.Distance(ray.origin, progressHitPoint) : float.PositiveInfinity;
             var progressHasPriority = pointedProgress != null && progressDistance <= itemDistance && progressDistance <= buttonDistance;
@@ -24167,9 +24124,9 @@ namespace MemPalaceLLM
                 ? progressHitPoint
                 : (buttonHasPriority
                     ? buttonHitPoint
-                    : (pointedInteractable != null ? itemHitPoint : ray.origin + ray.direction * VrPointerDistance));
+                    : (pointedItem != null ? itemHitPoint : ray.origin + ray.direction * VrPointerDistance));
 
-            UpdateVrPointerVisual(ray.origin, finalHitPoint, pointedInteractable != null || pointedButton != null || pointedProgress != null);
+            UpdateVrPointerVisual(ray.origin, finalHitPoint, pointedItem != null || pointedButton != null || pointedProgress != null);
             UpdateVrPanelButtonHighlight(pointedButton);
 
             var rightHand = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
@@ -24200,6 +24157,8 @@ namespace MemPalaceLLM
                 GetXrButton(leftHand, XRCommonUsages.gripButton) ||
                 GetXrAxisPressed(leftHand, XRCommonUsages.grip) ||
                 directGripPressed;
+            if (UsesVrClickToStudy())
+                ReadVrStudyClickEdges(ref triggerPressed, ref primaryPressed, ref gripPressed);
             var editorMousePressed = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
             var editorKeyPressed = Keyboard.current != null &&
                                    (Keyboard.current.enterKey.wasPressedThisFrame ||
@@ -24249,6 +24208,18 @@ namespace MemPalaceLLM
                 return;
             }
 
+            // A/X or grip is a dedicated snapshot shortcut once a learning card is open,
+            // even if the pointer happens to be over a different screen button.
+            if (IsVrStudyFocusActive() && capturePressed)
+            {
+                if (!isCapturingSnapshot && Time.unscaledTime >= nextVrActionTime)
+                {
+                    StartCoroutine(CaptureMemorySnapshotRoutine(vrFocusedStudyItem));
+                    nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
+                }
+                return;
+            }
+
             if (selectPressed && progressHasPriority && pointedProgress != null && Time.unscaledTime >= nextVrActionTime)
             {
                 var localHit = pointedProgress.transform.InverseTransformPoint(progressHitPoint);
@@ -24279,17 +24250,20 @@ namespace MemPalaceLLM
                 triggerPressed &&
                 voiceRoutePhase == VoiceRoutePhase.WaitingForStoryAdvance)
             {
-                AdvanceVoiceRouteAfterStorySegment(true);
+                if (UsesVrClickToStudy()) ContinueFromVrStudyFocus();
+                else AdvanceVoiceRouteAfterStorySegment(true);
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
                 return;
             }
 
-            var pointingAtDifferentItem = pointedInteractable != null &&
-                                          (selectedStudyItem == null || !string.Equals(pointedInteractable.Data.word, selectedStudyItem.word, StringComparison.Ordinal));
+            var pointingAtDifferentItem = pointedItem != null &&
+                                          (selectedStudyItem == null || !string.Equals(pointedItem.word, selectedStudyItem.word, StringComparison.Ordinal));
 
-            if (selectPressed && pointedInteractable != null && (triggerPressed || pointingAtDifferentItem || !hasControllerRay))
+            if (selectPressed && pointedItem != null && (triggerPressed || pointingAtDifferentItem || !hasControllerRay))
             {
-                SelectStudyItem(pointedInteractable.Data, "VR controller ray selected word image marker.");
+                SelectStudyItem(pointedItem, UsesVrClickToStudy()
+                    ? "VR controller clicked the nearby furniture model."
+                    : "VR controller ray selected word image marker.");
                 nextVrActionTime = Time.unscaledTime + VrActionCooldownSeconds;
                 return;
             }
@@ -24412,7 +24386,8 @@ namespace MemPalaceLLM
                     break;
 
                 case VrPanelButtonAction.ReplayVoice:
-                    ReplayCurrentVoiceStep();
+                    if (IsVrStudyFocusActive()) ReplayVrStudyFocusVoice();
+                    else ReplayCurrentVoiceStep();
                     break;
 
                 case VrPanelButtonAction.PronounceWord:
@@ -24424,13 +24399,18 @@ namespace MemPalaceLLM
                     break;
 
                 case VrPanelButtonAction.AdvanceVoiceRoute:
-                    AdvanceVoiceRouteAfterStorySegment(true);
+                    if (UsesVrClickToStudy()) ContinueFromVrStudyFocus();
+                    else AdvanceVoiceRouteAfterStorySegment(true);
                     break;
             }
         }
 
         private void UpdateVrPanelButtonHighlight(VrPanelButtonInteractable hoveredButton)
         {
+            UpdateVrPanelButtonVisual(vrFocusedStudyReplay, hoveredButton == vrFocusedStudyReplay);
+            UpdateVrPanelButtonVisual(vrFocusedStudyPronounce, hoveredButton == vrFocusedStudyPronounce);
+            UpdateVrPanelButtonVisual(vrFocusedStudyCapture, hoveredButton == vrFocusedStudyCapture);
+            UpdateVrPanelButtonVisual(vrFocusedStudyNext, hoveredButton == vrFocusedStudyNext);
             UpdateVrPanelButtonVisual(vrGenerateButton, hoveredButton == vrGenerateButton);
             UpdateVrPanelButtonVisual(vrPreviousImageButton, hoveredButton == vrPreviousImageButton);
             UpdateVrPanelButtonVisual(vrNextImageButton, hoveredButton == vrNextImageButton);
@@ -25744,7 +25724,7 @@ namespace MemPalaceLLM
 
             var showHud = stage == ExperimentStage.Study &&
                           !studyAwaitingParticipantStart &&
-                          !allPhotoShowcaseActive;
+                          !allPhotoShowcaseActive && !IsVrStudyFocusActive();
             if (vrStudyHudRoot.activeSelf != showHud)
             {
                 vrStudyHudRoot.SetActive(showHud);
@@ -26787,6 +26767,7 @@ namespace MemPalaceLLM
                 return;
             }
 
+            if (UsesVrClickToStudy() && !TryEnterVrStudyFocus(item, details)) return;
             selectedStudyItem = item;
             if (stage == ExperimentStage.SelfAuthoring)
             {
@@ -26930,6 +26911,11 @@ namespace MemPalaceLLM
 
         private void UpdateStudyItemMarkerVisibility()
         {
+            if (UsesVrClickToStudy())
+            {
+                UpdateVrClickStudyMarkers();
+                return;
+            }
             if (runtimeCamera == null || studyItemTargets.Count == 0)
             {
                 vrFurnitureImageFocusVisible = false;
@@ -27673,6 +27659,7 @@ namespace MemPalaceLLM
 
         private void TryAutoInspectVisibleStudyMarker(MnemonicItemData item)
         {
+            if (UsesVrClickToStudy()) return;
             if (item == null ||
                 (selectedStudyItem != null && string.Equals(selectedStudyItem.word, item.word, StringComparison.OrdinalIgnoreCase)) ||
                 !studyItemTargets.TryGetValue(item.word, out var marker) || marker == null || !marker.gameObject.activeInHierarchy)
@@ -27711,6 +27698,7 @@ namespace MemPalaceLLM
 
         private bool ShouldHideSelectedStudyItem()
         {
+            if (IsVrStudyFocusItem(selectedStudyItem)) return false;
             if (runtimeCamera == null || selectedStudyItem == null)
             {
                 return false;
@@ -27923,6 +27911,7 @@ namespace MemPalaceLLM
 
         private void HandleStudyControls()
         {
+            if (IsVrStudyFocusActive()) return;
             var keyboard = Keyboard.current;
             var mouse = Mouse.current;
             if (keyboard == null || mouse == null || runtimeCamera == null)
@@ -28135,10 +28124,8 @@ namespace MemPalaceLLM
                 return;
             }
 
-            if ((keyboard.deleteKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame)
-                && selectedGridFurnitureInstanceIndex >= 0)
+            if (HandleGridFurnitureDeleteShortcut(keyboard))
             {
-                DeleteSelectedGridFurniture();
                 return;
             }
 
@@ -28298,6 +28285,29 @@ namespace MemPalaceLLM
             {
                 ClearGridFurnitureSelection();
             }
+        }
+
+        private bool HandleGridFurnitureDeleteShortcut(Keyboard keyboard)
+        {
+            if (keyboard == null || keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed ||
+                keyboard.leftAltKey.isPressed || keyboard.rightAltKey.isPressed || IsPointerOverGui())
+            {
+                return false;
+            }
+
+            var selectedUi = EventSystem.current?.currentSelectedGameObject;
+            if (selectedUi != null && selectedUi.GetComponent<InputField>() != null) return false;
+            if (!keyboard.bKey.wasPressedThisFrame && !keyboard.deleteKey.wasPressedThisFrame &&
+                !keyboard.backspaceKey.wasPressedThisFrame) return false;
+
+            if (!TryGetSelectedGridFurniture(out _, out _))
+            {
+                gridEditorStatus = "Click a placed furniture item first, then press B to remove it. Ctrl+Z undoes deletion.";
+                return true;
+            }
+
+            DeleteSelectedGridFurniture();
+            return true;
         }
 
         private bool UpdateHoveredGridFurniture(Vector2 mousePosition)

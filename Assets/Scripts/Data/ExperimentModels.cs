@@ -167,6 +167,10 @@ namespace MemPalaceLLM
     public class StorySessionData
     {
         public string fullStory;
+        // Participant input is kept separately from the annotated learning text.
+        // Optional/additive for backward-compatible session-package loading.
+        public string originalParticipantStory;
+        public string storyTextFormatVersion;
         public string storySource;
         public string storyProvider;
         public string storyModel;
