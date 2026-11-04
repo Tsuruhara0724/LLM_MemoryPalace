@@ -1,5 +1,8 @@
 # 开机后启动项目服务
 
+中文 | [English](STARTUP.en.md)
+
+
 从资源管理器双击 `Tools/Start-ProjectServices.cmd`。脚本会复用已经运行且接口正确的服务，启动缺少的服务，并显示状态。无需每次运行 Setup 安装脚本。
 
 | 服务 | 地址 | 用途 |

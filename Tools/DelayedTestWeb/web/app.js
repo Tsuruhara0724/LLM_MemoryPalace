@@ -1,304 +1,295 @@
 "use strict";
 
-const views = {
-  lookup: document.querySelector("#lookupView"),
-  session: document.querySelector("#sessionView"),
-  test: document.querySelector("#testView"),
-  transition: document.querySelector("#transitionView"),
-  result: document.querySelector("#resultView"),
-};
-
+const PROTOCOL = "delayed-story-spatial-typed-retest-v3";
+const byId = (id) => document.getElementById(id);
+const views = Object.fromEntries(["lookup", "session", "recall", "test", "transition", "story", "result"].map((name) => [name, byId(name + "View")]));
 const state = {
-  attemptId: "",
-  session: null,
-  phase: "manual",
-  questions: [],
-  index: 0,
-  questionStartedAt: 0,
-  manualResponses: [],
-  choiceResponses: [],
-  selectedOptionId: "",
+  attemptId: "", session: null, stage: "baseline", phase: "manual", questions: [],
+  index: 0, questionStartedAt: 0, responses: [], selectedOptionId: "",
+  busy: false, pending: null, snapshotReady: false,
+  recallDeadlineAt: 0, recallComplete: false,
 };
+let recallInterval = null;
 
-const phaseBadge = document.querySelector("#phaseBadge");
-const lookupForm = document.querySelector("#lookupForm");
-const lookupId = document.querySelector("#lookupId");
-const lookupButton = document.querySelector("#lookupButton");
-const lookupError = document.querySelector("#lookupError");
-const sessionValue = document.querySelector("#sessionValue");
-const participantValue = document.querySelector("#participantValue");
-const studyDateValue = document.querySelector("#studyDateValue");
-const wordCountValue = document.querySelector("#wordCountValue");
-const scheduleMessage = document.querySelector("#scheduleMessage");
-const matchMessage = document.querySelector("#matchMessage");
-const roundKicker = document.querySelector("#roundKicker");
-const roundTitle = document.querySelector("#roundTitle");
-const roundInstruction = document.querySelector("#roundInstruction");
-const questionCounter = document.querySelector("#questionCounter");
-const progressBar = document.querySelector("#progressBar");
-const spanishWord = document.querySelector("#spanishWord");
-const manualForm = document.querySelector("#manualForm");
-const manualAnswer = document.querySelector("#manualAnswer");
-const choiceForm = document.querySelector("#choiceForm");
-const choiceOptions = document.querySelector("#choiceOptions");
-const choiceNextButton = document.querySelector("#choiceNextButton");
-const testError = document.querySelector("#testError");
-
+function message(id, text = "") {
+  byId(id).textContent = text;
+  byId(id).hidden = !text;
+}
 function showView(name) {
-  Object.entries(views).forEach(([key, element]) => {
-    element.hidden = key !== name;
-  });
-  phaseBadge.hidden = name !== "test";
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  for (const [key, element] of Object.entries(views)) element.hidden = key !== name;
+  byId("phaseBadge").hidden = name !== "test";
+  const active = name === "recall" ? "recall" : state.phase === "story" ? "story" : state.phase === "matching" ? "matching" : state.stage;
+  document.querySelectorAll("[data-stage]").forEach((item) => item.classList.toggle("active", !["lookup", "session", "result"].includes(name) && item.dataset.stage === active));
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
-
-function setMessage(element, message) {
-  element.textContent = message || "";
-  element.hidden = !message;
-}
-
-async function apiPost(path, payload) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  let data = {};
-  try {
-    data = await response.json();
-  } catch (_) {
-    throw new Error("The server returned an unreadable response.");
-  }
-  if (!response.ok) {
-    throw new Error(data.message || "The request could not be completed.");
-  }
+let invitationError = null;
+const invitationReady = (async () => {
+  const token = new URLSearchParams(window.location.hash?.slice(1) || "").get("access");
+  if (!token) return;
+  // Fragments are not sent to servers or referrers. Remove the secret from history
+  // after reading it; the server exchanges it for a short-lived HttpOnly cookie.
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  byId("lookupButton").disabled = true;
+  const response = await fetch("/api/access", { method: "POST", headers: {
+    "Content-Type": "application/json", "Authorization": "Bearer " + token,
+  }, body: "{}" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || "This invitation could not be opened.");
+  byId("lookupId").value = data.sessionId;
+  byId("lookupButton").disabled = false;
+})().catch((error) => {
+  invitationError = error;
+  message("lookupError", error.message);
+  byId("lookupButton").disabled = true;
+});
+async function apiPost(route, payload) {
+  await invitationReady;
+  if (invitationError) throw invitationError;
+  const response = await fetch(route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  let data;
+  try { data = await response.json(); } catch { throw new Error("The server returned an unreadable response. Retry saving this stage."); }
+  if (!response.ok) throw new Error(data.message || "The request could not be completed.");
   return data;
 }
-
-function setBusy(button, busy, busyLabel, normalLabel) {
-  button.disabled = busy;
-  button.textContent = busy ? busyLabel : normalLabel;
+function controls() {
+  const blocked = state.busy || Boolean(state.pending);
+  byId("manualAnswer").disabled = blocked;
+  byId("manualUnknownButton").disabled = blocked;
+  byId("manualSubmitButton").disabled = blocked;
+  document.querySelectorAll(".choice-option").forEach((button) => {
+    button.disabled = blocked || (state.phase === "matching" && !state.snapshotReady);
+  });
+  byId("choiceNextButton").disabled = blocked || !state.selectedOptionId || (state.phase === "matching" && !state.snapshotReady);
+  byId("retrySubmissionButton").hidden = !state.pending;
+  byId("retrySubmissionButton").disabled = state.busy;
 }
 
-lookupForm.addEventListener("submit", async (event) => {
+byId("lookupForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const value = lookupId.value.trim();
-  if (!value) {
-    setMessage(lookupError, "Enter your Participant ID or Session ID.");
-    lookupId.focus();
-    return;
-  }
-
-  setMessage(lookupError, "");
-  setBusy(lookupButton, true, "Finding session…", "Continue");
+  if (state.busy) return;
+  const lookupId = byId("lookupId").value.trim();
+  if (!lookupId) { message("lookupError", "Enter your Participant ID or Session ID."); return; }
+  state.busy = true;
+  byId("lookupButton").disabled = true;
+  message("lookupError");
   try {
-    const data = await apiPost("/api/start", { lookupId: value });
-    state.attemptId = data.attemptId;
-    state.session = data;
-    state.phase = "manual";
-    state.questions = data.manualQuestions;
-    state.index = 0;
-    state.manualResponses = [];
-    state.choiceResponses = [];
-
-    participantValue.textContent = data.participantId;
-    sessionValue.textContent = data.sessionId;
-    studyDateValue.textContent = formatDate(data.studyCreatedAtUtc);
-    wordCountValue.textContent = String(data.wordCount);
-    const dueDate = formatDate(data.scheduledForUtc);
-    if (data.daysSinceStudy >= 7) {
-      scheduleMessage.textContent = `This one-week test was scheduled for ${dueDate}.`;
-    } else {
-      const remaining = Math.max(0, 7 - data.daysSinceStudy).toFixed(1);
-      scheduleMessage.textContent = `Scheduled for ${dueDate} (${remaining} day(s) remaining). The researcher may still continue.`;
-    }
-
+    const data = await apiPost("/api/start", { lookupId });
+    if (data.protocolVersion !== PROTOCOL) throw new Error("This server is running an older test version. Ask the researcher to restart it or provide the updated link.");
+    resetRecall();
+    Object.assign(state, { attemptId: data.attemptId, session: data, stage: "baseline", phase: "manual",
+      questions: data.manualQuestions, index: 0, responses: [], pending: null });
+    byId("participantValue").textContent = data.participantId;
+    byId("sessionValue").textContent = data.sessionId;
+    byId("studyDateValue").textContent = formatDate(data.studyCreatedAtUtc);
+    byId("wordCountValue").textContent = data.wordCount;
+    byId("scheduleMessage").textContent = data.daysSinceStudy >= 7
+      ? "This one-week test was scheduled for " + formatDate(data.scheduledForUtc) + "."
+      : "Scheduled for " + formatDate(data.scheduledForUtc) + ". The researcher may still continue early.";
     const notices = [];
-    if (data.matchedBy === "participantId" && data.matchingSessionCount > 1) {
-      notices.push(`${data.matchingSessionCount} sessions use this Participant ID; the latest session was selected.`);
-    }
-    if (data.priorDelayedAttemptCount > 0) {
-      notices.push(`This session already has ${data.priorDelayedAttemptCount} saved delayed-test attempt(s).`);
-    }
-    setMessage(matchMessage, notices.join(" "));
+    if (data.matchingSessionCount > 1) notices.push("Multiple sessions match this Participant ID; the latest was selected.");
+    if (data.priorDelayedAttemptCount > 0) notices.push(data.priorDelayedAttemptCount + " saved attempt(s) already exist for this session.");
+    message("matchMessage", notices.join(" "));
     showView("session");
-  } catch (error) {
-    setMessage(lookupError, error.message);
-  } finally {
-    setBusy(lookupButton, false, "Finding session…", "Continue");
-  }
+  } catch (error) { message("lookupError", error.message); }
+  finally { state.busy = false; byId("lookupButton").disabled = false; }
 });
-
-document.querySelector("#backToLookupButton").addEventListener("click", () => {
-  state.attemptId = "";
-  state.session = null;
-  showView("lookup");
-  lookupId.focus();
+byId("backToLookupButton").addEventListener("click", () => { resetRecall(); state.attemptId = ""; showView("lookup"); });
+byId("startRecallButton").addEventListener("click", () => {
+  if (state.recallDeadlineAt || !state.attemptId) return;
+  state.recallDeadlineAt = Date.now() + 3 * 60 * 1000;
+  byId("beginManualButton").disabled = true;
+  byId("recallStatus").hidden = true;
+  showView("recall");
+  updateRecallTimer();
+  recallInterval = window.setInterval(updateRecallTimer, 250);
 });
-
-document.querySelector("#beginManualButton").addEventListener("click", () => {
-  state.phase = "manual";
-  state.questions = state.session.manualQuestions;
-  state.index = 0;
+byId("beginManualButton").addEventListener("click", () => {
+  if (!state.recallComplete) return;
   showView("test");
   renderQuestion();
 });
+byId("beginRetestButton").addEventListener("click", () => { showView("test"); renderQuestion(); });
 
-manualForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  saveManualResponse(manualAnswer.value);
-});
-
-document.querySelector("#manualUnknownButton").addEventListener("click", () => saveManualResponse(""));
-
-function saveManualResponse(answer) {
-  if (state.phase !== "manual") return;
-  const question = state.questions[state.index];
-  state.manualResponses.push({
-    questionId: question.questionId,
-    answer: String(answer || "").trim(),
-    responseTimeMs: elapsedQuestionMs(),
-  });
-  state.index += 1;
-  if (state.index < state.questions.length) {
-    renderQuestion();
-  } else {
-    finishManualRound();
-  }
+function resetRecall() {
+  if (recallInterval !== null) window.clearInterval(recallInterval);
+  recallInterval = null;
+  state.recallDeadlineAt = 0;
+  state.recallComplete = false;
+  byId("recallTimer").textContent = "03:00";
+  byId("recallStatus").hidden = true;
+  byId("beginManualButton").disabled = true;
 }
 
-async function finishManualRound() {
-  setMessage(testError, "");
-  const submitButton = manualForm.querySelector("button[type='submit']");
-  setBusy(submitButton, true, "Saving Round 1…", "Save and continue");
+function updateRecallTimer() {
+  const remaining = Math.max(0, Math.ceil((state.recallDeadlineAt - Date.now()) / 1000));
+  byId("recallTimer").textContent = String(Math.floor(remaining / 60)).padStart(2, "0")
+    + ":" + String(remaining % 60).padStart(2, "0");
+  if (remaining > 0) return;
+  state.recallComplete = true;
+  byId("beginManualButton").disabled = false;
+  byId("recallStatus").hidden = false;
+  if (recallInterval !== null) window.clearInterval(recallInterval);
+  recallInterval = null;
+}
+
+byId("manualForm").addEventListener("submit", (event) => { event.preventDefault(); saveAnswer(byId("manualAnswer").value); });
+byId("manualUnknownButton").addEventListener("click", () => saveAnswer(""));
+byId("choiceNextButton").addEventListener("click", () => saveAnswer(state.selectedOptionId));
+byId("retrySubmissionButton").addEventListener("click", sendPending);
+
+function saveAnswer(answer) {
+  if (state.busy || state.pending || !["manual", "matching"].includes(state.phase)) return;
+  if (state.phase !== "manual" && (!answer || (state.phase === "matching" && !state.snapshotReady))) return;
+  const response = { questionId: state.questions[state.index].questionId,
+    responseTimeMs: Math.max(0, Math.round(performance.now() - state.questionStartedAt)) };
+  if (state.phase === "manual") response.answer = String(answer || "").trim();
+  else response.optionId = answer;
+  state.responses.push(response);
+  state.index++;
+  if (state.index < state.questions.length) { renderQuestion(); return; }
+  state.pending = { route: "/api/" + state.phase,
+    body: { attemptId: state.attemptId, responses: state.responses, stage: state.stage } };
+  sendPending();
+}
+
+async function sendPending() {
+  if (!state.pending || state.busy) return;
+  state.busy = true;
+  message("testError");
+  controls();
   try {
-    const data = await apiPost("/api/manual", {
-      attemptId: state.attemptId,
-      responses: state.manualResponses,
-    });
-    state.phase = "choice";
-    state.questions = data.choiceQuestions;
+    const request = state.pending;
+    const data = await apiPost(request.route, request.body);
+    const previousPhase = state.phase;
+    state.pending = null;
+    state.responses = [];
     state.index = 0;
-    showView("transition");
+    if (previousPhase === "matching") {
+      state.stage = "post";
+      state.phase = "manual";
+      state.questions = data.manualQuestions;
+      transition("Furniture matching saved", "Take the word test again",
+        "Type the English meanings again, in a newly randomized word order. There is no English multiple-choice round. Your first responses are kept separately.",
+        "Begin second word test");
+    } else if (state.stage === "baseline") {
+      state.phase = "story";
+      byId("storyText").textContent = data.storyText;
+      message("storyError");
+      showView("story");
+    } else {
+      state.phase = "complete";
+      byId("resultIdValue").textContent = data.resultId;
+      showView("result");
+    }
   } catch (error) {
-    state.index = Math.max(0, state.questions.length - 1);
-    state.manualResponses.pop();
-    renderQuestion();
-    setMessage(testError, error.message);
-  } finally {
-    setBusy(submitButton, false, "Saving Round 1…", "Save and continue");
-  }
+    message("testError", error.message + " Your answers remain on this page. Use Retry saving this stage; do not reload.");
+  } finally { state.busy = false; controls(); }
 }
 
-document.querySelector("#beginChoiceButton").addEventListener("click", () => {
-  state.index = 0;
-  showView("test");
-  renderQuestion();
-});
+function transition(kicker, title, instruction, buttonText) {
+  byId("transitionKicker").textContent = kicker;
+  byId("transitionTitle").textContent = title;
+  byId("transitionInstruction").textContent = instruction;
+  byId("beginRetestButton").textContent = buttonText;
+  showView("transition");
+}
 
-choiceNextButton.addEventListener("click", () => {
-  if (!state.selectedOptionId || state.phase !== "choice") return;
-  const question = state.questions[state.index];
-  state.choiceResponses.push({
-    questionId: question.questionId,
-    optionId: state.selectedOptionId,
-    responseTimeMs: elapsedQuestionMs(),
-  });
-  state.index += 1;
-  if (state.index < state.questions.length) {
-    renderQuestion();
-  } else {
-    finishChoiceRound();
-  }
-});
-
-async function finishChoiceRound() {
-  setMessage(testError, "");
-  setBusy(choiceNextButton, true, "Saving results…", "Save and continue");
+byId("finishStoryButton").addEventListener("click", async () => {
+  if (state.busy || state.phase !== "story") return;
+  state.busy = true;
+  byId("finishStoryButton").disabled = true;
+  message("storyError");
   try {
-    const data = await apiPost("/api/choice", {
-      attemptId: state.attemptId,
-      responses: state.choiceResponses,
-    });
-    document.querySelector("#manualScoreValue").textContent = `${data.manualScore} / ${data.wordCount}`;
-    document.querySelector("#choiceScoreValue").textContent = `${data.choiceScore} / ${data.wordCount}`;
-    document.querySelector("#resultIdValue").textContent = data.resultId;
-    state.phase = "complete";
-    showView("result");
-  } catch (error) {
-    state.index = Math.max(0, state.questions.length - 1);
-    state.choiceResponses.pop();
+    const data = await apiPost("/api/story", { attemptId: state.attemptId });
+    state.phase = "matching";
+    state.questions = data.matchingQuestions;
+    state.responses = [];
+    state.index = 0;
+    showView("test");
     renderQuestion();
-    setMessage(testError, error.message);
-  } finally {
-    setBusy(choiceNextButton, false, "Saving results…", "Save and continue");
-  }
-}
+  } catch (error) { message("storyError", error.message + " You can retry this button."); }
+  finally { state.busy = false; byId("finishStoryButton").disabled = false; controls(); }
+});
 
 function renderQuestion() {
-  setMessage(testError, "");
   const question = state.questions[state.index];
-  const total = state.questions.length;
-  questionCounter.textContent = `${state.index + 1} / ${total}`;
-  progressBar.style.width = `${((state.index + 1) / total) * 100}%`;
-  spanishWord.textContent = question.word;
+  const matching = state.phase === "matching";
+  message("testError");
+  state.selectedOptionId = "";
   state.questionStartedAt = performance.now();
-
+  byId("questionCounter").textContent = (state.index + 1) + " / " + state.questions.length;
+  byId("progressBar").style.width = ((state.index + 1) / state.questions.length * 100) + "%";
+  byId("promptLabel").textContent = matching ? "Furniture in your original study room" : "Spanish word";
+  byId("spanishWord").hidden = matching;
+  byId("spanishWord").textContent = matching ? "" : question.word;
+  byId("snapshotFigure").hidden = !matching;
+  byId("manualForm").hidden = state.phase !== "manual";
+  byId("choiceForm").hidden = state.phase === "manual";
+  const stageName = state.stage === "baseline" ? "First word test" : "Second word test · After review";
+  byId("phaseBadge").textContent = matching ? "Furniture matching" : stageName;
+  byId("roundKicker").textContent = matching ? "Stage 3 of 4" : stageName + " · Typed response";
+  byId("roundTitle").textContent = matching ? "Which Spanish word belongs here?" : "Type the English meaning";
+  byId("roundInstruction").textContent = matching
+    ? "Look at the original study snapshot. Choose the Spanish word you assigned to this furniture. No correctness feedback is shown."
+    : "Enter the English meaning of each Spanish word. Common word-form changes are accepted. Choose I don't know if you cannot recall it.";
   if (state.phase === "manual") {
-    phaseBadge.textContent = "Round 1 of 2";
-    roundKicker.textContent = "Round 1 of 2 · Typed response";
-    roundTitle.textContent = "Type the English meaning";
-    roundInstruction.textContent = "Enter the English meaning of each Spanish word. Common word-form changes are accepted. No answers or correctness feedback are shown during the round.";
-    manualForm.hidden = false;
-    choiceForm.hidden = true;
-    manualAnswer.value = "";
-    window.setTimeout(() => manualAnswer.focus(), 0);
+    byId("manualAnswer").value = "";
+    window.setTimeout(() => byId("manualAnswer").focus(), 0);
   } else {
-    phaseBadge.textContent = "Round 2 of 2";
-    roundKicker.textContent = "Round 2 of 2 · Three-choice";
-    roundTitle.textContent = "Choose the English meaning";
-    roundInstruction.textContent = "Select one of the three English meanings. Correctness feedback is withheld until the entire test is complete.";
-    manualForm.hidden = true;
-    choiceForm.hidden = false;
-    state.selectedOptionId = "";
-    choiceNextButton.disabled = true;
-    choiceOptions.replaceChildren();
-    question.options.forEach((option) => {
+    byId("choiceOptions").replaceChildren();
+    for (const option of question.options) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "choice-option";
       button.textContent = option.label;
       button.dataset.optionId = option.optionId;
-      button.addEventListener("click", () => {
-        state.selectedOptionId = option.optionId;
-        choiceOptions.querySelectorAll(".choice-option").forEach((element) => {
-          element.classList.toggle("selected", element.dataset.optionId === option.optionId);
-          element.setAttribute("aria-pressed", element.dataset.optionId === option.optionId ? "true" : "false");
-        });
-        choiceNextButton.disabled = false;
-      });
       button.setAttribute("aria-pressed", "false");
-      choiceOptions.append(button);
-    });
+      button.lang = "es";
+      button.addEventListener("click", () => {
+        if (state.busy || state.pending || (matching && !state.snapshotReady)) return;
+        state.selectedOptionId = option.optionId;
+        byId("choiceOptions").querySelectorAll("button").forEach((candidate) => {
+          const selected = candidate.dataset.optionId === option.optionId;
+          candidate.classList.toggle("selected", selected);
+          candidate.setAttribute("aria-pressed", String(selected));
+        });
+        controls();
+      });
+      byId("choiceOptions").append(button);
+    }
+    if (matching) loadSnapshot(question);
   }
+  controls();
 }
 
-function elapsedQuestionMs() {
-  return Math.max(0, Math.round(performance.now() - state.questionStartedAt));
+function loadSnapshot(question) {
+  state.snapshotReady = false;
+  byId("snapshotCaption").textContent = question.furnitureLabel;
+  byId("snapshotStatus").textContent = "Loading the original study snapshot…";
+  byId("snapshotStatus").hidden = false;
+  byId("retrySnapshotButton").hidden = true;
+  const image = byId("snapshotImage");
+  image.onload = () => {
+    state.snapshotReady = true;
+    state.questionStartedAt = performance.now();
+    byId("snapshotStatus").hidden = true;
+    controls();
+  };
+  image.onerror = () => {
+    state.snapshotReady = false;
+    byId("snapshotStatus").textContent = "The original snapshot could not be loaded. Reload it before answering, or contact the researcher.";
+    byId("retrySnapshotButton").hidden = false;
+    controls();
+  };
+  image.src = question.snapshotUrl;
 }
+byId("retrySnapshotButton").addEventListener("click", () => { loadSnapshot(state.questions[state.index]); controls(); });
 
-function formatDate(isoText) {
-  const date = new Date(isoText);
+function formatDate(value) {
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
-
 const queryId = new URLSearchParams(window.location.search).get("id");
-if (queryId) lookupId.value = queryId;
-lookupId.focus();
+if (queryId) byId("lookupId").value = queryId;
+byId("lookupId").focus();

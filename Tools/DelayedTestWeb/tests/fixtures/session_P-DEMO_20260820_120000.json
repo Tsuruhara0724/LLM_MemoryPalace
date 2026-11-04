@@ -2,15 +2,18 @@
   "participantId": "P-DEMO",
   "sessionId": "20260820_120000",
   "createdAtUtc": "2026-08-20T12:00:00Z",
-  "wordSetName": "Delayed Test Demo 8",
+  "wordSetName": "Delayed Test Demo 8 (synthetic)",
+  "storySession": {
+    "fullStory": "You rest your rodilla (knee) beside the desk and notice a grieta (crack). You use pegamento (glue) to repair a rueda (wheel), while a pajaro (bird) watches your juego (game). You open a paraguas (umbrella) and see a burbuja (bubble) float past. This is synthetic test material, not a participant story."
+  },
   "items": [
-    { "word": "rodilla", "meaning": "knee" },
-    { "word": "grieta", "meaning": "crack" },
-    { "word": "pegamento", "meaning": "glue" },
-    { "word": "rueda", "meaning": "wheel" },
-    { "word": "pajaro", "meaning": "bird" },
-    { "word": "juego", "meaning": "game" },
-    { "word": "paraguas", "meaning": "umbrella" },
-    { "word": "burbuja", "meaning": "bubble" }
+    { "word": "rodilla", "meaning": "knee", "anchorId": "demo_desk", "anchorLabel": "Desk" },
+    { "word": "grieta", "meaning": "crack", "anchorId": "demo_chair", "anchorLabel": "Chair" },
+    { "word": "pegamento", "meaning": "glue", "anchorId": "demo_bed", "anchorLabel": "Bed" },
+    { "word": "rueda", "meaning": "wheel", "anchorId": "demo_sofa", "anchorLabel": "Sofa" },
+    { "word": "pajaro", "meaning": "bird", "anchorId": "demo_lamp", "anchorLabel": "Lamp" },
+    { "word": "juego", "meaning": "game", "anchorId": "demo_wardrobe", "anchorLabel": "Wardrobe" },
+    { "word": "paraguas", "meaning": "umbrella", "anchorId": "demo_bookshelf", "anchorLabel": "Bookshelf" },
+    { "word": "burbuja", "meaning": "bubble", "anchorId": "demo_bathtub", "anchorLabel": "Bathtub" }
   ]
 }

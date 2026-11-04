@@ -25,9 +25,9 @@ try {
         }
         $entries[$name] = $entry
     }
-    foreach ($required in @('README.md', 'SHARING_NOTES.md', 'SOURCE_MANIFEST.json', 'ProjectSettings/ProjectVersion.txt',
+    foreach ($required in @('README.md', 'README.en.md', 'SHARING_NOTES.md', 'SOURCE_MANIFEST.json', 'ProjectSettings/ProjectVersion.txt',
         'Packages/manifest.json', 'Packages/packages-lock.json', 'Assets/Scenes/SampleScene.unity',
-        'Assets/Resources/EnglishInflectionsNotice.txt', 'Docs/DEVELOPER_GUIDE.md')) {
+        'Assets/Resources/EnglishInflectionsNotice.txt', 'Docs/DEVELOPER_GUIDE.md', 'Docs/DEVELOPER_GUIDE.en.md')) {
         if (-not $entries.ContainsKey($required)) { throw "Required ZIP entry missing: $required" }
     }
     $reader = [IO.StreamReader]::new($entries['SOURCE_MANIFEST.json'].Open())

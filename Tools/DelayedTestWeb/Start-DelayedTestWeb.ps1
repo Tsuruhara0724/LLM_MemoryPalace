@@ -2,7 +2,8 @@ param(
     [string]$BindAddress = "127.0.0.1",
     [int]$Port = 8765,
     [string]$ExportsDir = "",
-    [string]$ResultsDir = ""
+    [string]$ResultsDir = "",
+    [string[]]$SnapshotsDir = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +15,9 @@ if ($ExportsDir) {
 }
 if ($ResultsDir) {
     $pythonArgs += @("--results-dir", $ResultsDir)
+}
+foreach ($directory in $SnapshotsDir) {
+    $pythonArgs += @("--snapshots-dir", $directory)
 }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {

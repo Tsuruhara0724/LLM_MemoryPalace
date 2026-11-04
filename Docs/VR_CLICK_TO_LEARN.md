@@ -1,6 +1,6 @@
 # VR click-to-learn
 
-Updated: 2026-10-28
+Updated: 2026-11-04
 
 ## Participant flow
 
@@ -19,6 +19,8 @@ No-voice/debug mode and audio failures expose **Back to room**, preventing a sof
 
 The learning card uses a top-level **Screen Space - Camera** canvas with an explicit foreground UI shader (`ZTest Always`). It is not attached to the furniture, has no occlusion-position solver, and is not depth-clipped by room geometry. Existing global HUD panels are hidden while the card is open to avoid duplicate words/subtitles. The research room stays visible around the card.
 
+The card is centered and uniformly fitted inside the central **50% of the view width and 50% of the view height**. Its original aspect ratio is preserved, so one dimension may be smaller than 50%. Text, images, controls and their hit areas scale together. Layout uses camera viewport coordinates; in stereo it uses the intersection of both eyes' central regions instead of the desktop mirror or a double-wide render texture. It updates before canvas rendering when the view changes.
+
 Headset stereo readability and comfort still require observation in the participant setup; passing code/state checks is not evidence of reduced simulator sickness.
 
 ## Implementation
@@ -33,5 +35,7 @@ Desktop auto-inspection, Builder, Writing, Matching, story prompts, word/anchor 
 The earlier `ParticipantGuides/VR_Learning_Guide_EN_JA.png` shows the old gaze-to-learn flow. Do not use its FIND/LISTEN panels to describe the new click-to-learn interaction without updating that participant handout.
 
 ## Verification
+
+2026-11-04: 84 click-to-learn checks, 109 participant-story checks, and 19 Builder shortcut checks passed in the isolated Unity project. The layout checks cover five viewport aspect ratios, camera pose/FOV changes, graphic containment, and controller-ray selection after scaling. The D3D11 render also verifies foreground visibility and clean-snapshot exclusion. Preview: `.utmp/vr-study-half-view-20261104.png`. Stereo sizing has not been verified on a headset; no Quest run was performed.
 
 2026-10-28: 54 click-to-learn checks, 109 participant-story checks, and 19 Builder shortcut checks passed in the isolated Unity project. The click-to-learn checks include a D3D11 offscreen render with a nearer opaque occluder and an actual call to the clean-snapshot renderer: the learning card remains readable over scene geometry, is omitted from the saved-view texture, and is restored afterwards. Layout preview: `.utmp/vr-click-study-preview.png`. This is an editor fixture, not a headset/production-room screenshot. No Quest run was performed.

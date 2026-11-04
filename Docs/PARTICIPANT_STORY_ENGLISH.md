@@ -1,5 +1,8 @@
 # 参与者自写故事：英语词形与自动西语括注
 
+中文 | [English](PARTICIPANT_STORY_ENGLISH.en.md)
+
+
 参与者仍然只写英语，不需要输入西班牙语，也不需要把句子强行改成英文原形。LLM 故事 Prompt 不变。
 
 ## 使用流程

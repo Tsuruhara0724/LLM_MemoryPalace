@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>One-week delayed vocabulary test</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <main class="shell">
@@ -14,8 +14,16 @@
         <p class="eyebrow">Memory Palace Study</p>
         <h1>One-week delayed vocabulary test</h1>
       </div>
-      <div id="phaseBadge" class="phase-badge" hidden>Round 1 of 2</div>
+      <div id="phaseBadge" class="phase-badge" hidden>First word test</div>
     </header>
+
+    <ol class="protocol-steps" aria-label="Test sequence">
+      <li data-stage="recall">0 · 3-minute recall</li>
+      <li data-stage="baseline">1 · Word test</li>
+      <li data-stage="story">2 · Original story</li>
+      <li data-stage="matching">3 · Furniture matching</li>
+      <li data-stage="post">4 · Word retest</li>
+    </ol>
 
     <section id="lookupView" class="card lookup-card" aria-labelledby="lookupTitle">
       <p class="step-kicker">Participant access</p>
@@ -46,14 +54,26 @@
       <p id="matchMessage" class="message info-message" hidden></p>
       <div class="button-row">
         <button id="backToLookupButton" class="secondary-button" type="button">Use a different ID</button>
-        <button id="beginManualButton" class="primary-button" type="button">Begin Round 1</button>
+        <button id="startRecallButton" class="primary-button" type="button">Start 3-minute recall</button>
+      </div>
+    </section>
+
+    <section id="recallView" class="card recall-card" aria-labelledby="recallTitle" hidden>
+      <p class="step-kicker">Before the first word test</p>
+      <h2 id="recallTitle">Recall your story and VR room</h2>
+      <p class="lead">For 3 minutes, try to remember the story you created or selected one week ago. Also picture the VR room layout, where the furniture was placed, the order in which you walked through the room, and which Spanish word belonged to each furniture item. Recall these from memory before starting the test.</p>
+      <p class="recall-timer-label">Time remaining</p>
+      <p id="recallTimer" class="recall-timer" role="timer" aria-live="off">03:00</p>
+      <p id="recallStatus" class="message info-message" role="status" hidden>Three minutes are complete. You can now begin the first word test.</p>
+      <div class="button-row">
+        <button id="beginManualButton" class="primary-button" type="button" disabled>Begin first word test</button>
       </div>
     </section>
 
     <section id="testView" class="card test-card" aria-labelledby="roundTitle" hidden>
       <div class="progress-copy">
         <div>
-          <p id="roundKicker" class="step-kicker">Round 1 of 2</p>
+          <p id="roundKicker" class="step-kicker">First word test · Typed response</p>
           <h2 id="roundTitle">Type the English meaning</h2>
         </div>
         <p id="questionCounter" class="question-counter">1 / 8</p>
@@ -62,8 +82,14 @@
       <p id="roundInstruction" class="round-instruction"></p>
 
       <div class="question-panel">
-        <p class="prompt-label">Spanish word</p>
+        <p id="promptLabel" class="prompt-label">Spanish word</p>
         <p id="spanishWord" class="spanish-word" lang="es"></p>
+        <figure id="snapshotFigure" class="snapshot-figure" hidden>
+          <img id="snapshotImage" alt="Furniture in your original study room">
+          <figcaption id="snapshotCaption"></figcaption>
+          <p id="snapshotStatus" class="snapshot-status" role="status">Loading the original study snapshot…</p>
+          <button id="retrySnapshotButton" class="secondary-button" type="button" hidden>Reload snapshot</button>
+        </figure>
 
         <form id="manualForm" novalidate>
           <label for="manualAnswer">English meaning</label>
@@ -71,13 +97,13 @@
                  placeholder="Type the English word">
           <div class="button-row test-actions">
             <button id="manualUnknownButton" class="secondary-button" type="button">I don't know</button>
-            <button class="primary-button" type="submit">Save and continue</button>
+            <button id="manualSubmitButton" class="primary-button" type="submit">Save and continue</button>
           </div>
         </form>
 
         <div id="choiceForm" hidden>
           <fieldset>
-            <legend>Choose the English meaning</legend>
+            <legend id="choiceLegend">Choose the assigned Spanish word</legend>
             <div id="choiceOptions" class="choice-options"></div>
           </fieldset>
           <div class="button-row test-actions">
@@ -86,30 +112,36 @@
         </div>
       </div>
       <p id="testError" class="message error-message" role="alert" hidden></p>
+      <button id="retrySubmissionButton" class="secondary-button" type="button" hidden>Retry saving this stage</button>
+    </section>
+
+    <section id="storyView" class="card story-card" aria-labelledby="storyTitle" hidden>
+      <p class="step-kicker">Stage 2 of 4 · Story review</p>
+      <h2 id="storyTitle">Your original study story</h2>
+      <p class="lead">Your first word-test responses have been saved. Read the same story you used during the study. Next, you will match your original furniture snapshots to Spanish words.</p>
+      <div id="storyText" class="story-text" lang="en"></div>
+      <p id="storyError" class="message error-message" role="alert" hidden></p>
+      <div class="button-row"><button id="finishStoryButton" class="primary-button" type="button">Continue to furniture matching</button></div>
     </section>
 
     <section id="transitionView" class="card transition-card" aria-labelledby="transitionTitle" hidden>
-      <div class="round-complete-icon" aria-hidden="true">1</div>
-      <p class="step-kicker">Round 1 complete</p>
-      <h2 id="transitionTitle">Now complete the multiple-choice round</h2>
-      <p class="lead">You will see the same Spanish words again with three English choices. Round 1 answers are not shown.</p>
-      <button id="beginChoiceButton" class="primary-button" type="button">Begin Round 2</button>
+      <div class="round-complete-icon" aria-hidden="true">✓</div>
+      <p id="transitionKicker" class="step-kicker">Furniture matching saved</p>
+      <h2 id="transitionTitle">Take the word test again</h2>
+      <p id="transitionInstruction" class="lead">Type the English meanings again. Your first responses are kept separately.</p>
+      <button id="beginRetestButton" class="primary-button" type="button">Begin second word test</button>
     </section>
 
     <section id="resultView" class="card result-card" aria-labelledby="resultTitle" hidden>
       <div class="success-mark" aria-hidden="true">✓</div>
       <p class="step-kicker">Test complete</p>
       <h2 id="resultTitle">Thank you</h2>
-      <p class="lead">Both delayed-test rounds have been saved. You may now close this page.</p>
-      <div class="score-grid">
-        <div><span>Typed response</span><strong id="manualScoreValue">0 / 8</strong></div>
-        <div><span>Three-choice</span><strong id="choiceScoreValue">0 / 8</strong></div>
-      </div>
+      <p class="lead">Both word tests and furniture matching have been saved separately. You may now close this page.</p>
       <p class="result-reference">Result reference: <code id="resultIdValue"></code></p>
     </section>
 
     <footer>NAIST Memory Palace study · One-week follow-up</footer>
   </main>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=4" defer></script>
 </body>
 </html>

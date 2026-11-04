@@ -13,7 +13,7 @@ $sourceDirectories = @(
     'Assets/Resources/ExampleRooms', 'Docs/MnemonicStoryPromptV2', 'Tools', 'ProjectSettings'
 )
 $sourceFiles = @(
-    '.gitignore', 'README.md',
+    '.gitignore', 'README.md', 'README.en.md',
     'Packages/manifest.json', 'Packages/packages-lock.json',
     'Assets/Resources/EnglishInflections.bytes',
     'Assets/Resources/EnglishInflectionsNotice.txt',
@@ -26,6 +26,9 @@ $sourceFiles = @(
     'Docs/VR_COMFORT_VIGNETTE.md', 'Docs/PARTICIPANT_STORY_ENGLISH.md',
     'Docs/VOCABULARY_AUDIT.md', 'Docs/StoryGeneratorPrompt_MSF21.cs',
     'Docs/STORY_GENERATOR_FRAMEWORK_SHARE.md'
+    'Docs/DEVELOPER_GUIDE.en.md', 'Docs/PROJECT_CONTEXT.en.md',
+    'Docs/THIRD_PARTY_ASSETS.en.md', 'Docs/MAINTENANCE_2026-10-28.en.md',
+    'Docs/STARTUP.en.md', 'Docs/PARTICIPANT_STORY_ENGLISH.en.md'
 )
 $extensions = @('.cs', '.meta', '.json', '.inputactions', '.unity', '.asset',
     '.xml', '.shader', '.hlsl', '.asmdef', '.asmref', '.md', '.txt', '.py',
@@ -79,7 +82,8 @@ foreach ($relative in @($paths)) {
 
 $required = @('Assets/Scenes/SampleScene.unity', 'Assets/Scripts/Runtime/MemoryPalaceExperimentController.cs',
     'Assets/Scripts/Services/FurniturePrefabAvailability.cs', 'ProjectSettings/ProjectVersion.txt',
-    'Packages/manifest.json', 'Docs/DEVELOPER_GUIDE.md')
+    'Packages/manifest.json', 'Docs/DEVELOPER_GUIDE.md', 'Docs/DEVELOPER_GUIDE.en.md',
+    'README.md', 'README.en.md')
 foreach ($relative in $required) {
     if (-not $paths.Contains($relative)) { throw "Required source missing: $relative" }
 }

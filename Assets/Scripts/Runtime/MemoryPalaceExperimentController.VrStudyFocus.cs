@@ -12,6 +12,7 @@ namespace MemPalaceLLM
         private bool vrStudyPrimaryWasHeld;
         private bool vrStudyGripWasHeld;
         private GameObject vrFocusedStudyHud;
+        private RectTransform vrFocusedStudyCard;
         private Material vrFocusedStudyUiMaterial;
         private Text vrFocusedStudyTitle;
         private Text vrFocusedStudyMeaning;
@@ -220,6 +221,7 @@ namespace MemPalaceLLM
             var panel = new GameObject("LearningCard", typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(vrFocusedStudyHud.transform, false);
             var rect = panel.GetComponent<RectTransform>();
+            vrFocusedStudyCard = rect;
             rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = new Vector2(680f, 510f);
             panel.GetComponent<Image>().color = new Color(0.025f, 0.04f, 0.06f, 0.97f);
@@ -255,7 +257,41 @@ namespace MemPalaceLLM
                     graphic.material = vrFocusedStudyUiMaterial;
             }
             foreach (var graphic in vrFocusedStudyHud.GetComponentsInChildren<Graphic>(true)) graphic.raycastTarget = false;
+            Canvas.willRenderCanvases += UpdateVrStudyFocusLayout;
             vrFocusedStudyHud.SetActive(false);
+        }
+
+        private void UpdateVrStudyFocusLayout()
+        {
+            if (vrFocusedStudyCard == null || !vrFocusedStudyHud.activeInHierarchy || runtimeCamera == null) return;
+
+            // Measure the central half of the camera view, not the desktop/mirror resolution.
+            // Keep the entire card (including text, images and button hit areas) uniformly scaled.
+            var area = GetVrStudyFocusViewArea(Camera.MonoOrStereoscopicEye.Mono);
+            if (runtimeCamera.stereoEnabled)
+            {
+                var left = GetVrStudyFocusViewArea(Camera.MonoOrStereoscopicEye.Left);
+                var right = GetVrStudyFocusViewArea(Camera.MonoOrStereoscopicEye.Right);
+                // Asymmetric eye projections need a shared safe area, not a double-wide viewport.
+                area = Rect.MinMaxRect(Mathf.Max(left.xMin, right.xMin), Mathf.Max(left.yMin, right.yMin),
+                    Mathf.Min(left.xMax, right.xMax), Mathf.Min(left.yMax, right.yMax));
+            }
+            if (area.width <= 0f || area.height <= 0f) return;
+
+            var scale = Mathf.Min(area.width / vrFocusedStudyCard.rect.width,
+                area.height / vrFocusedStudyCard.rect.height);
+            vrFocusedStudyCard.localScale = Vector3.one * scale;
+            vrFocusedStudyCard.localPosition = new Vector3(area.center.x, area.center.y, 0f);
+        }
+
+        private Rect GetVrStudyFocusViewArea(Camera.MonoOrStereoscopicEye eye)
+        {
+            var canvas = vrFocusedStudyHud.GetComponent<Canvas>();
+            var lower = vrFocusedStudyHud.transform.InverseTransformPoint(runtimeCamera.ViewportToWorldPoint(
+                new Vector3(0.25f, 0.25f, canvas.planeDistance), eye));
+            var upper = vrFocusedStudyHud.transform.InverseTransformPoint(runtimeCamera.ViewportToWorldPoint(
+                new Vector3(0.75f, 0.75f, canvas.planeDistance), eye));
+            return Rect.MinMaxRect(lower.x, lower.y, upper.x, upper.y);
         }
 
         private void UpdateVrStudyFocusHud()
@@ -269,6 +305,7 @@ namespace MemPalaceLLM
             EnsureVrStudyFocusHud();
             if (vrStudyHudRoot != null) vrStudyHudRoot.SetActive(false);
             vrFocusedStudyHud.SetActive(true);
+            UpdateVrStudyFocusLayout();
             var item = vrFocusedStudyItem;
             vrFocusedStudyTitle.text = item.word;
             vrFocusedStudyMeaning.text = item.meaning + "  ·  " + item.anchorLabel;
@@ -291,12 +328,14 @@ namespace MemPalaceLLM
 
         private void ClearVrStudyFocusRuntime()
         {
+            Canvas.willRenderCanvases -= UpdateVrStudyFocusLayout;
             EndVrStudyFocus("VR study runtime cleared.");
             vrStudyNavigationNeedsNeutral = false;
             vrStudyTriggerWasHeld = vrStudyPrimaryWasHeld = vrStudyGripWasHeld = false;
             if (vrFocusedStudyHud != null) Destroy(vrFocusedStudyHud);
             if (vrFocusedStudyUiMaterial != null) Destroy(vrFocusedStudyUiMaterial);
             vrFocusedStudyHud = null;
+            vrFocusedStudyCard = null;
             vrFocusedStudyUiMaterial = null;
         }
     }

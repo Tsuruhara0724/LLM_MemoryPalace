@@ -1,5 +1,8 @@
 # LLM Memory Palace
 
+中文 | [English](README.en.md)
+
+
 用于西班牙语词汇学习研究的 Unity 桌面 / VR 项目。参与者创建或熟悉房间，阅读自写或生成的英文故事，将 8 个目标词分配给家具，再进入 VR 学习和测验。
 
 当前条件为 **Self room / Example room × Self story / LLM story** 的 2 × 2 设计。环境和流程以本仓库代码及下列开发指南为准；旧研究稿中的三条件或 20 分钟流程不代表当前实现。

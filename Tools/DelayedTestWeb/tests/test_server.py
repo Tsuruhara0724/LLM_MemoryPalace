@@ -78,78 +78,28 @@ class SessionResolutionTests(unittest.TestCase):
 
 
 class FullTestFlowTests(unittest.TestCase):
-    def test_two_round_flow_hides_answers_then_saves_json_and_csv(self):
-        with tempfile.TemporaryDirectory() as raw_results:
-            results_dir = Path(raw_results)
-            service = DelayedTestService(FIXTURES_DIR, results_dir)
-
+    def test_baseline_keeps_old_vocabulary_rules_and_csv_columns(self):
+        from fixture_support import make_fixture
+        with tempfile.TemporaryDirectory() as folder:
+            exports, results, _, _ = make_fixture(folder)
+            service = DelayedTestService(exports, results)
             started = service.start("P-DEMO")
-            self.assertEqual(started["wordCount"], 8)
-            self.assertEqual(started["sessionId"], "20260820_120000")
-            self.assertEqual(started["priorDelayedAttemptCount"], 0)
-            serialized_start = json.dumps(started).casefold()
-            for meaning in MEANINGS.values():
-                self.assertNotIn(f'"expectedmeaning": "{meaning}"', serialized_start)
-
-            manual_responses = []
+            manual = []
             for question in started["manualQuestions"]:
                 answer = MEANINGS[question["word"]]
-                if answer == "crack":
-                    answer = "cracks"
-                manual_responses.append(
-                    {
-                        "questionId": question["questionId"],
-                        "answer": answer,
-                        "responseTimeMs": 1200,
-                    }
-                )
-
-            second_round = service.submit_manual(started["attemptId"], manual_responses)
-            self.assertEqual(second_round["wordCount"], 8)
-            self.assertEqual(len(second_round["choiceQuestions"]), 8)
-            for question in second_round["choiceQuestions"]:
-                self.assertNotIn("expectedMeaning", question)
-                self.assertEqual(len(question["options"]), 3)
-                self.assertEqual(len({option["label"] for option in question["options"]}), 3)
-                self.assertTrue(all("isCorrect" not in option for option in question["options"]))
-
-            choice_responses = []
-            for question in second_round["choiceQuestions"]:
-                expected = MEANINGS[question["word"]]
-                correct = next(option for option in question["options"] if option["label"] == expected)
-                choice_responses.append(
-                    {
-                        "questionId": question["questionId"],
-                        "optionId": correct["optionId"],
-                        "responseTimeMs": 900,
-                    }
-                )
-
-            summary = service.submit_choice(started["attemptId"], choice_responses)
-            self.assertEqual(summary["manualScore"], 8)
-            self.assertEqual(summary["choiceScore"], 8)
-
-            json_files = list(results_dir.glob("delayed_*.json"))
-            csv_files = list(results_dir.glob("delayed_*.csv"))
-            self.assertEqual(len(json_files), 1)
-            self.assertEqual(len(csv_files), 1)
-
-            payload = json.loads(json_files[0].read_text(encoding="utf-8"))
-            self.assertEqual(payload["testType"], "one_week_delayed_vocabulary")
+                manual.append({"questionId": question["questionId"],
+                               "answer": "cracks" if answer == "crack" else answer, "responseTimeMs": 1200})
+            story = service.submit_manual(started["attemptId"], manual)
+            self.assertEqual(story["nextPhase"], "story")
+            payload = json.loads(next(results.glob("*.json")).read_text(encoding="utf-8"))
             self.assertEqual(payload["manualScore"], 8)
-            self.assertEqual(payload["choiceScore"], 8)
-            self.assertEqual(len(payload["manualResponses"]), 8)
-            self.assertEqual(len(payload["choiceResponses"]), 8)
-
-            with csv_files[0].open(encoding="utf-8-sig", newline="") as stream:
+            self.assertIsNone(payload["choiceScore"])
+            self.assertFalse(payload["choiceTestAdministered"])
+            self.assertEqual(payload["status"], "in_progress")
+            with next(results.glob("*.csv")).open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual(len(rows), 8)
-            self.assertEqual({row["target_word"] for row in rows}, set(MEANINGS))
-            self.assertTrue(all(row["manual_correct"] == "True" for row in rows))
-            self.assertTrue(all(row["choice_correct"] == "True" for row in rows))
-
-            repeated = service.start("20260820_120000")
-            self.assertEqual(repeated["priorDelayedAttemptCount"], 1)
+            self.assertTrue(all(row["manual_correct"] == "True" and row["choice_correct"] == "" for row in rows))
 
 
 if __name__ == "__main__":

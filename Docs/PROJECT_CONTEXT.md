@@ -1,5 +1,8 @@
 # 项目维护索引
 
+中文 | [English](PROJECT_CONTEXT.en.md)
+
+
 核对日期：2026-10-28。日常交接以 [共同开发者指南](DEVELOPER_GUIDE.md) 为入口；服务操作见 [STARTUP.md](STARTUP.md)，素材限制见 [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md)。
 
 ## 当前实现

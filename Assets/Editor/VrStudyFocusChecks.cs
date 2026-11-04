@@ -135,6 +135,7 @@ namespace MemPalaceLLM.Editor
                 Phase(controller, "WaitingForStoryAdvance");
                 Call(controller, "UpdateVrStudyFocusHud");
                 Expect(next.Enabled && next.Label.text == "Next furniture", "Narration completion enables an explicit next-furniture action.");
+                CheckCardLayout(controller, camera, hud);
                 if (exportPreview) SavePreview(controller, camera, hud, (RawImage)Get(controller, "vrFocusedStudyImage"));
                 Set(controller, "isCapturingSnapshot", true);
                 Expect(!Bool(controller, "CanLeaveVrStudyFocus"), "Snapshot saving cannot race a change to another word.");
@@ -191,6 +192,79 @@ namespace MemPalaceLLM.Editor
                 UnityEngine.Object.DestroyImmediate(rig);
                 UnityEngine.Object.DestroyImmediate(image);
                 RoomSpecCatalog.SetCurrentRoom(originalRoom);
+            }
+        }
+
+        private static void CheckCardLayout(MemoryPalaceExperimentController controller, Camera camera, GameObject hud)
+        {
+            var previousTarget = camera.targetTexture;
+            var previousAspect = camera.aspect;
+            var previousFov = camera.fieldOfView;
+            var previousRotation = camera.transform.rotation;
+            var card = (RectTransform)hud.transform.Find("LearningCard");
+            var corners = new Vector3[4];
+            var sizes = new[] { new Vector2Int(1440, 1280), new Vector2Int(1024, 1024),
+                new Vector2Int(1920, 1080), new Vector2Int(800, 1200), new Vector2Int(3840, 1080) };
+            try
+            {
+                foreach (var size in sizes)
+                {
+                    var target = new RenderTexture(size.x, size.y, 24);
+                    try
+                    {
+                        camera.targetTexture = target;
+                        camera.aspect = (float)size.x / size.y;
+                        camera.fieldOfView = size.x > 2000 ? 100f : 70f;
+                        camera.transform.rotation = Quaternion.Euler(12f, 35f, 0f);
+                        Canvas.ForceUpdateCanvases();
+                        Call(controller, "UpdateVrStudyFocusLayout");
+                        card.GetWorldCorners(corners);
+                        var lower = camera.WorldToViewportPoint(corners[0]);
+                        var upper = camera.WorldToViewportPoint(corners[2]);
+                        var center = (lower + upper) * 0.5f;
+                        Expect(Mathf.Abs(center.x - 0.5f) < 0.002f && Mathf.Abs(center.y - 0.5f) < 0.002f,
+                            "Learning card stays centered after a view/pose change: " + size);
+                        Expect(lower.x >= 0.248f && lower.y >= 0.248f && upper.x <= 0.752f && upper.y <= 0.752f,
+                            "The full card fits within the central half-width/half-height viewport: " + size);
+                        Expect(Mathf.Abs(Mathf.Max(upper.x - lower.x, upper.y - lower.y) - 0.5f) < 0.002f,
+                            "The card fills one dimension of the half-view area without stretching: " + size);
+                        Expect(Mathf.Approximately(card.localScale.x, card.localScale.y),
+                            "Text and images retain their aspect ratio: " + size);
+                        foreach (var graphic in card.GetComponentsInChildren<Graphic>(true))
+                        {
+                            graphic.rectTransform.GetWorldCorners(corners);
+                            foreach (var corner in corners)
+                            {
+                                var point = card.InverseTransformPoint(corner);
+                                if (point.x < card.rect.xMin - 0.1f || point.x > card.rect.xMax + 0.1f ||
+                                    point.y < card.rect.yMin - 0.1f || point.y > card.rect.yMax + 0.1f)
+                                    throw new InvalidOperationException("Learning graphic overflows resized card: " + graphic.name);
+                            }
+                        }
+                        Expect(true, "All graphics remain inside the resized learning card: " + size);
+                        var button = (VrPanelButtonInteractable)Get(controller, "vrFocusedStudyNext");
+                        var buttonRect = (RectTransform)button.transform;
+                        var pointOnButton = buttonRect.TransformPoint(buttonRect.rect.center);
+                        var ray = new Ray(camera.transform.position, pointOnButton - camera.transform.position);
+                        var arguments = new object[] { ray, 8f, Vector3.zero };
+                        Physics.SyncTransforms();
+                        var found = typeof(MemoryPalaceExperimentController).GetMethod("FindVrPanelButton",
+                            BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, arguments);
+                        Expect(ReferenceEquals(found, button), "Controller ray still selects the resized Next button: " + size);
+                    }
+                    finally
+                    {
+                        camera.targetTexture = previousTarget;
+                        UnityEngine.Object.DestroyImmediate(target);
+                    }
+                }
+            }
+            finally
+            {
+                camera.aspect = previousAspect;
+                camera.fieldOfView = previousFov;
+                camera.transform.rotation = previousRotation;
+                Canvas.ForceUpdateCanvases();
             }
         }
 
